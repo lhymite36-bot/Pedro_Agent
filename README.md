@@ -457,10 +457,10 @@ either channel is configured. Text `/screenshot`, "screenshot",
 monitor to that chat, then deletes the temporary file. The capture runs
 beside the chat, so a Blender job keeps going.
 A voice note in that chat is downloaded, transcribed, and run as a command.
-The bridge does not send a text reply or a voice reply. Leave
-`TELEGRAM_VOICE_REACTION` empty to keep the chat quiet, or set it to 👍 or
-🤖 for a reaction only. Transcription uses a local whisper install when one
-is already present, and otherwise Gemini. Whisper is not installed for you.
+The text answer is sent back in that chat. The bridge does not send a voice
+message. Leave `TELEGRAM_VOICE_REACTION` empty for no reaction, or set it to
+👍 or 🤖 to add one. Transcription uses a local whisper install when one is
+already present, and otherwise Gemini. Whisper is not installed for you.
 Restart the agent after you set those variables. Leave them empty to keep
 the bridge off.
 

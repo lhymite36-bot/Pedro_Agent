@@ -6,8 +6,8 @@ open a socket. Tokens and webhook URLs are not printed.
 
 A Telegram voice note (the Bot API voice field, the same messages a
 filters.VOICE handler selects) is downloaded, transcribed, and run through
-the agent. The chat gets no text reply and no voice reply. A reaction is
-sent only when TELEGRAM_VOICE_REACTION is 👍 or 🤖.
+the agent. The text answer is sent back to that chat. No voice message is
+sent. A reaction is added only when TELEGRAM_VOICE_REACTION is 👍 or 🤖.
 """
 
 from __future__ import annotations
@@ -757,22 +757,32 @@ def _maybe_react(chat_id: str, message_id: int) -> None:
         print(f"[phone] {_scrubbed(str(exc))}", flush=True)
 
 
-def _voice_worker(text: str) -> None:
+def _send_chat_text(chat_id: str, text: str) -> None:
+    """Post one text answer. Voice notes never go back out as audio."""
+    message = _scrubbed(text).strip()[:3500] or "Done."
+    _http("telegram_send", {"body": {"chat_id": chat_id, "text": message}})
+
+
+def _voice_worker(text: str, chat_id: str) -> None:
     try:
-        _answer(text)
+        _send_chat_text(chat_id, _answer(text))
     except Exception as exc:
         print(f"[phone] {_scrubbed(str(exc))}", flush=True)
+        try:
+            _send_chat_text(chat_id, "I could not run that voice note.")
+        except Exception as send_exc:
+            print(f"[phone] {_scrubbed(str(send_exc))}", flush=True)
 
 
-def _dispatch_voice_command(text: str) -> None:
-    """Run the transcript through the agent and drop the reply text."""
+def _dispatch_voice_command(text: str, chat_id: str) -> None:
+    """Run the transcript and send the text answer to the same chat."""
     agent = _agent()
     if agent.remote_transport_override is not None:
-        _answer(text)
+        _send_chat_text(chat_id, _answer(text))
         return
     worker = threading.Thread(
         target=_voice_worker,
-        args=(text,),
+        args=(text, chat_id),
         name="phone-voice",
         daemon=True,
     )
@@ -780,7 +790,7 @@ def _dispatch_voice_command(text: str) -> None:
 
 
 def _handle_voice_note(message: dict[str, Any], chat_id: str) -> bool:
-    """Download, transcribe, and run one voice note. Never replies in the chat."""
+    """Download, transcribe, run, and answer one voice note in text."""
     try:
         data = _fetch_voice_bytes(message.get("voice") or {})
         text = _transcribe_voice(data).replace("\x00", "").strip()
@@ -792,7 +802,7 @@ def _handle_voice_note(message: dict[str, Any], chat_id: str) -> bool:
             return False
         message_id = int(message.get("message_id") or 0)
         _maybe_react(chat_id, message_id)
-        _dispatch_voice_command(text)
+        _dispatch_voice_command(text, chat_id)
         print("[phone] Ran a voice note.", flush=True)
         return True
     except AssertionError:

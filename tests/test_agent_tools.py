@@ -5174,7 +5174,7 @@ class AgentToolTests(unittest.TestCase):
             os.environ.pop("GMAIL_ADDRESS", None)
             os.environ.pop("GMAIL_APP_PASSWORD", None)
 
-    def test_telegram_voice_notes_run_without_a_chat_reply(self) -> None:
+    def test_telegram_voice_notes_answer_in_the_chat(self) -> None:
         bridge = gta5_agent.remote_bridge
         token = "phone-token-value"
         hook = "https://discord.com/api/webhooks/9/phone-hook-value"
@@ -5254,11 +5254,15 @@ class AgentToolTests(unittest.TestCase):
         self.assertEqual(checked["voice"], 1)
         self.assertEqual(ran, ["send an email to sarah@example.com saying the report is ready"])
         kinds = [item[0] for item in seen]
-        self.assertEqual(kinds, ["telegram_updates", "telegram_file", "telegram_download"])
-        self.assertNotIn("telegram_send", kinds)
-        dumped = json.dumps([item[1] for item in seen])
-        self.assertNotIn("This reply must not be sent.", dumped)
-        self.assertNotIn("please reply in the chat", dumped)
+        self.assertEqual(
+            kinds,
+            ["telegram_updates", "telegram_file", "telegram_download", "telegram_send"],
+        )
+        voice_sends = [item for item in seen if item[0] == "telegram_send"]
+        self.assertEqual(len(voice_sends), 1)
+        self.assertEqual(voice_sends[0][1]["body"]["text"], "This reply must not be sent.")
+        self.assertNotIn("please reply in the chat", json.dumps(voice_sends))
+        self.assertNotIn("voice", json.dumps(voice_sends[0][1]))
         self.assertIn("voice note", gta5_agent.SYSTEM_PROMPT.casefold())
 
         os.environ["TELEGRAM_VOICE_REACTION"] = "👍"
@@ -5267,7 +5271,8 @@ class AgentToolTests(unittest.TestCase):
         self.assertEqual(reacted["voice"], 1)
         self.assertEqual(seen[3][0], "telegram_reaction")
         self.assertEqual(seen[3][1]["body"]["reaction"], [{"type": "emoji", "emoji": "👍"}])
-        self.assertNotIn("telegram_send", [item[0] for item in seen])
+        self.assertEqual(seen[4][0], "telegram_send")
+        self.assertEqual(seen[4][1]["body"]["text"], "This reply must not be sent.")
 
         os.environ["TELEGRAM_VOICE_REACTION"] = "hello"
         ran.clear()
@@ -5276,7 +5281,10 @@ class AgentToolTests(unittest.TestCase):
         self.assertEqual(quiet["voice"], 1)
         self.assertEqual(ran, ["send an email to sarah@example.com saying the report is ready"])
         self.assertNotIn("telegram_reaction", [item[0] for item in seen])
-        self.assertNotIn("telegram_send", [item[0] for item in seen])
+        self.assertEqual(
+            [item[1]["body"]["text"] for item in seen if item[0] == "telegram_send"],
+            ["This reply must not be sent."],
+        )
 
         os.environ["TELEGRAM_VOICE_REACTION"] = "👍"
         reaction_error["on"] = True
@@ -5287,7 +5295,7 @@ class AgentToolTests(unittest.TestCase):
         self.assertEqual(failed_react["voice"], 1)
         self.assertEqual(len(ran), 1)
         self.assertIn("telegram_reaction", [item[0] for item in seen])
-        self.assertNotIn("telegram_send", [item[0] for item in seen])
+        self.assertIn("telegram_send", [item[0] for item in seen])
         reaction_error["on"] = False
         os.environ.pop("TELEGRAM_VOICE_REACTION", None)
 
@@ -5315,9 +5323,13 @@ class AgentToolTests(unittest.TestCase):
             ],
         )
         sends = [item for item in seen if item[0] == "telegram_send"]
-        self.assertEqual(len(sends), 1)
-        self.assertEqual(sends[0][1]["body"]["text"], "reply:is the export done?")
-        self.assertNotIn("reply:send an email", json.dumps(sends))
+        self.assertEqual(
+            [item[1]["body"]["text"] for item in sends],
+            [
+                "reply:send an email to sarah@example.com saying the report is ready",
+                "reply:is the export done?",
+            ],
+        )
 
         ignored = poll([voice_message(17, chat_id=99)])
         self.assertEqual(ignored["voice"], 0)
@@ -5408,7 +5420,10 @@ class AgentToolTests(unittest.TestCase):
                     gemini = poll([voice_message(22)])
             self.assertEqual(gemini["voice"], 1)
             self.assertEqual(ran, ["launch the background render"])
-            self.assertNotIn("telegram_send", [item[0] for item in seen])
+            self.assertEqual(
+                [item[1]["body"]["text"] for item in seen if item[0] == "telegram_send"],
+                ["This reply must not be sent."],
+            )
             client = holder["client"]
             self.assertEqual(client.api_key, "gemini-test-key")
             contents = client.models.calls[0]["contents"]
@@ -5452,14 +5467,24 @@ class AgentToolTests(unittest.TestCase):
 
         gta5_agent.remote_transport_override = None
         started = threading.Event()
+        sent = threading.Event()
+        posted: list[tuple[str, str]] = []
 
         def fake_answer(text: str) -> str:
             self.assertEqual(text, "do the render")
             started.set()
             return "hidden reply"
+
+        def fake_send(chat_id: str, text: str) -> None:
+            posted.append((chat_id, text))
+            sent.set()
+
         with mock.patch.object(bridge, "_answer", fake_answer):
-            bridge._dispatch_voice_command("do the render")
-            self.assertTrue(started.wait(2))
+            with mock.patch.object(bridge, "_send_chat_text", fake_send):
+                bridge._dispatch_voice_command("do the render", "42")
+                self.assertTrue(started.wait(2))
+                self.assertTrue(sent.wait(2))
+        self.assertEqual(posted, [("42", "hidden reply")])
 
     def test_checkout_uses_env_paths_and_keeps_secrets_out_of_source(self) -> None:
         import agent_config

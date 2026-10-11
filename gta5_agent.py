@@ -22,7 +22,7 @@ A phone bridge, ffmpeg, git, Gmail, and a time-and-type file search are
 available when those tools are asked for. ffmpeg and git are system programs.
 A failed Python or Blender script can be rewritten and retried. MCP servers
 listed in a local config can be called by name. A private or offline turn
-stays on Ollama. Telegram voice notes are transcribed and run with no chat reply.
+stays on Ollama. Telegram voice notes are transcribed, run, and answered in text.
 
 Setup and example prompts are in README.md.
 """
@@ -406,7 +406,7 @@ Phone bridge:
 - A phone message that is only /pc_camera, "show me what your computer camera sees", "send live PC camera feed", or "what is your computer seeing?" is handled by the phone bridge. It starts the PC webcam feed. Do not call stream_pc_camera again for that same message.
 - A phone message that is only /phone_camera, "look at me through my phone", "start phone video feed", or "look at me live" is handled by the phone bridge. It opens the phone camera page. Do not call stream_phone_camera again for that same message.
 - /stop_camera or "stop the camera" is handled by the phone bridge and stops the live feed.
-- A Telegram voice note is transcribed and run as a command. Do not send a chat reply or a voice reply for that note. Do not call send_remote_update unless the person asked to be texted.
+- A Telegram voice note is transcribed and run as a command. The text answer goes back to that chat. Do not send a voice message for that note. Do not call send_remote_update unless the person asked to be texted.
 - Telegram answers only the chat in TELEGRAM_CHAT_ID. Discord webhooks receive alerts and cannot send commands back.
 - If the tool says the phone bridge is not set up, tell the user to set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID, or DISCORD_WEBHOOK_URL. Do not claim the message was sent.
 
