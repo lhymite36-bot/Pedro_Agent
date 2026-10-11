@@ -1,6 +1,6 @@
-# PED_AGENT
+# Pedro_Agent
 
-PED_AGENT is a local command-line agent that uses the Gemini API with function calling.
+Pedro_Agent is a local command-line agent that uses the Gemini API with function calling.
 You describe a setup step in plain text. Gemini chooses one of the local tools:
 find the game on the external drive you configure, search for a mod, download a
 zip, 7z, or rar, create folders, and copy mod files into that install.
@@ -22,8 +22,8 @@ not installed and its key is not read.
 ### 2. Clone the repository and create a virtual environment
 
 ```powershell
-git clone https://github.com/lhymite36-bot/gta5-mod-agent.git
-cd gta5-mod-agent
+git clone https://github.com/lhymite36-bot/Pedro_Agent.git
+cd Pedro_Agent
 python -m venv .venv
 ```
 

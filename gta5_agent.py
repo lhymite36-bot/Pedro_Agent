@@ -101,7 +101,7 @@ import agent_config
 APP_DIR = agent_config.APP_DIR
 WORKSPACE = APP_DIR / "workspace"
 DEFAULT_MODEL = "gemini-3.5-flash-lite"
-AGENT_NAME = "PED_AGENT"
+AGENT_NAME = "Pedro_Agent"
 # Used only after the selected model hits the free daily request cap.
 # Each model has its own quota. gemini-3.8-flash free tier is 20 requests a day.
 FALLBACK_MODELS = ("gemini-3.5-flash-lite", "gemini-3.1-flash-lite")
@@ -332,7 +332,7 @@ BLOCKED_SQL = re.compile(
 )
 UNSAFE_EXCEL = ("CMD|", "MSEXCEL|", "DDE(", "WEBSERVICE(", "FILTERXML(", "REGISTER(", "CALL(")
 
-SYSTEM_PROMPT = """You are PED_AGENT, a local assistant on this Windows PC. You set up single-player Grand Theft Auto V mods on the external drive named by EXTERNAL_DRIVE_LABEL or EXTERNAL_DRIVE_PATH, and you build original programs the user asks for on this computer.
+SYSTEM_PROMPT = """You are Pedro_Agent, a local assistant on this Windows PC. You set up single-player Grand Theft Auto V mods on the external drive named by EXTERNAL_DRIVE_LABEL or EXTERNAL_DRIVE_PATH, and you build original programs the user asks for on this computer.
 
 Use the tools for every filesystem or web action. Do not invent a path, a URL, a file list, or a success message. A step worked only when the tool result has ok set to true.
 
@@ -994,7 +994,7 @@ def _download_and_extract(
                 stream=True,
                 timeout=(20, 120),
                 allow_redirects=False,
-                headers={"User-Agent": "PED_AGENT/1.0"},
+                headers={"User-Agent": "Pedro_Agent/1.0"},
             )
             if response.status_code not in {301, 302, 303, 307, 308}:
                 break
@@ -1440,7 +1440,7 @@ def _github_release_archives(owner: str, repo: str) -> list[str]:
 
     headers = {
         "Accept": "application/vnd.github+json",
-        "User-Agent": "PED_AGENT/1.0",
+        "User-Agent": "Pedro_Agent/1.0",
     }
     response = requests.get(
         f"https://api.github.com/repos/{owner}/{repo}/releases/latest",
@@ -7060,7 +7060,7 @@ def run_init() -> int:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="PED_AGENT, a local assistant for files, voice, and desktop tools."
+        description="Pedro_Agent, a local assistant for files, voice, and desktop tools."
     )
     parser.add_argument(
         "prompt",

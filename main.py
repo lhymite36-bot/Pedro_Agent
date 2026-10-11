@@ -1,4 +1,4 @@
-"""Run PED_AGENT.
+"""Run Pedro_Agent.
 
     python main.py
     python main.py --init
