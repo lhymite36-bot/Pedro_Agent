@@ -22,7 +22,7 @@ not installed and its key is not read.
 ### 2. Clone the repository and create a virtual environment
 
 ```powershell
-git clone https://github.com/YOUR_ACCOUNT/gta5-mod-agent.git
+git clone https://github.com/lhymite36-bot/gta5-mod-agent.git
 cd gta5-mod-agent
 python -m venv .venv
 ```
