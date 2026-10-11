@@ -48,4 +48,5 @@ playwright>=1.49.0
 # .\.venv\Scripts\python.exe -m pip install openai-whisper
 # Idle time uses ctypes, not pywin32. File search is SQLite FTS, not chromadb.
 # Schedules use the schedule package already listed above, not APScheduler.
-# Speech stays on edge-tts. ElevenLabs is not a dependency.
+# Cloud speech uses urllib when a speech key is set. edge-tts remains the local voice.
+# No extra speech package is installed for that.

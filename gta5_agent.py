@@ -23,6 +23,7 @@ available when those tools are asked for. ffmpeg and git are system programs.
 A failed Python or Blender script can be rewritten and retried. MCP servers
 listed in a local config can be called by name. A private or offline turn
 stays on Ollama. Telegram voice notes are transcribed, run, and answered in text.
+Spoken replies use a cloud male voice when a speech key is set, and edge-tts otherwise.
 
 Setup and example prompts are in README.md.
 """
@@ -78,6 +79,7 @@ import delegate_agent
 import desktop_automation
 import diagnostics
 import emotion
+import tts_engine
 import git_manager
 import gmail_mail
 import idle_tasks
@@ -88,6 +90,7 @@ import mcp_router
 import live_video
 import media_ffmpeg
 import network_manager
+import power_control
 import remote_bridge
 import routine_macros
 import self_heal
@@ -273,6 +276,8 @@ delegate_runner_override: Callable[[str, str], dict[str, Any]] | None = None
 confirm_listener_override: Callable[[], str] | None = None
 confirm_speaker_override: Callable[[str], None] | None = None
 network_runner_override: Callable[[list[str]], dict[str, Any]] | None = None
+# None runs shutdown.exe. Tests pass a fake runner and never shut down the PC.
+shutdown_runner_override: Callable[[list[str]], dict[str, Any]] | None = None
 diagnostics_override: Callable[[], dict[str, Any]] | None = None
 voice_mode_active = False
 # None lists the real playback devices. Tests pass names and never open audio.
@@ -487,7 +492,10 @@ Delegation:
 - delegate_subagent hands one task to a worker: blender, files, or system. Pass tool and a JSON object when you already know the tool. Workers cannot close programs or run a shell command. status "started" means the worker is not finished.
 
 Confirmation:
-- kill_process, and a Wi-Fi or VPN connect or disconnect, wait for a clear yes. In voice mode the question is "Are you sure you want to execute [action]?" Continue only after a spoken yes. Do not say it ran before that yes.
+- kill_process, shutdown_computer, and a Wi-Fi or VPN connect or disconnect, wait for a clear yes. In voice mode the question is "Are you sure you want to execute [action]?" Continue only after a spoken yes. Do not say it ran before that yes.
+
+Power:
+- "Shut down the PC", "turn off the computer", or "power off" calls shutdown_computer. It shuts down this PC only after a clear yes. Do not say the PC is shutting down before that yes. Closing one program is kill_process, not a shutdown.
 
 Clipboard:
 - "Analyze what's on my clipboard" calls read_clipboard_context. It can read text or an image. clipboard_action_dispatcher only proposes a next step for a traceback, a link, a spreadsheet, code, or an image. It does not open, save, or run that content.
@@ -529,9 +537,10 @@ Voice delivery:
 - Write reaction tags in square brackets. The spoken voice does not read the brackets or the tag words.
 - Laughter and humor: [laughs], [giggles], [chuckles], [playful]
 - Sadness and sympathy: [softly], [crying], [sighs], [sorrowful]
-- Exclamations: [gasps], [clears throat], [excited]
+- Exclamations: [gasps], [clears throat], [excited], [pause]
 - Example: "[giggles] Oh stop, that's hilarious! [laughs] I didn't see that coming."
-- Use an ellipsis (...) for a pause or a hesitant thought.
+- Use an ellipsis (...) for a pause or a hesitant thought. Use a hyphen for a short rhythmic break, as in "Wait - one moment."
+- [chuckles], [sighs], [clears throat], and [pause] are sounds and breaths. Do not read the tag words aloud.
 - Use ALL CAPS for a word that needs strong emphasis, such as "That is HUGE!".
 - If the user tells a joke, asks you to laugh, or says "Giggle", start with a laugh tag and keep a light tone.
 - If the user is sad, frustrated, or shares bad news, drop the cheerful tone. Use a soft tag and say you are sorry, for example "Oh, I'm so sorry. That really is tough."
@@ -3470,6 +3479,7 @@ _PLAN_FAMILIES: tuple[tuple[str, ...], ...] = (
     ("git commit", "push the backup", "initialize git"),
     ("text me", "telegram", "discord"),
     ("email", "e-mail", "gmail"),
+    ("shut down", "shutdown", "power off", "turn off"),
 )
 
 
@@ -3798,6 +3808,7 @@ TOOLS: dict[str, Callable[..., dict[str, Any]]] = {
     "stream_phone_camera": live_video.stream_phone_camera,
     "gmail_send_message": gmail_mail.gmail_send_message,
     "people_contact_search": gmail_mail.people_contact_search,
+    "shutdown_computer": power_control.shutdown_computer,
 }
 
 TOOL_DECLARATIONS = [
@@ -4940,6 +4951,21 @@ TOOL_DECLARATIONS.append(
         },
     }
 )
+TOOL_DECLARATIONS.append(
+    {
+        "name": "shutdown_computer",
+        "description": (
+            "Shut down this PC. Call it when the user asks to shut down, "
+            "turn off the computer, or power off. It waits for a clear yes "
+            "before Windows is told to shut down. Do not use it to close one "
+            "program."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {},
+        },
+    }
+)
 
 
 def invoke_tool(name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
@@ -5681,7 +5707,7 @@ def _load_whisper() -> Any:
     return whisper
 
 
-DEFAULT_NEURAL_VOICE = "en-US-AriaNeural"
+DEFAULT_NEURAL_VOICE = "en-US-AndrewNeural"
 
 
 def _neural_voice() -> str:
@@ -5711,11 +5737,11 @@ def _run_coroutine(coro: Any) -> Any:
     return box.get("value")
 
 
-def clean_text_for_tts(text: str) -> str:
-    """Strip markdown and reaction tags so the neural voice does not read them.
+def clean_text_for_tts(text: str, *, provider: str | None = None) -> str:
+    """Strip markdown. Keep reaction tags only for a voice that performs them.
 
     edge-tts would speak "[laughs]" aloud. Laugh tags become a short laugh.
-    Ellipses and ALL CAPS stay so pauses and emphasis are still spoken.
+    A [pause] tag becomes an ellipsis. Ellipses, hyphens, and ALL CAPS stay.
     """
     # Remove markdown bold/italic/strikethrough/code markers (*, _, ~, `, #)
     text = re.sub(r'[*_#`~]', '', text)
@@ -5723,8 +5749,9 @@ def clean_text_for_tts(text: str) -> str:
     # Convert markdown links [Link Text](url) to just "Link Text"
     text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
 
-    # Azure TTS path. ElevenLabs would keep the tags; this agent does not use it.
-    text = emotion.prepare_for_speech(text)
+    if provider is None:
+        provider = "elevenlabs" if tts_engine.keeps_audio_tags() else "edge"
+    text = emotion.prepare_for_speech(text, provider=provider)
 
     # Clean up extra spacing left behind
     text = re.sub(r'\s+', ' ', text).strip()
@@ -5736,7 +5763,7 @@ async def _stream_neural_speech(text: str, voice: str, destination: Path) -> Non
     """Stream neural-voice audio into one mp3 file."""
     import edge_tts
 
-    text = clean_text_for_tts(text)
+    text = clean_text_for_tts(text, provider="edge")
     if not text:
         raise RuntimeError("The neural voice returned no audio.")
     rate, pitch = emotion.delivery()
@@ -5756,6 +5783,26 @@ async def _stream_neural_speech(text: str, voice: str, destination: Path) -> Non
 
 def _synthesize_neural_speech(text: str, destination: Path, voice: str) -> None:
     _run_coroutine(_stream_neural_speech(text, voice, destination))
+
+
+def _synthesize_reply(text: str, destination: Path, voice: str) -> str:
+    """Speak with the configured cloud voice, then the local neural voice.
+
+    `voice` is the edge-tts name used only when every cloud engine fails.
+    The returned label is the voice that produced the file.
+    """
+    if tts_engine.cloud_configured():
+        try:
+            return tts_engine.write_mp3(text, destination)
+        except AssertionError:
+            raise
+        except Exception as exc:
+            print(
+                f"Voice: cloud speech failed ({exc}). Using the local neural voice.",
+                flush=True,
+            )
+    _synthesize_neural_speech(text, destination, voice)
+    return voice
 
 
 _speech_lock = threading.Lock()
@@ -6412,7 +6459,8 @@ def speak_response(
     if len(spoken) > 2000:
         spoken = spoken[:2000].rsplit(" ", 1)[0]
     for_tts = clean_text_for_tts(spoken)
-    chosen = (voice or _neural_voice()).strip() or DEFAULT_NEURAL_VOICE
+    edge_voice = (voice or _neural_voice()).strip() or DEFAULT_NEURAL_VOICE
+    chosen = edge_voice if voice else (tts_engine.active_voice_label() or edge_voice)
     rate, pitch = emotion.delivery()
     mood = emotion.current()
     if not for_tts:
@@ -6434,7 +6482,9 @@ def speak_response(
     barge: dict[str, Any] = {}
     played_audio = False
     try:
-        (synthesizer or _synthesize_neural_speech)(for_tts, path, chosen)
+        produced = (synthesizer or _synthesize_reply)(for_tts, path, edge_voice)
+        if isinstance(produced, str) and produced.strip():
+            chosen = produced.strip()
         if not path.is_file() or path.stat().st_size == 0:
             return _err("The neural voice returned no audio.")
         use_barge = player is None if barge_in is None else barge_in
@@ -6449,6 +6499,8 @@ def speak_response(
     except KeyboardInterrupt:
         _release_playback()
         return _err("Speech was interrupted.")
+    except AssertionError:
+        raise
     except Exception as exc:
         return _neural_voice_error(exc)
     finally:
@@ -6562,9 +6614,14 @@ class _SpeechPipeline:
         player: Callable[[Path], None] | None = None,
         voice: str | None = None,
     ) -> None:
-        self.synthesizer = synthesizer or _synthesize_neural_speech
+        self.synthesizer = synthesizer or _synthesize_reply
         self.player = player
-        self.voice = (voice or _neural_voice()).strip() or DEFAULT_NEURAL_VOICE
+        self.edge_voice = (voice or _neural_voice()).strip() or DEFAULT_NEURAL_VOICE
+        self.voice = (
+            self.edge_voice
+            if voice
+            else (tts_engine.active_voice_label() or self.edge_voice)
+        )
         self.cancel = threading.Event()
         self.audio: queue.Queue[Path | None] = queue.Queue()
         self.error: BaseException | None = None
@@ -6593,13 +6650,16 @@ class _SpeechPipeline:
         path = Path(handle.name)
         handle.close()
         try:
-            self.synthesizer(for_tts, path, self.voice)
+            self.synthesizer(for_tts, path, self.edge_voice)
             if self.cancel.is_set():
                 _discard_audio(path)
                 return
             if not path.is_file() or path.stat().st_size == 0:
                 _discard_audio(path)
                 raise RuntimeError("The neural voice returned no audio.")
+        except AssertionError:
+            _discard_audio(path)
+            raise
         except Exception as exc:
             _discard_audio(path)
             self.error = exc
@@ -7152,10 +7212,18 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     voice = bool(args.voice)
+    if tts_engine.cloud_configured():
+        voice_line = f"Voice: {tts_engine.active_voice_label()}."
+    else:
+        voice_line = (
+            f"Voice: {_neural_voice()}. "
+            "Set ELEVENLABS_API_KEY in .env for the cloud voice."
+        )
     print(
         f"{AGENT_NAME}. Type a request, or exit to quit.\n"
         "Type v and press Enter to speak. Press T while it listens, "
-        'or say "text mode", to type again.'
+        'or say "text mode", to type again.\n'
+        f"{voice_line}"
     )
     if voice:
         print(

@@ -50,6 +50,8 @@ def _folded_action(value: Any) -> str:
 def is_sensitive(name: str, arguments: dict[str, Any]) -> bool:
     if name == "kill_process":
         return True
+    if name == "shutdown_computer":
+        return True
     if name == "manage_windows_and_processes":
         return _folded_action(arguments.get("action")) in {"kill", "kill process"}
     if name == "network_manager":
@@ -61,6 +63,8 @@ def is_sensitive(name: str, arguments: dict[str, Any]) -> bool:
 def label_for(name: str, arguments: dict[str, Any]) -> str:
     if name == "kill_process":
         return f"kill {arguments.get('process_name') or 'a program'}"
+    if name == "shutdown_computer":
+        return "shut down this PC"
     if name == "manage_windows_and_processes":
         return f"kill {arguments.get('target') or 'a program'}"
     action = str(arguments.get("action") or "network change").replace("_", " ")

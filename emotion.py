@@ -1,10 +1,9 @@
-"""Expressive speech cues for the edge-tts voice.
+"""Expressive speech cues.
 
-ElevenLabs can keep reaction tags such as [laughs] and turn them into
-non-speech sounds. This agent speaks with edge-tts (Azure Aria). That voice
-would read the brackets aloud, so the standard path removes the tags before
-synthesis. Laugh tags become a short spoken laugh. The printed reply is
-unchanged. ElevenLabs is not installed and is not called.
+The local edge-tts voice would read brackets aloud, so that path removes
+reaction tags before synthesis. Laugh tags become a short spoken laugh.
+A [pause] tag becomes an ellipsis. provider "elevenlabs" keeps the brackets
+so a tag-aware voice can perform them. The printed reply is unchanged.
 """
 
 from __future__ import annotations
@@ -27,7 +26,7 @@ _SAD = re.compile(
 _TAG = re.compile(
     r"\[(laughs|laugh|giggles|giggle|chuckles|chuckle|playful|softly|"
     r"crying|sighs|sigh|sorrowful|gasps|gasp|clears throat|excited|"
-    r"soft tone)\]",
+    r"soft tone|pause)\]",
     re.IGNORECASE,
 )
 _CAPS = re.compile(r"\b[A-Z]{3,}\b")
@@ -40,6 +39,7 @@ _VOCAL = {
     "chuckle": "Ha ha",
     "sighs": "...",
     "sigh": "...",
+    "pause": "...",
 }
 _LAUGH_TAGS = set(_VOCAL) - {"sighs", "sigh"}
 _SOFT_TAGS = {"softly", "crying", "sighs", "sigh", "sorrowful", "soft tone"}
@@ -95,8 +95,7 @@ def delivery() -> tuple[str, str]:
 def prepare_for_speech(text: str, *, provider: str = "edge") -> str:
     """Tags for the selected speech engine.
 
-    provider "elevenlabs" would keep the brackets. This project never selects
-    that provider. The default Azure path strips them.
+    provider "elevenlabs" keeps the brackets. The edge-tts path strips them.
     """
     if provider == "elevenlabs":
         return text or ""

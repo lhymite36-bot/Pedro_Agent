@@ -173,6 +173,10 @@ def _guard_gmail(payload: dict[str, object]) -> dict[str, object]:
     raise AssertionError("real email")
 
 
+def _guard_shutdown(command: list[str]) -> dict[str, object]:
+    raise AssertionError("real shutdown")
+
+
 class AgentToolTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
@@ -236,6 +240,7 @@ class AgentToolTests(unittest.TestCase):
         self.original_confirm_listener = gta5_agent.confirm_listener_override
         self.original_confirm_speaker = gta5_agent.confirm_speaker_override
         self.original_network_runner = gta5_agent.network_runner_override
+        self.original_shutdown_runner = gta5_agent.shutdown_runner_override
         self.original_diagnostics = gta5_agent.diagnostics_override
         self.original_voice_mode = gta5_agent.voice_mode_active
         self.original_audio_outputs = gta5_agent.audio_output_override
@@ -274,6 +279,26 @@ class AgentToolTests(unittest.TestCase):
             key: os.environ.pop(key, None)
             for key in ("PRIVACY_MODE", "LOCAL_LLM")
         }
+        self._speech_env = {
+            key: os.environ.pop(key, None)
+            for key in (
+                "ELEVENLABS_API_KEY",
+                "ELEVENLABS_MODEL",
+                "ELEVENLABS_STABILITY",
+                "ELEVENLABS_SIMILARITY",
+                "ELEVENLABS_STYLE",
+                "VOICE_ID",
+                "CARTESIA_API_KEY",
+                "CARTESIA_VOICE_ID",
+                "CARTESIA_MODEL",
+                "DEEPGRAM_API_KEY",
+                "DEEPGRAM_MODEL",
+            )
+        }
+        import tts_engine
+
+        self.original_tts_transport = tts_engine.transport_override
+        tts_engine.transport_override = None
         gta5_agent.WORKSPACE = self.root / "workspace"
         gta5_agent._game_cache = None
         gta5_agent.MIN_EXE_BYTES = 1
@@ -328,6 +353,7 @@ class AgentToolTests(unittest.TestCase):
         gta5_agent.confirm_listener_override = _guard_confirm
         gta5_agent.confirm_speaker_override = _guard_confirm_speak
         gta5_agent.network_runner_override = _guard_network
+        gta5_agent.shutdown_runner_override = _guard_shutdown
         gta5_agent.diagnostics_override = _guard_diagnostics
         gta5_agent.voice_mode_active = False
         gta5_agent.audio_output_override = None
@@ -415,6 +441,7 @@ class AgentToolTests(unittest.TestCase):
         gta5_agent.confirm_listener_override = self.original_confirm_listener
         gta5_agent.confirm_speaker_override = self.original_confirm_speaker
         gta5_agent.network_runner_override = self.original_network_runner
+        gta5_agent.shutdown_runner_override = self.original_shutdown_runner
         gta5_agent.diagnostics_override = self.original_diagnostics
         gta5_agent.voice_mode_active = self.original_voice_mode
         gta5_agent.audio_output_override = self.original_audio_outputs
@@ -443,6 +470,14 @@ class AgentToolTests(unittest.TestCase):
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
+        for key, value in self._speech_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        import tts_engine
+
+        tts_engine.transport_override = self.original_tts_transport
 
     def make_game(self) -> Path:
         game = self.root / "Grand Theft Auto V"
@@ -888,7 +923,7 @@ class AgentToolTests(unittest.TestCase):
 
         def synthesize(text: str, destination: Path, voice: str) -> None:
             self.assertEqual(text, "Open Excel.")
-            self.assertEqual(voice, "en-US-AriaNeural")
+            self.assertEqual(voice, "en-US-AndrewNeural")
             destination.write_bytes(b"mp3-bytes")
 
         def play(path: Path) -> None:
@@ -902,7 +937,7 @@ class AgentToolTests(unittest.TestCase):
         )
         self.assertTrue(spoken["ok"])
         self.assertEqual(spoken["text"], "Open Excel.")
-        self.assertEqual(spoken["voice"], "en-US-AriaNeural")
+        self.assertEqual(spoken["voice"], "en-US-AndrewNeural")
         self.assertEqual(len(played), 1)
         self.assertFalse(played[0].exists())
 
@@ -4691,6 +4726,197 @@ class AgentToolTests(unittest.TestCase):
         self.assertTrue(str(soft["rate"]).startswith("-"))
         self.assertEqual(emotion.detect_emotion("Tell me a joke"), "laugh")
         self.assertEqual(emotion.detect_emotion("That joke was hilarious"), "cheerful")
+        self.assertEqual(gta5_agent.clean_text_for_tts("Wait [pause] there."), "Wait ... there.")
+
+    def test_cloud_male_voice_keeps_tags_and_falls_back(self) -> None:
+        import tts_engine
+
+        audio = b"ID3" + b"\x00" * 32
+        calls: list[dict[str, object]] = []
+
+        def transport(spec: dict[str, object]) -> bytes:
+            calls.append(spec)
+            engine = spec["engine"]
+            if engine == "eleven" and os.environ.get("ELEVEN_DOWN") == "1":
+                raise RuntimeError("primary down " + os.environ["ELEVENLABS_API_KEY"])
+            return audio
+
+        tts_engine.transport_override = transport
+        os.environ["ELEVENLABS_API_KEY"] = "eleven-test-key"
+        os.environ["ELEVENLABS_STABILITY"] = "0.99"
+        os.environ["ELEVENLABS_SIMILARITY"] = "0.10"
+        os.environ["ELEVENLABS_STYLE"] = "0.99"
+        os.environ["VOICE_ID"] = "../secret"
+        tagged = "[chuckles] Wait... one moment - hello. [pause]"
+        self.assertIn("[chuckles]", gta5_agent.clean_text_for_tts(tagged))
+        self.assertIn("[pause]", gta5_agent.clean_text_for_tts(tagged))
+        self.assertNotIn("elevenlabs", gta5_agent.SYSTEM_PROMPT.casefold())
+
+        played: list[bytes] = []
+
+        def play(path: Path) -> None:
+            played.append(path.read_bytes())
+
+        with mock.patch("urllib.request.urlopen", side_effect=AssertionError("real speech")):
+            with mock.patch("urllib.request.build_opener", side_effect=AssertionError("real speech")):
+                spoken = gta5_agent.speak_response(tagged, player=play)
+        self.assertTrue(spoken["ok"], spoken)
+        self.assertEqual(played, [audio])
+        self.assertEqual(spoken["voice"], tts_engine.DEFAULT_VOICE_ID)
+        self.assertIn("[chuckles]", spoken["text"])
+        self.assertEqual(len(calls), 1)
+        spec = calls[0]
+        self.assertEqual(spec["engine"], "eleven")
+        self.assertNotIn("eleven-test-key", str(spec["url"]))
+        self.assertEqual(spec["headers"]["xi-api-key"], "eleven-test-key")
+        body = spec["body"]
+        self.assertEqual(body["model_id"], "eleven_v3")
+        self.assertIn("[chuckles]", body["text"])
+        self.assertIn("...", body["text"])
+        self.assertIn("[pause]", body["text"])
+        settings = body["voice_settings"]
+        self.assertEqual(settings["stability"], 0.45)
+        self.assertEqual(settings["similarity_boost"], 0.75)
+        self.assertEqual(settings["style"], 0.25)
+        self.assertIs(settings["use_speaker_boost"], True)
+        self.assertIn(tts_engine.DEFAULT_VOICE_ID, str(spec["url"]))
+        self.assertNotIn("secret", str(spec["url"]))
+
+        os.environ["ELEVENLABS_MODEL"] = "eleven_multilingual_v2"
+        self.assertNotIn("[", gta5_agent.clean_text_for_tts("[sighs] Okay."))
+        os.environ["ELEVENLABS_MODEL"] = "eleven_v3"
+
+        os.environ["ELEVEN_DOWN"] = "1"
+        os.environ["CARTESIA_API_KEY"] = "cartesia-test-key"
+        calls.clear()
+        edge_calls: list[str] = []
+
+        def fake_edge(text: str, destination: Path, voice: str) -> None:
+            edge_calls.append(text)
+            destination.write_bytes(b"local-mp3-bytes")
+
+        with mock.patch("urllib.request.urlopen", side_effect=AssertionError("real speech")):
+            with mock.patch.object(gta5_agent, "_synthesize_neural_speech", fake_edge):
+                failed_over = gta5_agent.speak_response(
+                    "[chuckles] Hello there.",
+                    player=lambda path: None,
+                )
+        self.assertTrue(failed_over["ok"], failed_over)
+        self.assertEqual([item["engine"] for item in calls], ["eleven", "cartesia"])
+        cartesia = calls[1]
+        self.assertEqual(cartesia["body"]["model_id"], "sonic-3.6")
+        self.assertEqual(cartesia["body"]["voice"], tts_engine.DEFAULT_CARTESIA_VOICE)
+        self.assertEqual(cartesia["body"]["output_format"]["container"], "mp3")
+        self.assertTrue(str(cartesia["headers"]["Authorization"]).startswith("Bearer "))
+        self.assertNotIn("eleven-test-key", failed_over.get("error") or "")
+        self.assertEqual(edge_calls, [])
+        self.assertEqual(failed_over["voice"], tts_engine.DEFAULT_CARTESIA_VOICE)
+
+        os.environ.pop("CARTESIA_API_KEY", None)
+        os.environ["DEEPGRAM_API_KEY"] = "deepgram-test-key"
+        calls.clear()
+        with mock.patch("urllib.request.urlopen", side_effect=AssertionError("real speech")):
+            deepgram = gta5_agent.speak_response("Hello there.", player=lambda path: None)
+        self.assertTrue(deepgram["ok"], deepgram)
+        self.assertEqual(calls[-1]["engine"], "deepgram")
+        self.assertIn("model=aura-2-orion-en", str(calls[-1]["url"]))
+        self.assertIn("encoding=mp3", str(calls[-1]["url"]))
+        self.assertEqual(calls[-1]["body"], {"text": "Hello there."})
+        self.assertTrue(str(calls[-1]["headers"]["Authorization"]).startswith("Token "))
+        self.assertNotIn("deepgram-test-key", str(calls[-1]["url"]))
+        self.assertEqual(deepgram["voice"], tts_engine.DEFAULT_DEEPGRAM_MODEL)
+
+        calls.clear()
+        heard_local: list[str] = []
+
+        class Communicate:
+            def __init__(
+                self,
+                text: str,
+                voice: str,
+                rate: str = "+0%",
+                pitch: str = "+0Hz",
+            ) -> None:
+                heard_local.append(text)
+                self.voice = voice
+
+            async def stream(self):  # type: ignore[no-untyped-def]
+                yield {"type": "audio", "data": b"local-mp3-bytes!!"}
+
+        fake_module = types.ModuleType("edge_tts")
+        fake_module.Communicate = Communicate
+        os.environ.pop("DEEPGRAM_API_KEY", None)
+        with mock.patch("urllib.request.urlopen", side_effect=AssertionError("real speech")):
+            with mock.patch.dict(sys.modules, {"edge_tts": fake_module}):
+                local = gta5_agent.speak_response(
+                    "[chuckles] Hello there.",
+                    player=lambda path: None,
+                )
+        self.assertTrue(local["ok"], local)
+        self.assertEqual(local["voice"], "en-US-AndrewNeural")
+        self.assertEqual(len(heard_local), 1)
+        self.assertNotIn("[", heard_local[0])
+        self.assertIn("Ha ha", heard_local[0])
+        os.environ.pop("ELEVEN_DOWN", None)
+
+    def test_shutdown_computer_waits_for_yes(self) -> None:
+        import power_control
+
+        self.assertFalse(gta5_agent._request_needs_plan("Shut down the PC"))
+        self.assertTrue(
+            gta5_agent._request_needs_plan("Shut down the PC and update my spreadsheet")
+        )
+        commands: list[list[str]] = []
+
+        def runner(command: list[str]) -> dict[str, object]:
+            commands.append(list(command))
+            return {"returncode": 0, "stdout": "", "stderr": ""}
+
+        gta5_agent.shutdown_runner_override = runner
+        gta5_agent.voice_mode_active = False
+        gta5_agent.begin_task_turn("Shut down the PC")
+        with mock.patch("power_control.subprocess.run", side_effect=AssertionError("real shutdown")):
+            waiting = gta5_agent.invoke_tool("shutdown_computer", {})
+            self.assertTrue(waiting.get("needs_confirmation"))
+            self.assertEqual(commands, [])
+            gta5_agent.begin_task_turn("yes")
+            started = gta5_agent.invoke_tool("shutdown_computer", {})
+        self.assertTrue(started["ok"], started)
+        self.assertEqual(started["message"], "Shutting down this PC.")
+        self.assertEqual(commands, [["shutdown", "/s", "/t", "0"]])
+
+        spoken: list[str] = []
+        gta5_agent.voice_mode_active = True
+        gta5_agent.confirm_speaker_override = spoken.append
+        gta5_agent.confirm_listener_override = lambda: "no"
+        with mock.patch("power_control.subprocess.run", side_effect=AssertionError("real shutdown")):
+            denied = gta5_agent.invoke_tool("shutdown_computer", {})
+        self.assertFalse(denied["ok"])
+        self.assertFalse(denied.get("approved"))
+        self.assertIn("shut down this PC", spoken[0])
+        self.assertEqual(len(commands), 1)
+
+        gta5_agent.confirm_listener_override = lambda: "yes"
+        with mock.patch("power_control.subprocess.run", side_effect=AssertionError("real shutdown")):
+            allowed = gta5_agent.invoke_tool("shutdown_computer", {})
+        self.assertTrue(allowed["ok"], allowed)
+        self.assertEqual(len(commands), 2)
+
+        gta5_agent.shutdown_runner_override = lambda command: {
+            "returncode": 1,
+            "stdout": "",
+            "stderr": "Access is denied.",
+        }
+        gta5_agent.confirm_listener_override = lambda: "yes"
+        refused = gta5_agent.invoke_tool("shutdown_computer", {})
+        self.assertFalse(refused["ok"])
+        self.assertIn("did not shut down", refused["error"])
+
+        gta5_agent.shutdown_runner_override = _guard_shutdown
+        with self.assertRaises(AssertionError) as guard:
+            power_control.shutdown_computer()
+        self.assertIn("real shutdown", str(guard.exception))
+        gta5_agent.voice_mode_active = False
 
     def test_array_tool_parameters_include_item_schemas(self) -> None:
         from google.genai import types as genai_types
@@ -5495,6 +5721,9 @@ class AgentToolTests(unittest.TestCase):
         self.assertNotIn("Pedro", example)
         self.assertIn("GEMINI_API_KEY=\n", example)
         self.assertIn("ELEVENLABS_API_KEY=\n", example)
+        self.assertIn("VOICE_ID=\n", example)
+        self.assertIn("CARTESIA_API_KEY=\n", example)
+        self.assertIn("DEEPGRAM_API_KEY=\n", example)
         self.assertIn("TELEGRAM_BOT_TOKEN=\n", example)
         self.assertIn("TELEGRAM_CHAT_ID=\n", example)
         self.assertIn("STORAGE_DIR=./storage\n", example)

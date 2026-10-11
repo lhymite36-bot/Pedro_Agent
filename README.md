@@ -7,8 +7,8 @@ zip, 7z, or rar, create folders, and copy mod files into that install.
 
 The agent only writes inside the folder that contains `GTA5.exe`. It does not
 run downloaded programs, replace `GTA5.exe` or any other `.exe`, or edit `.rpf`
-archives. Speech uses Microsoft edge-tts (`en-US-AriaNeural`). ElevenLabs is
-not installed and its key is not read.
+archives. With no speech key, the spoken voice is the male neural voice
+`en-US-AndrewNeural`. Set `ELEVENLABS_API_KEY` for the cloud male voice.
 
 ## Install
 
@@ -70,8 +70,16 @@ Open `.env` and set `GEMINI_API_KEY` to a key from
 [Google AI Studio](https://aistudio.google.com/apikey). The key stays in `.env`
 or in the environment. It is not written into the source.
 
-`ELEVENLABS_API_KEY` is in the example so the template is complete. Leave it
-empty. Spoken replies use edge-tts.
+Spoken replies use a deep male voice when `ELEVENLABS_API_KEY` is set.
+`VOICE_ID` swaps that voice. Leave it empty for George
+(`JBFqnCBsd6RMkjVDRZzb`). Adam is `pNInz6obpgDQGcFmaJgB`. Drew is
+`29vD33N1CtxCmqQRPOHJ`. The model is `eleven_v3` unless `ELEVENLABS_MODEL`
+is `eleven_multilingual_v2`. `eleven_v3` performs tags such as `[chuckles]`,
+`[sighs]`, `[clears throat]`, and `[pause]`. Stability is 0.38, similarity
+is 0.80, style is 0.20, and speaker boost is on. `CARTESIA_API_KEY` uses
+Cartesia Sonic when the primary voice is missing or fails. `DEEPGRAM_API_KEY`
+uses Deepgram Aura-2 Orion after that. With no speech key, replies stay on
+edge-tts.
 
 Point the agent at your own external drive with either the volume name or a
 folder:
@@ -129,9 +137,12 @@ it does. The microphone stays open while you are still talking. After you
 stop, it waits 2 seconds of quiet, then sends the transcript straight to
 Gemini. There is no maximum phrase length.
 
-In voice mode the reply is spoken with Microsoft's neural voice
-`en-US-AriaNeural` (`edge-tts`) one sentence at a time. The first finished
-sentence is sent to the speech service and starts playing while Gemini is
+In voice mode the reply is spoken one sentence at a time. With
+`ELEVENLABS_API_KEY` set, that voice is the male voice in `VOICE_ID`
+(George when `VOICE_ID` is empty). Cartesia Sonic or Deepgram Aura-2 is
+used when that key is set and the primary voice does not answer. With no
+speech key, the voice is the male neural voice `en-US-AndrewNeural`
+(`edge-tts`). The first finished sentence starts playing while Gemini is
 still writing the rest. Each sentence is a temporary mp3 played with
 `pygame`. The microphone stays open while that audio plays. Speaking over
 the reply stops the audio, drops any sentences that have not played yet,
@@ -146,10 +157,9 @@ minimal thinking, so the first sentence arrives quickly. Typed requests
 keep the full tool-calling budget.
 `requirements.txt` installs `pygame-ce`, which provides `import pygame`.
 The official `pygame` package has no prebuilt wheel for this Python.
-Set `EDGE_TTS_VOICE` to another neural voice, such as
-`en-US-ChristopherNeural`, to change it. The spoken reply is sent to
-Microsoft's speech service. If that service or playback fails, the written
-reply stays on screen.
+Set `EDGE_TTS_VOICE` to another local neural voice, such as
+`en-US-ChristopherNeural`, when no speech key is set. If speech or playback
+fails, the written reply stays on screen.
 
 Speech-to-text uses `speech_recognition` and the `pyaudio` module, then
 Google's recognizer. If Google cannot be reached and the optional
@@ -351,9 +361,9 @@ between 15 and 30. `IDLE_TASK_SECONDS` defaults to 300.
 Replies can include reaction tags such as `[laughs]`, `[giggles]`,
 `[softly]`, and `[sighs]`. An ellipsis is a pause. A word in ALL CAPS is
 emphasis, as in "That is HUGE!". The printed reply keeps the tags. The voice
-is still edge-tts `en-US-AriaNeural`. That voice would read the brackets
-aloud, so they are removed before audio and a laugh tag becomes a short
-laugh. ElevenLabs is not used.
+is `en-US-AndrewNeural` until a speech key is set. That local voice would
+read the brackets aloud, so they are removed before audio and a laugh tag
+becomes a short laugh. `eleven_v3` keeps the tags when its key is set.
 
 `capture_webcam_image` is separate from the screen tools. Say "look at me"
 or "what am I holding?" and the assistant calls it once. On Windows the
@@ -401,6 +411,10 @@ Documents, Downloads, your user folder, and the external drive when that drive i
 connected. "Where did I save that zombie mod backup from last month?" uses
 those words and prefers files from that period. The index is
 `workspace/file_index.sqlite`. It does not open or run anything it finds.
+
+`shutdown_computer` shuts down this PC after a clear yes. In text mode the
+next message has to be yes. In voice mode it asks "Are you sure you want to
+execute shut down this PC?" and continues only after a spoken yes.
 
 `kill_process` closes a program by name, such as `notepad`. Windows system
 processes are refused. `focus_window` brings a window forward.
