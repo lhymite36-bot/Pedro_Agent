@@ -1,0 +1,28 @@
+[project]
+name = "gta5-mod-agent"
+version = "1.0.0"
+description = "PED_AGENT, a local Gemini assistant for voice, files, and desktop tools."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "google-genai>=1.40.0",
+    "python-dotenv>=1.0.0",
+    "requests>=2.32.0",
+    "ddgs>=9.0.0",
+    "py7zr>=0.22.0",
+    "openpyxl>=3.1.0",
+    "SpeechRecognition>=3.10.0",
+    "edge-tts>=6.1.0",
+    "pygame-ce>=2.5.0",
+    "pyaudiowpatch>=0.2.12.7",
+    "pyautogui>=0.9.54",
+    "pillow>=10.0.0",
+    "pynput>=1.7.6",
+    "mss>=9.0.0",
+    "opencv-python>=4.10.0",
+    "pyperclip>=1.9.0",
+    "psutil>=6.0.0",
+    "pygetwindow>=0.0.9",
+    "schedule>=1.2.2",
+    "playwright>=1.49.0",
+]

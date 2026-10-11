@@ -1,0 +1,51 @@
+google-genai>=1.40.0
+python-dotenv>=1.0.0
+requests>=2.32.0
+ddgs>=9.0.0
+py7zr>=0.22.0
+openpyxl>=3.1.0
+SpeechRecognition>=3.10.0
+edge-tts>=6.1.0
+# Official pygame has no prebuilt wheel for this Python. pygame-ce
+# provides the same `import pygame` module, including the mixer.
+pygame-ce>=2.5.0
+# Provides the pyaudio module. Official PyAudio has no prebuilt wheel for
+# this Python on Windows and would need the Microsoft C++ build tools.
+pyaudiowpatch>=0.2.12.7
+# Desktop control on this PC: screenshots, clicks, typing, and scrolling.
+pyautogui>=0.9.54
+pillow>=10.0.0
+pynput>=1.7.6
+# Fast in-memory screenshots. Much quicker than ImageGrab.
+mss>=9.0.0
+# One webcam frame on demand. A live feed opens the camera only when asked.
+# Phone frames are JPEG posts from the phone page. aiortc is not installed.
+opencv-python>=4.10.0
+# Reads the clipboard only when get_clipboard_text runs.
+pyperclip>=1.9.0
+# Process list and close. Used only by kill_process.
+psutil>=6.0.0
+# Window focus and layout. The ctypes path is used when this is missing.
+pygetwindow>=0.0.9
+# Turns a minute count into a schedule rule. Jobs still run on the agent clock.
+schedule>=1.2.2
+# Headless modeling uses a Blender install (blender.exe -b), not a pip package.
+# Set BLENDER_EXECUTABLE if blender is not on PATH.
+# ffmpeg and git are system programs, not pip packages.
+# Set FFMPEG_EXECUTABLE when ffmpeg is not on PATH.
+# Page actions the user asked for. Tests never launch Chromium.
+# After install, run: .\.venv\Scripts\python.exe -m playwright install chromium
+playwright>=1.49.0
+# Gmail send uses the standard library. No Gmail client package is required.
+# Set GMAIL_ADDRESS and GMAIL_APP_PASSWORD. Contacts are workspace/contacts.json.
+# The phone bridge uses urllib. python-telegram-bot is not required.
+# Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID for two-way Telegram.
+# A Telegram voice note is transcribed with local whisper when that package
+# is already installed, otherwise with Gemini. The chat is not answered.
+# Set DISCORD_WEBHOOK_URL for outbound alerts only.
+# Ollama is a local program, not a pip package. Default model is llama3.2.
+# Voice notes can use a local whisper install. The agent does not install it:
+# .\.venv\Scripts\python.exe -m pip install openai-whisper
+# Idle time uses ctypes, not pywin32. File search is SQLite FTS, not chromadb.
+# Schedules use the schedule package already listed above, not APScheduler.
+# Speech stays on edge-tts. ElevenLabs is not a dependency.

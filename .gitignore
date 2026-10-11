@@ -1,0 +1,50 @@
+# Secrets. The example file is the only env file that belongs in git.
+.env
+.env.*
+!.env.example
+
+# Virtual environments and Python caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local databases, vector indexes, and memory
+*.db
+*.sqlite
+*.sqlite3
+chroma_db/
+.chroma/
+workspace/
+storage/
+
+# Runtime folders. The empty markers stay so the tree exists after clone.
+logs/*
+!logs/.gitkeep
+data/*
+!data/.gitkeep
+temp/*
+!temp/.gitkeep
+
+# Recordings, renders, and archives
+*.ogg
+*.oga
+*.opus
+*.wav
+*.mp3
+*.mp4
+*.jpg
+*.jpeg
+*.png
+*.zip
+*.7z
+*.rar
+
+# Local config that can hold personal paths or contacts
+gta5_path.json
+contacts.json
+routines.json
+mcp_servers.json
