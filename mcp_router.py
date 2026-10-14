@@ -19,9 +19,9 @@ _PROTOCOL = "2024-11-05"
 
 
 def _agent() -> Any:
-    import gta5_agent
+    import agent_core
 
-    return gta5_agent
+    return agent_core
 
 
 def _config_path() -> Path | None:

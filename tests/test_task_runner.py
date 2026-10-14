@@ -114,9 +114,9 @@ class TaskRunnerTests(unittest.TestCase):
         self.assertIsNone(rules.category_for("whatsapp_prepare", {}))
 
     def test_tools_registered(self):
-        import gta5_agent
+        import agent_core
         for n in tr.TOOLS:
-            self.assertIn(n, gta5_agent.TOOLS)
+            self.assertIn(n, agent_core.TOOLS)
         self.assertEqual({d["name"] for d in tr.DECLARATIONS}, set(tr.TOOLS))
 
 

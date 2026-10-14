@@ -11,9 +11,9 @@ from typing import Any
 
 
 def _agent() -> Any:
-    import gta5_agent
+    import agent_core
 
-    return gta5_agent
+    return agent_core
 
 
 def _gpu_line() -> str | None:

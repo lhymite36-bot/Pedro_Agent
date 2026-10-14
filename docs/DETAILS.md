@@ -272,7 +272,7 @@ Start the assistant:
 python main.py
 ```
 
-`python gta5_agent.py` is the same program.
+`python agent_core.py` is the same program.
 
 Type a request at `You (text)>`. Type `v` and press Enter to speak into the
 default microphone. Press `T` while it is listening, or say `text mode`, to
@@ -465,7 +465,7 @@ name, and a JSON object. It does not pass a shell command. Reverse engineering
 uses the `rea` server. Install the CLI with `npm install --global rea-agents`,
 then `python main.py --init` writes that server into the config if it is
 missing. `python main.py --init` also prints `rea --help`. Routing notes are
-in `skills/reverse-engineer-anything/SKILL.md`. Example:
+in `mcp_servers.example.json`. Example:
 
 ```json
 {"servers":{"rea":{"command":"npx","args":["-y","rea-agents@latest","--mcp"]}}}

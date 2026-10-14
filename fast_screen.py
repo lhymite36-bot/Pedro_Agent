@@ -10,7 +10,7 @@
   exact than vision when the app exposes accessibility names.
 
 All timings come from the `speed:` section of rules.yaml.
-Tests set gta5_agent.uia_finder_override = fn(name, window_title) -> dict | None.
+Tests set agent_core.uia_finder_override = fn(name, window_title) -> dict | None.
 """
 
 from __future__ import annotations
@@ -26,9 +26,9 @@ _window_cache: dict[str, tuple[int, str, float]] = {}
 
 
 def _agent() -> Any:
-    import gta5_agent
+    import agent_core
 
-    return gta5_agent
+    return agent_core
 
 
 def speed(key: str) -> Any:

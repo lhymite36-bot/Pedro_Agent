@@ -70,19 +70,6 @@ def focus_existing(title: str = TITLE) -> None:
         pass
 
 
-def hide_console() -> None:
-    if os.name != "nt":
-        return
-    try:
-        import ctypes
-
-        hwnd = ctypes.windll.kernel32.GetConsoleWindow()
-        if hwnd:
-            ctypes.windll.user32.ShowWindow(hwnd, 0)
-    except Exception:
-        pass
-
-
 def apply_icon(title: str = TITLE, tries: int = 40) -> bool:
     """WM_SETICON on our window once it exists (big + small icons)."""
     ico = icon_path()
@@ -164,6 +151,5 @@ def open_window(url: str) -> Any:
                                 easy_drag=False, js_api=api, background_color="#0b0b0f", text_select=True)
     api._window = win
     threading.Thread(target=apply_icon, daemon=True).start()
-    hide_console()
     webview.start()
     return win

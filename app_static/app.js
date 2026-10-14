@@ -36,7 +36,11 @@ let nextIsVoice = false;
 // Browser audio for spoken replies (phone / remote). Unlock on the first tap
 // so later replies can autoplay.
 const voiceAudio = new Audio(); voiceAudio.preload = 'auto';
-const SILENT = 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAACAAABIADAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA//////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAASDs90hvAAAAAAAAAAAAAAAAAAAA';
+// a few ms of silence, built at runtime (used once to unlock autoplay)
+const SILENT = (() => { const n = 800, b = new ArrayBuffer(44 + n * 2), v = new DataView(b), w = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, 8000, true); v.setUint32(28, 16000, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+  try { return URL.createObjectURL(new Blob([b], { type: 'audio/wav' })); } catch (e) { return ''; } })();
 let audioUnlocked = false;
 function unlockAudio() { if (audioUnlocked) return; audioUnlocked = true; try { voiceAudio.src = SILENT; const p = voiceAudio.play(); if (p) p.catch(() => { audioUnlocked = false; }); } catch (e) {} }
 ['pointerdown', 'touchstart', 'keydown'].forEach((n) => document.addEventListener(n, unlockAudio, { capture: true }));

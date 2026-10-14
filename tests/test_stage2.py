@@ -81,9 +81,9 @@ class SpeechLevelTests(unittest.TestCase):
 
     def test_pygame_playback_drives_level(self) -> None:
         import inspect
-        import gta5_agent
+        import agent_core
 
-        src = inspect.getsource(gta5_agent._play_mp3_pygame)
+        src = inspect.getsource(agent_core._play_mp3_pygame)
         self.assertIn("speech_level.update", src)
         self.assertIn("speech_level.stop", src)
         js = (Path(__file__).resolve().parents[1] / "app_static" / "app.js").read_text(encoding="utf-8")
@@ -125,18 +125,18 @@ class TeamTests(_Tmp):
         self.assertTrue(any(name.startswith("team") for name in threads))
 
     def test_role_tools_respect_rules_and_scope(self) -> None:
-        import gta5_agent
+        import agent_core
 
         self.write_rules({"tools": {"blocked": ["open_website"]}})
         self.assertNotIn("open_website", self.team.tools_for("browser"))
-        gta5_agent.set_tool_scope({"recall_memory"})
+        agent_core.set_tool_scope({"recall_memory"})
         try:
-            blocked = gta5_agent.invoke_tool("open_website", {"url": "https://example.com"})
+            blocked = agent_core.invoke_tool("open_website", {"url": "https://example.com"})
         finally:
-            gta5_agent.set_tool_scope(None)
+            agent_core.set_tool_scope(None)
         self.assertTrue(blocked.get("blocked_by_scope"))
-        self.assertIn("run_team", gta5_agent.TOOLS)
-        self.assertIn("run_team", [d["name"] for d in gta5_agent.TOOL_DECLARATIONS])
+        self.assertIn("run_team", agent_core.TOOLS)
+        self.assertIn("run_team", [d["name"] for d in agent_core.TOOL_DECLARATIONS])
 
     def test_bad_plan_falls_back_to_research(self) -> None:
         self.llm.override = lambda prompt, images: "no json here"
@@ -148,14 +148,14 @@ class TeamTests(_Tmp):
 
     def test_unattended_sensitive_action_waits(self) -> None:
         import confirm_action
-        import gta5_agent
+        import agent_core
 
         confirm_action.reset()
-        gta5_agent.set_unattended(True)
+        agent_core.set_unattended(True)
         try:
-            out = gta5_agent.invoke_tool("shutdown_computer", {})
+            out = agent_core.invoke_tool("shutdown_computer", {})
         finally:
-            gta5_agent.set_unattended(False)
+            agent_core.set_unattended(False)
         self.assertTrue(out.get("needs_confirmation"), out)
         self.assertIsNotNone(confirm_action.pending())
         confirm_action.reset()
@@ -175,11 +175,11 @@ class BotTests(_Tmp):
         self.calls = []
 
         def fake_engine(prompt, history, model, **kw):
-            import gta5_agent
+            import agent_core
 
             self.calls.append({"prompt": prompt, "model": model,
-                               "scope": getattr(gta5_agent._tool_scope, "allowed", None),
-                               "unattended": gta5_agent._unattended(),
+                               "scope": getattr(agent_core._tool_scope, "allowed", None),
+                               "unattended": agent_core._unattended(),
                                "blocked": rules.tool_block_reason("open_website")})
             return "bot reply"
 
@@ -211,7 +211,7 @@ class BotTests(_Tmp):
         self.assertEqual(self.bots.save_bot({"name": "x", "color": "red"})["color"], "#7c5cff")
 
     def test_run_uses_scope_rules_override_and_role(self) -> None:
-        import gta5_agent
+        import agent_core
 
         bot = self._make(rules={"tools": {"blocked": ["open_website"]}}, model="gemini-x")
         reply = self.bots.run_bot(bot, "hi", [])
@@ -222,7 +222,7 @@ class BotTests(_Tmp):
         self.assertEqual(call["scope"], {"recall_memory", "open_website"})
         self.assertIsNotNone(call["blocked"])  # per-bot override applied in its thread
         self.assertIsNone(rules.tool_block_reason("open_website"))  # and only there
-        self.assertIsNone(getattr(gta5_agent._tool_scope, "allowed", None))
+        self.assertIsNone(getattr(agent_core._tool_scope, "allowed", None))
         open_bot = self.bots.save_bot({"name": "Any"})
         self.bots.run_bot(open_bot, "x")
         self.assertNotIn("ask_bot", self.calls[-1]["scope"])
@@ -251,14 +251,14 @@ class BotTests(_Tmp):
         self.assertFalse(self.bots._due(task, target + 60))
 
     def test_main_agent_delegates_with_ask_bot(self) -> None:
-        import gta5_agent
+        import agent_core
 
         self._make()
-        out = gta5_agent.invoke_tool("ask_bot", {"name": "inbox helper", "task": "sort"})
+        out = agent_core.invoke_tool("ask_bot", {"name": "inbox helper", "task": "sort"})
         self.assertTrue(out["ok"], out)
         self.assertEqual(out["message"], "bot reply")
-        self.assertFalse(gta5_agent.invoke_tool("ask_bot", {"name": "ghost", "task": "x"})["ok"])
-        self.assertIn("list_bots", gta5_agent.TOOLS)
+        self.assertFalse(agent_core.invoke_tool("ask_bot", {"name": "ghost", "task": "x"})["ok"])
+        self.assertIn("list_bots", agent_core.TOOLS)
 
     def test_chat_app_bot_api_and_thread_routing(self) -> None:
         import urllib.request
@@ -342,13 +342,13 @@ class CodeLoopTests(_Tmp):
         self.assertTrue(out["log"][0]["refused"])
 
     def test_commits_in_git_repo(self) -> None:
-        import gta5_agent
+        import agent_core
 
         (self.proj / ".git").mkdir()
         calls = []
-        saved = gta5_agent.git_runner_override
-        gta5_agent.git_runner_override = lambda cmd, cwd: (calls.append(cmd), {"returncode": 0, "stdout": " M a.py\n" if "status" in cmd else "", "stderr": ""})[1]
-        self.addCleanup(setattr, gta5_agent, "git_runner_override", saved)
+        saved = agent_core.git_runner_override
+        agent_core.git_runner_override = lambda cmd, cwd: (calls.append(cmd), {"returncode": 0, "stdout": " M a.py\n" if "status" in cmd else "", "stderr": ""})[1]
+        self.addCleanup(setattr, agent_core, "git_runner_override", saved)
         self.llm.override = lambda p, i: '{"files": {"a.py": "x=1"}, "message": "add a"}'
         self.cl.test_runner = lambda c, w, t: (0, "ok")
         out = self.cl.code_engineer("x", str(self.proj))
@@ -436,7 +436,7 @@ class AutopilotTests(_Tmp):
         self.write([], enabled=False)
         self.assertFalse(self.ap.autopilot_control("start")["ok"])
         self.assertIn("set_unattended(True)", inspect.getsource(self.ap._default_runner))
-        self.assertIn("autopilot_control", __import__("gta5_agent").TOOLS)
+        self.assertIn("autopilot_control", __import__("agent_core").TOOLS)
 
 
 class LiveVoiceTests(_Tmp):
@@ -489,19 +489,19 @@ class LiveVoiceTests(_Tmp):
         self.assertEqual(Image.open(__import__("io").BytesIO(jpg)).width, 1024)
 
     def test_cli_flag(self) -> None:
-        import gta5_agent
+        import agent_core
 
-        self.assertTrue(gta5_agent._parser().parse_args(["--live"]).live)
+        self.assertTrue(agent_core._parser().parse_args(["--live"]).live)
 
 
 class SelfUpgradeTests(_Tmp):
     def setUp(self) -> None:
         super().setUp()
-        import gta5_agent
+        import agent_core
         import llm
         import self_upgrade
 
-        self.su, self.llm, self.agent = self_upgrade, llm, gta5_agent
+        self.su, self.llm, self.agent = self_upgrade, llm, agent_core
         self.app = self.root / "app"
         self.app.mkdir()
         (self.app / "flaky.py").write_text("def flaky_tool():\n    raise ValueError('boom')\n", encoding="utf-8")
@@ -513,8 +513,8 @@ class SelfUpgradeTests(_Tmp):
         import importlib
 
         flaky = importlib.import_module("flaky")
-        gta5_agent.TOOLS["flaky_tool"] = flaky.flaky_tool
-        self.addCleanup(gta5_agent.TOOLS.pop, "flaky_tool", None)
+        agent_core.TOOLS["flaky_tool"] = flaky.flaky_tool
+        self.addCleanup(agent_core.TOOLS.pop, "flaky_tool", None)
         self.addCleanup(sys.modules.pop, "flaky", None)
         self.addCleanup(setattr, llm, "override", None)
         self.addCleanup(setattr, self_upgrade, "test_runner", None)
@@ -695,11 +695,11 @@ class RemoteAccessTests(_Tmp):
         self.assertFalse(self.ra.session_valid("pedro_session=forged"))
 
     def test_control_needs_rules_and_yes(self) -> None:
-        import gta5_agent
+        import agent_core
 
         calls = []
-        gta5_agent.TOOLS["remote_control_action"] = lambda **kw: (calls.append(kw), {"ok": True})[1]
-        self.addCleanup(gta5_agent.TOOLS.__setitem__, "remote_control_action", self.ra.remote_control_action)
+        agent_core.TOOLS["remote_control_action"] = lambda **kw: (calls.append(kw), {"ok": True})[1]
+        self.addCleanup(agent_core.TOOLS.__setitem__, "remote_control_action", self.ra.remote_control_action)
         self.write_rules({"remote": {"allow_control": True}})
         self.assertTrue(self.ra.do_control({"type": "click"})["needs_confirmation"])
         self.assertTrue(self.ra.allow_control("")["needs_confirmation"])

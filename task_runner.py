@@ -190,9 +190,9 @@ def launch_any_app(name: str) -> dict[str, Any]:
         webbrowser.open(name.strip())
         return _ok(f"Opened {name.strip()}.")
     try:
-        import gta5_agent
+        import agent_core
 
-        r = gta5_agent.launch_application(name)
+        r = agent_core.launch_application(name)
         if r.get("ok"):
             return r
     except Exception:
@@ -493,9 +493,9 @@ def save_task_routine(name: str, description: str = "", steps: Any = None) -> di
         return _err("That name is a built-in routine; pick another.")
     if not steps:
         try:
-            import gta5_agent
+            import agent_core
 
-            steps = [s["text"] for s in gta5_agent._public_steps()]
+            steps = [s["text"] for s in agent_core._public_steps()]
         except Exception:
             steps = []
     clean = [" ".join(str(s.get("text") if isinstance(s, dict) else s).split())[:500] for s in steps or []]

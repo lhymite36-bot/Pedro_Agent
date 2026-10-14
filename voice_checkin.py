@@ -22,9 +22,9 @@ _phrase_index = 0
 
 
 def _agent() -> Any:
-    import gta5_agent
+    import agent_core
 
-    return gta5_agent
+    return agent_core
 
 
 def _now() -> float:

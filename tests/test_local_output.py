@@ -15,11 +15,11 @@ class LocalOutputTests(unittest.TestCase):
             self.assertEqual(out, Path(d) / "Documents" / "PedroAgent"); self.assertTrue(out.is_dir())
 
     def test_missing_external_drive_falls_back_locally(self):
-        import gta5_agent
+        import agent_core
         with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {"PEDRO_OUTPUT_DIR": d}), \
-             mock.patch.object(gta5_agent, "_external_drive_root", return_value=None):
-            self.assertEqual(gta5_agent._resolve_drive_text("external/Reports/a.xlsx"), Path(d) / "Reports" / "a.xlsx")
-            self.assertIsNone(gta5_agent._resolve_drive_text("C:/Users/x/a.xlsx"))
+             mock.patch.object(agent_core, "_external_drive_root", return_value=None):
+            self.assertEqual(agent_core._resolve_drive_text("external/Reports/a.xlsx"), Path(d) / "Reports" / "a.xlsx")
+            self.assertIsNone(agent_core._resolve_drive_text("C:/Users/x/a.xlsx"))
 
     def test_blender_default_is_local(self):
         import blender_task
@@ -27,6 +27,6 @@ class LocalOutputTests(unittest.TestCase):
             self.assertEqual(blender_task._default_output("Basket"), str(Path(d) / "Blender" / "Basket.obj"))
 
     def test_prompt_never_requires_drive(self):
-        import gta5_agent
-        self.assertIn("never require an external drive", gta5_agent.SYSTEM_PROMPT)
-        self.assertIn("full path", gta5_agent.SYSTEM_PROMPT)
+        import agent_core
+        self.assertIn("never require an external drive", agent_core.SYSTEM_PROMPT)
+        self.assertIn("full path", agent_core.SYSTEM_PROMPT)

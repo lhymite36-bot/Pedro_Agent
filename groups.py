@@ -292,10 +292,10 @@ def _direct_prompt(group: dict[str, Any], who: str, text: str, transcript: list[
 
 
 def _run_one(speaker: str, prompt: str, history: list[Any], model: str, kw: dict[str, Any]) -> str:
-    import gta5_agent
+    import agent_core
 
     if speaker == MAIN:
-        run = main_engine or gta5_agent.run_agent
+        run = main_engine or agent_core.run_agent
         return run(prompt, history, model, **kw) or ""
     bot = bots.get_bot(speaker)
     if bot is None:

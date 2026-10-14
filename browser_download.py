@@ -61,7 +61,7 @@ playwright_launcher: Any = None
 
 
 def _agent() -> Any:
-    return __import__("gta5_agent")
+    return __import__("agent_core")
 
 
 def _safe_text(text: str) -> str:

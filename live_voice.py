@@ -145,13 +145,13 @@ def _slim(result: dict[str, Any]) -> dict[str, Any]:
 
 
 def _invoke(name: str, args: dict[str, Any]) -> dict[str, Any]:
-    import gta5_agent
+    import agent_core
 
-    return gta5_agent.invoke_tool(name, args)
+    return agent_core.invoke_tool(name, args)
 
 
 def build_config(types: Any) -> Any:
-    import gta5_agent
+    import agent_core
 
     cfg = settings()
     kwargs: dict[str, Any] = {
@@ -159,13 +159,13 @@ def build_config(types: Any) -> Any:
         "speech_config": types.SpeechConfig(voice_config=types.VoiceConfig(
             prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=str(cfg["voice_name"])))),
         "system_instruction": types.Content(parts=[types.Part(text=(
-            f"You are {gta5_agent.AGENT_NAME}, a voice assistant on the user's Windows PC. Keep spoken "
+            f"You are {agent_core.AGENT_NAME}, a voice assistant on the user's Windows PC. Keep spoken "
             "replies short. You may see the user's screen as images. Use tools for actions."))]),
         "input_audio_transcription": types.AudioTranscriptionConfig(),
         "output_audio_transcription": types.AudioTranscriptionConfig(),
     }
     if cfg.get("allow_tools"):
-        allowed = [d for d in gta5_agent.TOOL_DECLARATIONS if rules.tool_block_reason(d["name"]) is None]
+        allowed = [d for d in agent_core.TOOL_DECLARATIONS if rules.tool_block_reason(d["name"]) is None]
         kwargs["tools"] = [{"function_declarations": allowed}]
     return types.LiveConnectConfig(**kwargs)
 

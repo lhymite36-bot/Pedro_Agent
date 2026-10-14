@@ -90,9 +90,9 @@ SEARCH_STOP = {
 
 
 def _agent() -> Any:
-    import gta5_agent
+    import agent_core
 
-    return gta5_agent
+    return agent_core
 
 
 def _place_rules() -> list[tuple[str, re.Pattern[str]]]:

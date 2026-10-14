@@ -368,9 +368,9 @@ def do_control(data: dict[str, Any]) -> dict[str, Any]:
     reason = rules.tool_block_reason("remote_control_action")
     if reason:
         return {"ok": False, "error": reason}
-    import gta5_agent
+    import agent_core
 
-    function = gta5_agent.TOOLS.get("remote_control_action", remote_control_action)
+    function = agent_core.TOOLS.get("remote_control_action", remote_control_action)
     args = {"type": str(data.get("type") or ""), "x": float(data.get("x") or 0), "y": float(data.get("y") or 0),
             "text": str(data.get("text") or "")}
     try:

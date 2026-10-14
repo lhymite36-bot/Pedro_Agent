@@ -3,6 +3,8 @@ rem Pedro Agent portable setup / repair. Plain batch file you can read: it finds
 rem Python 3.10-3.14, creates .venv, installs requirements.txt, and makes a launcher.
 rem It downloads nothing except Python packages from pypi.org via pip.
 setlocal
+set "AUTO="
+if /i "%~1"=="/auto" set "AUTO=1"
 cd /d "%~dp0"
 title Pedro Agent setup
 echo Pedro Agent setup in %CD%
@@ -33,9 +35,9 @@ if not exist "rules.yaml" copy "rules.default.yaml" "rules.yaml" >nul
 echo.
 echo Done. Double-click "Start Pedro Agent.cmd" in this folder to open the app.
 echo On first start it asks for your free Gemini API key.
-pause
+if not defined AUTO pause
 exit /b 0
 :fail
 echo Setup failed. Check your internet connection and run setup.bat again.
-pause
+if not defined AUTO pause
 exit /b 1

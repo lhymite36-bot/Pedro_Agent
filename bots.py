@@ -169,22 +169,22 @@ def _prompt(bot: dict[str, Any], text: str) -> str:
 def run_bot(bot: dict[str, Any], text: str, history: list[Any] | None = None, *,
             model: str = "", unattended: bool = False, extra_tools: set[str] | None = None, **kwargs: Any) -> str:
     """One turn for this bot on the normal engine, scoped to its tools/rules."""
-    import gta5_agent
+    import agent_core
 
-    run = engine or gta5_agent.run_agent
-    chosen = bot.get("model") or model or os.environ.get("GEMINI_MODEL", gta5_agent.DEFAULT_MODEL)
+    run = engine or agent_core.run_agent
+    chosen = bot.get("model") or model or os.environ.get("GEMINI_MODEL", agent_core.DEFAULT_MODEL)
     rules.set_thread_override(bot.get("rules") or None)
-    scope = set(bot["tools"]) if bot["tools"] else set(gta5_agent.TOOLS)
+    scope = set(bot["tools"]) if bot["tools"] else set(agent_core.TOOLS)
     if extra_tools:
-        scope |= {t for t in extra_tools if t in gta5_agent.TOOLS}
-    gta5_agent.set_tool_scope(scope - NO_NESTING)
-    gta5_agent.set_unattended(unattended)
+        scope |= {t for t in extra_tools if t in agent_core.TOOLS}
+    agent_core.set_tool_scope(scope - NO_NESTING)
+    agent_core.set_unattended(unattended)
     try:
         return run(_prompt(bot, text), history if history is not None else [], chosen, **kwargs) or ""
     finally:
         rules.set_thread_override(None)
-        gta5_agent.set_tool_scope(None)
-        gta5_agent.set_unattended(False)
+        agent_core.set_tool_scope(None)
+        agent_core.set_unattended(False)
 
 
 def _due(task: dict[str, Any], now: float) -> bool:

@@ -35,7 +35,7 @@ _active = 0
 
 
 def _agent() -> Any:
-    return __import__("gta5_agent")
+    return __import__("agent_core")
 
 
 def reset_jobs() -> None:

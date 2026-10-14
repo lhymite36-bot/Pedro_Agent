@@ -267,7 +267,7 @@ class Autopilot:
 
 
 def _default_runner(w: dict[str, Any], prompt: str) -> str:
-    import gta5_agent
+    import agent_core
 
     if w.get("bot"):
         import bots
@@ -276,11 +276,11 @@ def _default_runner(w: dict[str, Any], prompt: str) -> str:
         if bot is None:
             return f"No bot named {w['bot']}."
         return bots.run_bot(bot, prompt, [], unattended=True)
-    gta5_agent.set_unattended(True)
+    agent_core.set_unattended(True)
     try:
-        reply = gta5_agent.run_agent(prompt, [], os.environ.get("GEMINI_MODEL", gta5_agent.DEFAULT_MODEL))
+        reply = agent_core.run_agent(prompt, [], os.environ.get("GEMINI_MODEL", agent_core.DEFAULT_MODEL))
     finally:
-        gta5_agent.set_unattended(False)
+        agent_core.set_unattended(False)
     import confirm_action
 
     waiting = confirm_action.pending()

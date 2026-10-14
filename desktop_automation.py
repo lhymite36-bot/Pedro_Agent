@@ -13,9 +13,9 @@ _MAX_STEPS = 8
 
 
 def _agent() -> Any:
-    import gta5_agent
+    import agent_core
 
-    return gta5_agent
+    return agent_core
 
 
 def _steps(raw: Any) -> list[dict[str, Any]] | str:

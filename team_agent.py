@@ -50,10 +50,10 @@ def settings() -> dict[str, Any]:
 
 
 def tools_for(role: str) -> set[str]:
-    import gta5_agent
+    import agent_core
 
     pattern = re.compile(ROLES[role]["tools"], re.I)
-    names = {name for name in gta5_agent.TOOLS if pattern.search(name)} | (ALWAYS & set(gta5_agent.TOOLS))
+    names = {name for name in agent_core.TOOLS if pattern.search(name)} | (ALWAYS & set(agent_core.TOOLS))
     names.discard("run_team")  # no recursion
     return {name for name in names if rules.tool_block_reason(name) is None}
 
@@ -83,17 +83,17 @@ def plan(goal: str) -> list[dict[str, str]]:
 
 
 def _default_runner(role: str, task: str, tools: set[str]) -> str:
-    import gta5_agent
+    import agent_core
 
     prompt = (
         f"[Team member: {role}] {ROLES[role]['brief']} Only use these tools: "
         f"{', '.join(sorted(tools)) or 'none'}. Do this sub-task and report the result briefly.\n\n{task}"
     )
-    gta5_agent.set_tool_scope(tools)
+    agent_core.set_tool_scope(tools)
     try:
-        return gta5_agent.run_agent(prompt, [], os.environ.get("GEMINI_MODEL", gta5_agent.DEFAULT_MODEL))
+        return agent_core.run_agent(prompt, [], os.environ.get("GEMINI_MODEL", agent_core.DEFAULT_MODEL))
     finally:
-        gta5_agent.set_tool_scope(None)
+        agent_core.set_tool_scope(None)
 
 
 def _run_step(step: dict[str, str], cancel: threading.Event | None) -> dict[str, Any]:
@@ -136,11 +136,11 @@ def review(goal: str, results: list[dict[str, Any]]) -> dict[str, Any]:
 
 def run_team(goal: str, cancel_event: threading.Event | None = None,
              on_event: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
-    import gta5_agent
+    import agent_core
 
     goal = " ".join((goal or "").split())
     if not goal:
-        return gta5_agent._err("A goal is required.")
+        return agent_core._err("A goal is required.")
     cfg = settings()
     emit = on_event or LIVE_EMIT or (lambda _e: None)
     steps = plan(goal)
@@ -166,7 +166,7 @@ def run_team(goal: str, cancel_event: threading.Event | None = None,
                     results[index] = _run_step({"role": results[index]["role"], "task": task}, cancel_event)
             verdict = review(goal, results)
         emit({"event": "team_review", "ok": verdict["ok"]})
-    return gta5_agent._ok(
+    return agent_core._ok(
         verdict["summary"],
         reviewed=bool(cfg.get("review", True)),
         approved=verdict["ok"],

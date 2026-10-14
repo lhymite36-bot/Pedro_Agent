@@ -18,9 +18,9 @@ _SHELL = re.compile(r"[&|;`<>]")
 
 
 def _agent() -> Any:
-    import gta5_agent
+    import agent_core
 
-    return gta5_agent
+    return agent_core
 
 
 def reset() -> None:

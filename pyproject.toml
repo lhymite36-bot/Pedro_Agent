@@ -1,6 +1,6 @@
 [project]
-name = "gta5-mod-agent"
-version = "1.0.0"
+name = "pedro-agent"
+version = "1.4.3"
 description = "Pedro_Agent, a local Gemini assistant for voice, files, and desktop tools."
 readme = "README.md"
 requires-python = ">=3.10"

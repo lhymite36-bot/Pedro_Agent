@@ -5,7 +5,7 @@
     python main.py --voice
 """
 
-from gta5_agent import main
+from agent_core import main
 
 if __name__ == "__main__":
     raise SystemExit(main())

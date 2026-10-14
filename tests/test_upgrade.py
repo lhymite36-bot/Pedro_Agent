@@ -17,7 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ["PEDRO_AGENT_NO_FILE_LOG"] = "1"
 
-import gta5_agent  # noqa: E402
+import agent_core  # noqa: E402
 import confirm_action  # noqa: E402
 import rules  # noqa: E402
 
@@ -33,16 +33,16 @@ class _RulesCase(unittest.TestCase):
         os.environ["STORAGE_DIR"] = str(self.root / "storage")
         rules.reset_cache()
         confirm_action.reset()
-        gta5_agent.voice_mode_active = False
-        gta5_agent.begin_task_turn("")
-        self.saved = (gta5_agent.genai_client_override, gta5_agent.network_up_override,
-                      gta5_agent.screenshot_override, gta5_agent.vision_locator_override,
-                      gta5_agent.tool_timeout_override)
+        agent_core.voice_mode_active = False
+        agent_core.begin_task_turn("")
+        self.saved = (agent_core.genai_client_override, agent_core.network_up_override,
+                      agent_core.screenshot_override, agent_core.vision_locator_override,
+                      agent_core.tool_timeout_override)
 
     def tearDown(self) -> None:
-        (gta5_agent.genai_client_override, gta5_agent.network_up_override,
-         gta5_agent.screenshot_override, gta5_agent.vision_locator_override,
-         gta5_agent.tool_timeout_override) = self.saved
+        (agent_core.genai_client_override, agent_core.network_up_override,
+         agent_core.screenshot_override, agent_core.vision_locator_override,
+         agent_core.tool_timeout_override) = self.saved
         for key in ("RULES_FILE", "STORAGE_DIR"):
             os.environ.pop(key, None)
         rules.reset_cache()
@@ -89,8 +89,8 @@ class RulesTests(_RulesCase):
         self.assertTrue(rules.path_allowed(Path("/opt/somewhere/a.xlsx")))
         self.assertTrue(rules.path_allowed(Path("C:/Windows/notes.txt")))
         self.assertIsNone(rules.file_write_reason(Path("tool.exe")))
-        self.assertTrue(gta5_agent._path_is_allowed(Path("/opt/x.txt")))
-        self.assertIsNone(gta5_agent._protected_reason(Path("x.exe")))
+        self.assertTrue(agent_core._path_is_allowed(Path("/opt/x.txt")))
+        self.assertIsNone(agent_core._protected_reason(Path("x.exe")))
 
     def test_user_can_block_folders_and_extensions(self) -> None:
         secret = self.root / "secret"
@@ -102,7 +102,7 @@ class RulesTests(_RulesCase):
 
     def test_tool_block_and_allow_lists(self) -> None:
         self.write_rules({"tools": {"blocked": ["open_website"]}})
-        result = gta5_agent.invoke_tool("open_website", {"url": "https://example.com"})
+        result = agent_core.invoke_tool("open_website", {"url": "https://example.com"})
         self.assertFalse(result["ok"])
         self.assertTrue(result.get("blocked_by_rules"))
         self.write_rules({"tools": {"allowed": ["recall_memory"]}})
@@ -126,7 +126,7 @@ class RulesTests(_RulesCase):
         with self.assertRaises(Exception):
             rules.save_text("{not json")
         rules.save_text(json.dumps({"agent": {"max_tool_rounds": 7}}))
-        self.assertEqual(gta5_agent.max_tool_rounds(), 7)
+        self.assertEqual(agent_core.max_tool_rounds(), 7)
 
 
 class FileToolTests(_RulesCase):
@@ -135,24 +135,24 @@ class FileToolTests(_RulesCase):
         target = self.root / "old.txt"
         target.write_text("x")
         args = {"path": str(target)}
-        first = gta5_agent.invoke_tool("delete_path", args)
+        first = agent_core.invoke_tool("delete_path", args)
         self.assertTrue(first.get("needs_confirmation"))
         self.assertTrue(target.exists())
-        gta5_agent.begin_task_turn("yes")
-        second = gta5_agent.invoke_tool("delete_path", args)
+        agent_core.begin_task_turn("yes")
+        second = agent_core.invoke_tool("delete_path", args)
         self.assertTrue(second["ok"], second)
         self.assertFalse(target.exists())
 
     def test_write_respects_rules(self) -> None:
         self.write_rules({"paths": {"allowed": [str(self.root)]}})
-        ok = gta5_agent.invoke_tool("write_text_file", {"path": str(self.root / "a" / "n.md"), "content": "hi"})
+        ok = agent_core.invoke_tool("write_text_file", {"path": str(self.root / "a" / "n.md"), "content": "hi"})
         self.assertTrue(ok["ok"], ok)
-        bad = gta5_agent.invoke_tool("write_text_file", {"path": "/opt/nope.md", "content": "hi"})
+        bad = agent_core.invoke_tool("write_text_file", {"path": "/opt/nope.md", "content": "hi"})
         self.assertFalse(bad["ok"])
-        exe = gta5_agent.invoke_tool("write_text_file", {"path": str(self.root / "t.exe"), "content": "x"})
+        exe = agent_core.invoke_tool("write_text_file", {"path": str(self.root / "t.exe"), "content": "x"})
         self.assertTrue(exe["ok"], exe)  # allowed by default
         self.write_rules({"paths": {"allowed": [str(self.root)]}, "files": {"allow_exe_writes": False}})
-        exe = gta5_agent.invoke_tool("write_text_file", {"path": str(self.root / "u.exe"), "content": "x"})
+        exe = agent_core.invoke_tool("write_text_file", {"path": str(self.root / "u.exe"), "content": "x"})
         self.assertIn("executable", exe["error"])
 
 
@@ -164,7 +164,7 @@ class LimitSwitchTests(_RulesCase):
         ran = []
         task_schedule.program_runner_override = ran.append
         try:
-            queued = gta5_agent.invoke_tool("job_scheduler", {
+            queued = agent_core.invoke_tool("job_scheduler", {
                 "task": "run_program", "message": "C:/tools/backup.py --full", "daily_at": "02:00"})
             self.assertTrue(queued["ok"], queued)
             job = task_schedule._jobs[-1]
@@ -173,7 +173,7 @@ class LimitSwitchTests(_RulesCase):
             self.assertEqual(ran[0][1:], ["C:/tools/backup.py", "--full"])
             self.assertTrue(ran[0][0].endswith(("python", "python3", "python.exe")) or "python" in ran[0][0])
             self.write_rules({"limits": {"scheduler_allowlist_only": True}})
-            refused = gta5_agent.invoke_tool("job_scheduler", {"task": "backup.py", "delay_minutes": 5})
+            refused = agent_core.invoke_tool("job_scheduler", {"task": "backup.py", "delay_minutes": 5})
             self.assertFalse(refused["ok"])
             self.assertIn("scheduler_allowlist_only", refused["error"])
         finally:
@@ -186,23 +186,23 @@ class LimitSwitchTests(_RulesCase):
         self.assertEqual(rules.cap("max_plan_steps", 8), 8)
         self.assertEqual(rules.cap("max_action_batch", 12), 3)
         steps = [f"step {i}" for i in range(10)]
-        capped = gta5_agent.invoke_tool("create_task_plan", {"goal": "g", "steps": steps})
+        capped = agent_core.invoke_tool("create_task_plan", {"goal": "g", "steps": steps})
         self.assertIn("max_plan_steps", capped["error"])
         self.write_rules({})
-        gta5_agent.begin_task_turn("")
-        ok = gta5_agent.invoke_tool("create_task_plan", {"goal": "g", "steps": steps})
+        agent_core.begin_task_turn("")
+        ok = agent_core.invoke_tool("create_task_plan", {"goal": "g", "steps": steps})
         self.assertTrue(ok["ok"], ok)
 
     def test_sql_and_excel_switches(self) -> None:
         with self.assertRaises(ValueError):
             self.write_rules({"limits": {"sql_safe_mode": True}})
-            gta5_agent._sql_text("EXEC xp_cmdshell 'dir'")
+            agent_core._sql_text("EXEC xp_cmdshell 'dir'")
         self.write_rules({})
-        self.assertIn("xp_cmdshell", gta5_agent._sql_text("EXEC xp_cmdshell 'dir'"))
-        self.assertEqual(gta5_agent._excel_cell("=WEBSERVICE(\"x\")"), "=WEBSERVICE(\"x\")")
+        self.assertIn("xp_cmdshell", agent_core._sql_text("EXEC xp_cmdshell 'dir'"))
+        self.assertEqual(agent_core._excel_cell("=WEBSERVICE(\"x\")"), "=WEBSERVICE(\"x\")")
         self.write_rules({"limits": {"excel_block_risky_formulas": True}})
         with self.assertRaises(ValueError):
-            gta5_agent._excel_cell("=WEBSERVICE(\"x\")")
+            agent_core._excel_cell("=WEBSERVICE(\"x\")")
 
     def test_secret_text_switch(self) -> None:
         import browser_download
@@ -217,16 +217,16 @@ class LimitSwitchTests(_RulesCase):
             browser_download._actions([{"action": "press", "key": "Control+A"}])
 
     def test_protect_switches(self) -> None:
-        agent_file = Path(gta5_agent.__file__).resolve()
+        agent_file = Path(agent_core.__file__).resolve()
         self.write_rules({"confirm": {"enabled": False}})
-        blocked = gta5_agent.invoke_tool("delete_path", {"path": str(agent_file)})
+        blocked = agent_core.invoke_tool("delete_path", {"path": str(agent_file)})
         self.assertIn("never_delete_agent_folder", blocked["error"])
         self.assertTrue(agent_file.exists())
         root = Path(Path.home().anchor)
-        self.assertIn("never_delete_drive_root", gta5_agent.invoke_tool("delete_path", {"path": str(root)})["error"])
+        self.assertIn("never_delete_drive_root", agent_core.invoke_tool("delete_path", {"path": str(root)})["error"])
 
     def test_prompt_defers_to_rules(self) -> None:
-        prompt = gta5_agent.SYSTEM_PROMPT
+        prompt = agent_core.SYSTEM_PROMPT
         self.assertIn("ONLY restrictions", prompt)
         self.assertNotIn("Do not schedule a script", prompt)
         self.assertNotIn("Never replace an .exe", prompt)
@@ -235,20 +235,20 @@ class LimitSwitchTests(_RulesCase):
 
 class ReliabilityTests(_RulesCase):
     def test_stuck_tool_times_out(self) -> None:
-        gta5_agent.tool_timeout_override = 0.2
-        gta5_agent.TOOLS["_slow_test_tool"] = lambda: (time.sleep(2), {"ok": True})[1]
+        agent_core.tool_timeout_override = 0.2
+        agent_core.TOOLS["_slow_test_tool"] = lambda: (time.sleep(2), {"ok": True})[1]
         try:
             started = time.monotonic()
-            result = gta5_agent.invoke_tool("_slow_test_tool", {})
+            result = agent_core.invoke_tool("_slow_test_tool", {})
             self.assertLess(time.monotonic() - started, 1.5)
             self.assertFalse(result["ok"])
             self.assertIn("timed out", result["error"])
         finally:
-            del gta5_agent.TOOLS["_slow_test_tool"]
+            del agent_core.TOOLS["_slow_test_tool"]
 
     def test_model_candidates_use_rules_order(self) -> None:
         self.write_rules({"agent": {"models": ["m-two", "m-three"]}})
-        order = gta5_agent.model_candidates("m-one")
+        order = agent_core.model_candidates("m-one")
         self.assertEqual(order[:3], ["m-one", "m-two", "m-three"])
         self.assertEqual(len(order), len(set(order)))
 
@@ -266,7 +266,7 @@ class ReliabilityTests(_RulesCase):
     def test_quota_falls_back_to_next_model_and_emits_event(self) -> None:
         self.write_rules({"agent": {"models": ["second-model"]}})
         os.environ.setdefault("GEMINI_API_KEY", "test-key-123")
-        gta5_agent.network_up_override = True
+        agent_core.network_up_override = True
         seen = []
 
         def behaviour(kwargs):
@@ -277,9 +277,9 @@ class ReliabilityTests(_RulesCase):
             cand = types.SimpleNamespace(content=types.SimpleNamespace(parts=[part]))
             return types.SimpleNamespace(candidates=[cand], function_calls=None, text="Done.")
 
-        gta5_agent.genai_client_override = self._fake_client(behaviour)
+        agent_core.genai_client_override = self._fake_client(behaviour)
         events = []
-        reply = gta5_agent.run_agent("hello", [], "first-model", on_event=events.append)
+        reply = agent_core.run_agent("hello", [], "first-model", on_event=events.append)
         self.assertEqual(reply, "Done.")
         self.assertEqual(seen[:2], ["first-model", "second-model"])
         kinds = [e["event"] for e in events]
@@ -288,7 +288,7 @@ class ReliabilityTests(_RulesCase):
 
     def test_tool_events_are_emitted(self) -> None:
         os.environ.setdefault("GEMINI_API_KEY", "test-key-123")
-        gta5_agent.network_up_override = True
+        agent_core.network_up_override = True
         calls = {"n": 0}
 
         def behaviour(kwargs):
@@ -302,9 +302,9 @@ class ReliabilityTests(_RulesCase):
             cand = types.SimpleNamespace(content=types.SimpleNamespace(parts=[part]))
             return types.SimpleNamespace(candidates=[cand], function_calls=None, text="All set.")
 
-        gta5_agent.genai_client_override = self._fake_client(behaviour)
+        agent_core.genai_client_override = self._fake_client(behaviour)
         events = []
-        reply = gta5_agent.run_agent("what do you remember", [], "m", on_event=events.append)
+        reply = agent_core.run_agent("what do you remember", [], "m", on_event=events.append)
         self.assertEqual(reply, "All set.")
         names = [(e["event"], e.get("name")) for e in events]
         self.assertIn(("tool_start", "recall_memory"), names)
@@ -314,23 +314,23 @@ class ReliabilityTests(_RulesCase):
 class VisionTests(_RulesCase):
     def setUp(self) -> None:
         super().setUp()
-        gta5_agent.VISION_SETTLE_SECONDS = 0
+        agent_core.VISION_SETTLE_SECONDS = 0
         self.frames = [b"frame-a", b"frame-b", b"frame-c", b"frame-d"]
         self.clicks = []
-        gta5_agent.screenshot_override = None
-        self.orig_shot = gta5_agent.take_screenshot
-        self.orig_click = gta5_agent.click_element
+        agent_core.screenshot_override = None
+        self.orig_shot = agent_core.take_screenshot
+        self.orig_click = agent_core.click_element
 
         def fake_shot():
             data = self.frames.pop(0) if len(self.frames) > 1 else self.frames[0]
             return {"ok": True, "_screenshot_bytes": data, "_screenshot_mime": "image/jpeg"}
 
-        gta5_agent.take_screenshot = fake_shot
-        gta5_agent.click_element = lambda x, y, clicks=1: (self.clicks.append((x, y, clicks)), {"ok": True})[1]
+        agent_core.take_screenshot = fake_shot
+        agent_core.click_element = lambda x, y, clicks=1: (self.clicks.append((x, y, clicks)), {"ok": True})[1]
 
     def tearDown(self) -> None:
-        gta5_agent.take_screenshot = self.orig_shot
-        gta5_agent.click_element = self.orig_click
+        agent_core.take_screenshot = self.orig_shot
+        agent_core.click_element = self.orig_click
         super().tearDown()
 
     def test_parse_box_to_centre(self) -> None:
@@ -342,16 +342,16 @@ class VisionTests(_RulesCase):
 
     def test_click_retries_until_found(self) -> None:
         answers = [{"found": False}, {"found": True, "x": 510, "y": 220}]
-        gta5_agent.vision_locator_override = lambda img, mime, desc: answers.pop(0)
-        result = gta5_agent.invoke_tool("click_screen_target", {"description": "Sign in", "retries": 2})
+        agent_core.vision_locator_override = lambda img, mime, desc: answers.pop(0)
+        result = agent_core.invoke_tool("click_screen_target", {"description": "Sign in", "retries": 2})
         self.assertTrue(result["ok"], result)
         self.assertEqual(self.clicks, [(510, 220, 1)])
         self.assertEqual(result["attempts"], 2)
         self.assertTrue(result["screen_changed"])
 
     def test_find_reports_missing(self) -> None:
-        gta5_agent.vision_locator_override = lambda img, mime, desc: {"found": False}
-        result = gta5_agent.invoke_tool("find_on_screen", {"description": "a unicorn"})
+        agent_core.vision_locator_override = lambda img, mime, desc: {"found": False}
+        result = agent_core.invoke_tool("find_on_screen", {"description": "a unicorn"})
         self.assertFalse(result["ok"])
         self.assertEqual(self.clicks, [])
 
@@ -401,12 +401,12 @@ class SpeedTests(VisionTests):
 
     def test_ui_automation_is_tried_before_vision(self) -> None:
         asked = []
-        gta5_agent.uia_finder_override = lambda name, win: (asked.append(name), {"found": True, "x": 100, "y": 900, "via": "uiautomation"})[1]
-        gta5_agent.vision_locator_override = lambda *a: self.fail("vision should not run")
+        agent_core.uia_finder_override = lambda name, win: (asked.append(name), {"found": True, "x": 100, "y": 900, "via": "uiautomation"})[1]
+        agent_core.vision_locator_override = lambda *a: self.fail("vision should not run")
         try:
-            result = gta5_agent.invoke_tool("click_screen_target", {"description": "the OK button"})
+            result = agent_core.invoke_tool("click_screen_target", {"description": "the OK button"})
         finally:
-            gta5_agent.uia_finder_override = None
+            agent_core.uia_finder_override = None
         self.assertTrue(result["ok"], result)
         self.assertEqual(result["via"], "uiautomation")
         self.assertEqual(asked[0], "OK")
@@ -414,13 +414,13 @@ class SpeedTests(VisionTests):
 
     def test_vision_fallback_gets_shrunk_image_and_no_second_vision_call(self) -> None:
         self.frames[:] = [_png((0, 0, 0), (1920, 1080)), _png((255, 255, 255), (1920, 1080))]
-        gta5_agent.uia_finder_override = lambda name, win: None
+        agent_core.uia_finder_override = lambda name, win: None
         seen = []
-        gta5_agent.vision_locator_override = lambda img, mime, d: (seen.append((len(img), mime)), {"found": True, "x": 5, "y": 5})[1]
+        agent_core.vision_locator_override = lambda img, mime, d: (seen.append((len(img), mime)), {"found": True, "x": 5, "y": 5})[1]
         try:
-            result = gta5_agent.invoke_tool("click_screen_target", {"description": "logo"})
+            result = agent_core.invoke_tool("click_screen_target", {"description": "logo"})
         finally:
-            gta5_agent.uia_finder_override = None
+            agent_core.uia_finder_override = None
         self.assertTrue(result["ok"], result)
         self.assertEqual(len(seen), 1)  # verification used pixel diff, not vision
         self.assertEqual(seen[0][1], "image/jpeg")
@@ -448,7 +448,7 @@ class ChatAppTests(_RulesCase):
     def test_server_streams_events_and_edits_rules(self) -> None:
         import chat_app
 
-        original = gta5_agent.run_agent
+        original = agent_core.run_agent
 
         def fake_run(text, history, model, *, cancel_event=None, on_text=None, on_event=None, **kw):
             on_event({"event": "tool_start", "name": "recall_memory"})
@@ -456,7 +456,7 @@ class ChatAppTests(_RulesCase):
             on_text("Pedro.")
             return "Hello Pedro."
 
-        gta5_agent.run_agent = fake_run
+        agent_core.run_agent = fake_run
         server, _state = chat_app.serve("m", port=0)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         base = f"http://127.0.0.1:{server.server_address[1]}"
@@ -484,7 +484,7 @@ class ChatAppTests(_RulesCase):
             with self.assertRaises(urllib.error.HTTPError):
                 urllib.request.urlopen(evil)
         finally:
-            gta5_agent.run_agent = original
+            agent_core.run_agent = original
             server.shutdown()
             server.server_close()
             import chat_store
@@ -515,7 +515,7 @@ class ChatVoiceTests(_RulesCase):
         state.speak = True
         pipe = self.FakePipeline(barge)
         state.pipeline_factory = lambda: pipe
-        original = gta5_agent.run_agent
+        original = agent_core.run_agent
 
         def fake_run(text, history, model, *, cancel_event=None, on_text=None, on_event=None, **kw):
             on_text("First sentence.")
@@ -524,12 +524,12 @@ class ChatVoiceTests(_RulesCase):
             on_text("Second one.")
             return "First sentence. Second one."
 
-        gta5_agent.run_agent = fake_run
+        agent_core.run_agent = fake_run
         events = []
         try:
             chat_app.stream_turn(state, "s", "hi", events.append)
         finally:
-            gta5_agent.run_agent = original
+            agent_core.run_agent = original
             import chat_store
 
             chat_store.close()
@@ -552,14 +552,14 @@ class ChatVoiceTests(_RulesCase):
     def test_listen_uses_local_microphone_pipeline(self) -> None:
         import chat_app
 
-        original = gta5_agent.listen_to_microphone
+        original = agent_core.listen_to_microphone
         calls = []
-        gta5_agent.listen_to_microphone = lambda **kw: (calls.append(kw), {"ok": True, "text": "what time is it"})[1]
+        agent_core.listen_to_microphone = lambda **kw: (calls.append(kw), {"ok": True, "text": "what time is it"})[1]
         try:
             state = chat_app.AppState("m")
             heard = chat_app.listen_once(state)
         finally:
-            gta5_agent.listen_to_microphone = original
+            agent_core.listen_to_microphone = original
         self.assertEqual(heard, {"ok": True, "text": "what time is it", "error": "", "kind": "speech"})
         self.assertFalse(calls[0]["announce"])
 
@@ -576,13 +576,13 @@ class ChatVoiceTests(_RulesCase):
         state = chat_app.AppState("m")
         state.speak = speak
         state.pipeline_factory = lambda: pipe
-        original = gta5_agent.run_agent
-        gta5_agent.run_agent = lambda *a, **k: "Reply."
+        original = agent_core.run_agent
+        agent_core.run_agent = lambda *a, **k: "Reply."
         events = []
         try:
             chat_app.stream_turn(state, "s", "hi", events.append)
         finally:
-            gta5_agent.run_agent = original
+            agent_core.run_agent = original
             chat_store.close()
         return state, events
 
@@ -616,17 +616,17 @@ class ChatVoiceTests(_RulesCase):
         import chat_app
 
         state = chat_app.AppState("m")
-        original = gta5_agent.run_agent
+        original = agent_core.run_agent
 
         def boom(*a, **k):
             raise RuntimeError("quota")
 
-        gta5_agent.run_agent = boom
+        agent_core.run_agent = boom
         events = []
         try:
             chat_app.stream_turn(state, "s", "hi", events.append)
         finally:
-            gta5_agent.run_agent = original
+            agent_core.run_agent = original
         self.assertEqual(events[-1]["event"], "speech_end")
         self.assertIn("error", [e["event"] for e in events])
 
@@ -635,15 +635,15 @@ class ChatVoiceTests(_RulesCase):
         import wake_word
 
         state = chat_app.AppState("m")
-        original = gta5_agent.listen_to_microphone
+        original = agent_core.listen_to_microphone
         pauses = []
         orig_pause, orig_resume = wake_word.pause_wake_listener, wake_word.resume_wake_listener
         wake_word.pause_wake_listener = lambda: pauses.append("pause")
         wake_word.resume_wake_listener = lambda: pauses.append("resume")
         try:
-            gta5_agent.listen_to_microphone = lambda **kw: {"ok": False, "error": "No speech heard. Try again."}
+            agent_core.listen_to_microphone = lambda **kw: {"ok": False, "error": "No speech heard. Try again."}
             self.assertEqual(chat_app.listen_once(state)["kind"], "silence")
-            gta5_agent.listen_to_microphone = lambda **kw: {"ok": False, "error": "Microphone access failed: [Errno -9999]"}
+            agent_core.listen_to_microphone = lambda **kw: {"ok": False, "error": "Microphone access failed: [Errno -9999]"}
             failed = chat_app.listen_once(state)
             self.assertEqual(failed["kind"], "error")
             self.assertIn("Errno", failed["error"])
@@ -651,14 +651,14 @@ class ChatVoiceTests(_RulesCase):
             def crash(**kw):
                 raise OSError("stream closed")
 
-            gta5_agent.listen_to_microphone = crash
+            agent_core.listen_to_microphone = crash
             crashed = chat_app.listen_once(state)
             self.assertEqual(crashed["kind"], "error")
             self.assertTrue(state.mic_lock.acquire(blocking=False), "mic lock released")
             state.mic_lock.release()
             self.assertEqual(pauses, ["pause", "resume"] * 3)
         finally:
-            gta5_agent.listen_to_microphone = original
+            agent_core.listen_to_microphone = original
             wake_word.pause_wake_listener, wake_word.resume_wake_listener = orig_pause, orig_resume
 
     def test_handsfree_js_logic(self) -> None:
@@ -691,9 +691,9 @@ class TelegramBridgeTests(_RulesCase):
         self.saved_env = {k: os.environ.get(k) for k in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID")}
         os.environ["TELEGRAM_BOT_TOKEN"] = "123456:test-token"
         os.environ["TELEGRAM_CHAT_ID"] = "42"
-        self.saved_transport = gta5_agent.remote_transport_override
-        self.saved_reply = gta5_agent.remote_reply_override
-        gta5_agent.remote_reply_override = None
+        self.saved_transport = agent_core.remote_transport_override
+        self.saved_reply = agent_core.remote_reply_override
+        agent_core.remote_reply_override = None
 
         def transport(kind, payload):
             if kind == "telegram_updates":
@@ -703,7 +703,7 @@ class TelegramBridgeTests(_RulesCase):
                 self.sent.append(payload["body"]["text"])
             return {"ok": True}
 
-        gta5_agent.remote_transport_override = transport
+        agent_core.remote_transport_override = transport
 
     def tearDown(self) -> None:
         import chat_app
@@ -711,8 +711,8 @@ class TelegramBridgeTests(_RulesCase):
 
         chat_app.detach_telegram()
         self.rb.reset_remote_bridge()
-        gta5_agent.remote_transport_override = self.saved_transport
-        gta5_agent.remote_reply_override = self.saved_reply
+        agent_core.remote_transport_override = self.saved_transport
+        agent_core.remote_reply_override = self.saved_reply
         for k, v in self.saved_env.items():
             if v is None:
                 os.environ.pop(k, None)
@@ -730,14 +730,14 @@ class TelegramBridgeTests(_RulesCase):
         import chat_store
 
         state = chat_app.AppState("m")
-        original = gta5_agent.run_agent
+        original = agent_core.run_agent
         seen_histories = []
 
         def fake_run(text, history, model, **kw):
             seen_histories.append(len(history))
             return f"echo: {text}"
 
-        gta5_agent.run_agent = fake_run
+        agent_core.run_agent = fake_run
         try:
             chat_app.attach_telegram(state)
             self.assertTrue(self.rb.bridge_running())
@@ -746,7 +746,7 @@ class TelegramBridgeTests(_RulesCase):
             self.message("spam", chat=99)  # other chats ignored
             self.rb.poll_once()
         finally:
-            gta5_agent.run_agent = original
+            agent_core.run_agent = original
         self.assertEqual(self.sent, ["echo: hello"])
         rows = chat_store.history(chat_app.TELEGRAM_SESSION)
         self.assertEqual([r["text"] for r in rows], ["hello", "echo: hello"])
@@ -771,7 +771,7 @@ class TelegramBridgeTests(_RulesCase):
         def conflict(kind, payload):
             raise RuntimeError("HTTP Error 409: Conflict")
 
-        gta5_agent.remote_transport_override = conflict
+        agent_core.remote_transport_override = conflict
         result = self.rb.poll_once()
         self.assertFalse(result["ok"])
         self.assertTrue(result.get("conflict"))
@@ -784,9 +784,9 @@ class TelegramBridgeTests(_RulesCase):
         target.write_text("x")
 
         def reply(text):
-            return gta5_agent.invoke_tool("delete_path", {"path": str(target)}).get("error", "")
+            return agent_core.invoke_tool("delete_path", {"path": str(target)}).get("error", "")
 
-        gta5_agent.remote_reply_override = reply
+        agent_core.remote_reply_override = reply
         self.message("delete old.txt")
         self.rb.poll_once()
         self.assertIn("Reply yes", self.sent[-1])
@@ -860,14 +860,14 @@ class NewUiTests(_RulesCase):
             chat_app.shutdown(server)
 
     def test_tool_end_carries_image_for_preview(self) -> None:
-        self.assertEqual(gta5_agent._result_image({"path": "C:/x/latest.jpg"}), "C:/x/latest.jpg")
-        self.assertIsNone(gta5_agent._result_image({"path": "C:/x/notes.txt"}))
+        self.assertEqual(agent_core._result_image({"path": "C:/x/latest.jpg"}), "C:/x/latest.jpg")
+        self.assertIsNone(agent_core._result_image({"path": "C:/x/notes.txt"}))
 
     def test_piracy_commit_message_refused_with_default_rules(self) -> None:
         import git_manager
 
-        self.assertIn("crack", git_manager._message_problem(gta5_agent, "add the fitgirl repack"))
-        self.assertIsNone(git_manager._message_problem(gta5_agent, "fix the timer"))
+        self.assertIn("crack", git_manager._message_problem(agent_core, "add the fitgirl repack"))
+        self.assertIsNone(git_manager._message_problem(agent_core, "fix the timer"))
 
 
 if __name__ == "__main__":

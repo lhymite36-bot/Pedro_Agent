@@ -6,7 +6,7 @@ centre. click_screen_target does the same, optionally focuses a window
 first, clicks, and retries with a fresh screenshot when the element was not
 found or the screen did not change.
 
-Tests set gta5_agent.vision_locator_override = fn(image_bytes, mime, description)
+Tests set agent_core.vision_locator_override = fn(image_bytes, mime, description)
 -> {"found": bool, "x": int, "y": int, "label": str}.
 """
 
@@ -28,9 +28,9 @@ _PROMPT = (
 
 
 def _agent() -> Any:
-    import gta5_agent
+    import agent_core
 
-    return gta5_agent
+    return agent_core
 
 
 def _parse(text: str) -> dict[str, Any]:

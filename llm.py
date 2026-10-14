@@ -29,7 +29,7 @@ def text(prompt: str, images: list[bytes] | None = None, *, model: str | None = 
     images = list(images or [])
     if override is not None:
         return str(override(prompt, images) or "")
-    import gta5_agent
+    import agent_core
 
     key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not key:
@@ -37,7 +37,7 @@ def text(prompt: str, images: list[bytes] | None = None, *, model: str | None = 
     from google import genai
     from google.genai import types
 
-    client = gta5_agent.genai_client_override(key) if gta5_agent.genai_client_override else genai.Client(api_key=key)
+    client = agent_core.genai_client_override(key) if agent_core.genai_client_override else genai.Client(api_key=key)
     parts: list[Any] = [prompt]
     for blob in images:
         mime = "image/png" if blob[:4] == b"\x89PNG" else "image/jpeg"
@@ -46,7 +46,7 @@ def text(prompt: str, images: list[bytes] | None = None, *, model: str | None = 
     for name in ([model] if model else _models()):
         try:
             response = client.models.generate_content(model=name, contents=parts)
-            return getattr(response, "text", None) or gta5_agent._text_from(response)
+            return getattr(response, "text", None) or agent_core._text_from(response)
         except Exception as exc:  # quota or unknown model: try the next one
             last = exc
     raise RuntimeError(f"Gemini call failed: {last}")

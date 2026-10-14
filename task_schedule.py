@@ -49,9 +49,9 @@ _thread: threading.Thread | None = None
 
 
 def _agent() -> Any:
-    import gta5_agent
+    import agent_core
 
-    return gta5_agent
+    return agent_core
 
 
 def clear_jobs() -> None:

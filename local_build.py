@@ -28,9 +28,9 @@ _INSTALLER = re.compile(
 
 
 def _agent() -> Any:
-    import gta5_agent
+    import agent_core
 
-    return gta5_agent
+    return agent_core
 
 
 def _safe_name(name: str) -> str:

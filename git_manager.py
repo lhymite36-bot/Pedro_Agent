@@ -34,7 +34,7 @@ TIMEOUT_SECONDS = 120
 
 
 def _agent() -> Any:
-    return __import__("gta5_agent")
+    return __import__("agent_core")
 
 
 def _resolve_repo(agent: Any, path: str) -> Path:

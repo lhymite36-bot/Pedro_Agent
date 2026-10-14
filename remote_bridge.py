@@ -125,9 +125,9 @@ class _RefuseRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def _agent() -> Any:
-    import gta5_agent
+    import agent_core
 
-    return gta5_agent
+    return agent_core
 
 
 def _token() -> str:
@@ -560,10 +560,10 @@ def _answer(text: str) -> str:
     if answer_handler is not None:
         reply = answer_handler(text)
         return _scrubbed(_with_confirm_hint(str(reply or "")))[:3500]
-    import gta5_agent
+    import agent_core
 
     # One running conversation per process, so "yes" follow-ups have context.
-    answer = gta5_agent.run_agent(text, _console_history, os.environ.get("GEMINI_MODEL", gta5_agent.DEFAULT_MODEL))
+    answer = agent_core.run_agent(text, _console_history, os.environ.get("GEMINI_MODEL", agent_core.DEFAULT_MODEL))
     del _console_history[:-40]
     return _scrubbed(_with_confirm_hint(str(answer or "")))[:3500]
 

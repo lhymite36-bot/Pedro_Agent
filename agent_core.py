@@ -515,7 +515,7 @@ MCP tools:
 - Pass the server name and, for a call, the tool name and a JSON object of arguments. Do not pass a shell command.
 - Reverse engineering, decompilation, JavaScript/Electron unpacking, managed binary inspection, and native disassembly go through server "rea". Call list_tools on rea, then call the matching REA tool. Typical first tools: analyze_javascript_application for an ASAR or JS app, inspect_managed_artifact for a .NET assembly, open_binary for a native executable.
 - Skip REA when the work is ordinary source in this project. Do not use REA on game copies, BattlEye, .rpf archives, cracks, or repacks.
-- Routing notes live in skills/reverse-engineer-anything/SKILL.md. If no servers are configured, say so.
+- If no servers are configured, say so.
 
 Private replies:
 - If the user says to keep a request private, offline, or local only, answer on this PC with Ollama. Do not send that turn to Gemini.
@@ -6263,7 +6263,7 @@ def _play_mp3_windows(
     stop_event: threading.Event | None = None,
 ) -> None:
     """Play an mp3 with the Windows media API when pygame is unavailable."""
-    alias = f"gta5voice{threading.get_ident()}"
+    alias = f"pedrovoice{threading.get_ident()}"
     winmm = ctypes.windll.winmm
     buffer = ctypes.create_unicode_buffer(256)
 
@@ -6759,7 +6759,7 @@ def speak_response(
             pitch=pitch,
         )
     handle = tempfile.NamedTemporaryFile(
-        prefix="gta5-voice-",
+        prefix="pedro-voice-",
         suffix=".mp3",
         delete=False,
     )
@@ -6929,7 +6929,7 @@ class _SpeechPipeline:
         if not for_tts:
             return
         handle = tempfile.NamedTemporaryFile(
-            prefix="gta5-voice-",
+            prefix="pedro-voice-",
             suffix=".mp3",
             delete=False,
         )

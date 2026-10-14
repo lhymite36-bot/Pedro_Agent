@@ -59,9 +59,9 @@ _FORBIDDEN: tuple[tuple[str, str], ...] = (
 
 
 def _agent() -> Any:
-    import gta5_agent
+    import agent_core
 
-    return gta5_agent
+    return agent_core
 
 
 def reset_jobs() -> None:

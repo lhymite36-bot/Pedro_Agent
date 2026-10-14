@@ -86,9 +86,9 @@ def failure_report(limit: int = 10) -> dict[str, Any]:
 
 
 def _module_file(tool: str) -> Path:
-    import gta5_agent
+    import agent_core
 
-    function = gta5_agent.TOOLS.get(tool)
+    function = agent_core.TOOLS.get(tool)
     if function is None:
         raise ValueError(f"Unknown tool {tool}.")
     path = Path(inspect.getsourcefile(inspect.unwrap(function)) or "").resolve()
