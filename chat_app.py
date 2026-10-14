@@ -360,6 +360,10 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
             _pause_wake()
         with state.busy:
             try:
+                try:
+                    agent.plan_listener = emit
+                except Exception:
+                    pass
                 bot = bots.bot_for_session(session)
                 group = groups.group_for_session(session)
                 if group is not None:
@@ -405,6 +409,7 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
         try:
             import team_agent
             team_agent.LIVE_EMIT = None
+            agent.plan_listener = None
         except Exception:
             pass
         state.pipeline = None

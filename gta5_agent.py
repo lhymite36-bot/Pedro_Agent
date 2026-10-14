@@ -111,6 +111,7 @@ import code_loop
 import autopilot
 import self_upgrade
 import remote_access
+import task_runner
 import screen_vision
 
 APP_DIR = agent_config.APP_DIR
@@ -440,6 +441,14 @@ Phone bridge:
 - A Telegram voice note is transcribed and run as a command. The text answer goes back to that chat. Do not send a voice message for that note. Do not call send_remote_update unless the person asked to be texted.
 - Telegram answers only the chat in TELEGRAM_CHAT_ID. Discord webhooks receive alerts and cannot send commands back.
 - If the tool says the phone bridge is not set up, tell the user to set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID, or DISCORD_WEBHOOK_URL. Do not claim the message was sent.
+
+Multi-step tasks (read a task, work in apps, make a document, send it):
+- Call start_task first. If it refuses (graded test, exam, quiz), stop and offer to help the user study instead.
+- If it suggests a routine, call get_task_routine and follow it. Then create_task_plan with the steps and keep it updated with complete_plan_step / revise_task_plan.
+- Act with the normal tools (launch_any_app also opens Store apps, open_website, click/type tools). After every important step call verify_screen with what should now be visible; on NO, look (take_screenshot), fix and retry up to 3 times, then report the blocker honestly.
+- Documents: capture_screenshot_file after each finished part (crop out notifications), then make_document. Never fake or reuse screenshots.
+- Sending on WhatsApp: whatsapp_prepare (checks the contact name), show the user what will be sent, and only after their yes call whatsapp_send_now. Before clicking anything that sends, deletes, buys or submits a form, call confirm_before.
+- When a new kind of task worked, offer to save it with save_task_routine.
 
 Gmail:
 - "Send an email to john.doe@example.com saying ..." calls gmail_send_message with that address. Do not look up a contact when the address is already there.
@@ -3631,10 +3640,18 @@ def _plan_steps(raw: Any) -> list[str] | None:
     return steps
 
 
+plan_listener: Any = None  # chat_app sets this to stream the live checklist
+
+
 def _log_plan(kind: str) -> None:
     plan = _task_plan
     if not plan:
         return
+    if plan_listener is not None:
+        try:
+            plan_listener({"event": "plan", "kind": kind, "goal": plan["goal"], "steps": _public_steps()})
+        except Exception:
+            pass
     print(f"[plan] {kind}: {plan['goal']}", flush=True)
     marks = {"pending": " ", "done": "x", "blocked": "!"}
     for step in plan["steps"]:
@@ -3707,6 +3724,11 @@ def complete_plan_step(step: Any, result: str = "", note: str = "") -> dict[str,
     if written:
         item["note"] = written
     print(f"[plan] done {item['number']}. {item['text']}", flush=True)
+    if plan_listener is not None:
+        try:
+            plan_listener({"event": "plan", "kind": "step", "goal": (_task_plan or {}).get("goal", ""), "steps": _public_steps()})
+        except Exception:
+            pass
     pending = [
         entry["number"]
         for entry in (_task_plan or {"steps": []})["steps"]
@@ -4880,7 +4902,7 @@ TOOL_DECLARATIONS.extend(local_search.RAG_DECLARATIONS)
 TOOL_DECLARATIONS.extend(task_schedule.JOB_DECLARATIONS)
 TOOL_DECLARATIONS.extend(routine_macros.DECLARATIONS)
 # Stage 2 modules each bring DECLARATIONS and TOOLS.
-STAGE2_MODULES = [team_agent, bots, demo_skills, code_loop, autopilot, self_upgrade, remote_access]
+STAGE2_MODULES = [team_agent, bots, demo_skills, code_loop, autopilot, self_upgrade, remote_access, task_runner]
 for _stage2 in STAGE2_MODULES:
     TOOL_DECLARATIONS.extend(_stage2.DECLARATIONS)
     TOOLS.update(_stage2.TOOLS)

@@ -136,9 +136,9 @@ DEFAULT_RULES: dict[str, Any] = {
 
 # Which tools belong to each confirm category.
 CATEGORY_TOOLS: dict[str, set[str]] = {
-    "delete": {"delete_path"},
+    "delete": {"delete_path", "delete_task_routine"},
     "payment": set(),  # no payment tools ship; listed so custom tools can join
-    "send_message": {"gmail_send_message", "send_remote_update"},
+    "send_message": {"gmail_send_message", "send_remote_update", "whatsapp_send_now"},
     "power": {"shutdown_computer"},
     "kill_process": {"kill_process"},
     "network": set(),  # decided by action in category_for
@@ -366,6 +366,9 @@ def category_for(name: str, arguments: dict[str, Any]) -> str | None:
         return "kill_process"
     if name == "self_upgrade" and _fold(arguments.get("action")) in {"apply", "rollback"}:
         return "self_upgrade"
+    if name == "confirm_before":
+        kind = _fold(arguments.get("kind"))
+        return {"delete": "delete", "purchase": "payment", "buy": "payment", "pay": "payment"}.get(kind, "send_message")
     if name == "network_manager":
         action = str(arguments.get("action") or "").strip().casefold().replace("-", "_").replace(" ", "_")
         if action in _NETWORK:

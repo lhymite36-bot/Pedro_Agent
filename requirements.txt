@@ -67,3 +67,5 @@ pywinauto>=0.6.8; sys_platform == "win32"
 # No new pip packages. Demonstration recording uses pynput + mss + pillow (above).
 # Gemini Live uses google-genai + pyaudiowpatch (above). Autopilot Gmail uses imaplib (stdlib).
 # Optional remote access tunnel (not pip): winget install Cloudflare.cloudflared  -- or Tailscale.
+reportlab>=4.0
+python-docx>=1.1

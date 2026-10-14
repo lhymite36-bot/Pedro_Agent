@@ -5,7 +5,7 @@
 Your own AI assistant for Windows. Chat or talk to it, let it work on your PC, make custom bots and put them in group chats, and reach it from your phone. You only need a free Gemini API key.
 
 <p align="center">
-  <a href="https://github.com/lhymite36-bot/Pedro_Agent/releases/download/v1.1.0-windows/PedroAgent-Setup-1.1.0.exe"><img alt="Download for Windows" src="https://img.shields.io/badge/Download%20for%20Windows-PedroAgent--Setup--1.1.0.exe-5b6cff?style=for-the-badge&logo=windows"></a>
+  <a href="https://github.com/lhymite36-bot/Pedro_Agent/releases/download/v1.2.0-windows/PedroAgent-Setup-1.2.0.exe"><img alt="Download for Windows" src="https://img.shields.io/badge/Download%20for%20Windows-PedroAgent--Setup--1.2.0.exe-5b6cff?style=for-the-badge&logo=windows"></a>
   &nbsp;
   <a href="https://github.com/lhymite36-bot/Pedro_Agent/releases/download/android-v1.2.0/PedroAgent-1.2.0.apk"><img alt="Android app" src="https://img.shields.io/badge/Android%20app-APK%201.2.0-3ad29f?style=for-the-badge&logo=android"></a>
 </p>
@@ -14,13 +14,14 @@ Your own AI assistant for Windows. Chat or talk to it, let it work on your PC, m
 
 ## Set up in 3 steps
 
-1. **Download and run** `PedroAgent-Setup-1.1.0.exe` (button above). No admin rights needed. If Windows SmartScreen warns you, click *More info → Run anyway* (the installer is not code-signed).
+1. **Download and run** `PedroAgent-Setup-1.2.0.exe` (button above). No admin rights needed. If Windows SmartScreen warns you, click *More info → Run anyway* (the installer is not code-signed).
 2. **Wait for setup.** It installs Python 3.12 if you don't have it, then the packages (a few minutes, needs internet). It adds *Pedro Agent* to your Desktop and Start menu.
 3. **Open Pedro Agent and paste your free Gemini API key** (get one at https://aistudio.google.com/apikey). Telegram is optional. Keys are saved only in the `.env` file on your PC.
 
 ## What you get
 
 - Chat and voice assistant that can work on your PC. Risky actions (delete, pay, send, shut down…) ask you first.
+- **Multi-step tasks, end to end**: ask for things like "read the assignment in Chrome, do it in Power BI, make a PDF with screenshots and send it to a classmate on WhatsApp". It plans a live checklist, works in your apps (Store apps too), checks each step on screen with vision and retries, takes real screenshots, builds a PDF or Word file on your Desktop, and stages WhatsApp Web messages (it checks the contact name and **asks before sending**). Finished tasks can be saved as reusable routines. It refuses graded tests and exams. Works from chat, voice, the phone app and Telegram.
 - **Custom bots** with their own role, colour, avatar, tools and scheduled tasks.
 - **Groups**: put bots in a room with a purpose. Your message goes to the room; the coordinator answers and hands parts to members with @mentions, or you @mention a bot (or `@all`) directly.
 - **Group pictures**: upload a photo from your PC or phone (crop with zoom/position) or pick a preset avatar and colour.

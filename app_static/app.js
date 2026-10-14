@@ -105,6 +105,19 @@ function renderMd(el, text, streaming) {
   el.classList.toggle('caret', !!streaming);
 }
 // Live activity line (Grok Bot style) + collapsible finished steps.
+// Live task checklist (create_task_plan / complete_plan_step / revise_task_plan).
+function renderPlan(bot, ev) {
+  const col = bot.body.parentNode; let box = col.querySelector('.plan');
+  if (!box) { box = document.createElement('div'); box.className = 'plan'; col.insertBefore(box, bot.body); }
+  box.innerHTML = '';
+  const g = document.createElement('div'); g.className = 'plan-goal'; g.textContent = ev.goal || 'Plan'; box.appendChild(g);
+  (ev.steps || []).forEach((st) => {
+    const r = document.createElement('div'); r.className = 'plan-step ' + (st.status || 'pending');
+    const m = document.createElement('i'); m.textContent = st.status === 'done' ? '✓' : st.status === 'blocked' ? '!' : '○';
+    const t = document.createElement('span'); t.textContent = st.number + '. ' + st.text; r.append(m, t); box.appendChild(r);
+  });
+  scrollDown();
+}
 function activity(bubble) {
   const a = document.createElement('div'); a.className = 'activity';
   a.innerHTML = '<i class="orb"></i><div class="lbl"></div>';
@@ -260,6 +273,7 @@ async function send(text, isVoice) {
         if (ev.event === 'done' && ev.speaker) { bot.text = ev.text || ''; renderMd(bot.body, bot.text, false); scrollDown(); continue; }
         if (ev.event === 'session') { session = ev.session; localStorage.session = session; }
         else if (ev.event === 'step') { act.set(ev.label || 'Working…'); if (ev.name) { labels[ev.name] = ev.label; setMood('working'); } }
+        else if (ev.event === 'plan') { renderPlan(bot, ev); const next = (ev.steps || []).find((x) => x.status === 'pending'); act.set(next ? 'Step ' + next.number + ': ' + next.text : 'All steps done, checking…'); }
         else if (ev.event === 'team_plan') { act.set('Team is planning ' + ((ev.steps || []).length) + ' tasks'); }
         else if (ev.event === 'token') { act.set('Writing the reply…'); bot.text += (bot.text ? ' ' : '') + ev.text; renderMd(bot.body, bot.text, true); scrollDown(); if (talk && !speaking) { speaking = true; setMood('speaking'); } }
         else if (ev.event === 'tool_start') { /* shown by the live activity line */ }
