@@ -39,6 +39,7 @@ STATIC_FILES = {
     "handsfree.js": "application/javascript; charset=utf-8",
     "bots_ui.js": "application/javascript; charset=utf-8",
     "groups_ui.js": "application/javascript; charset=utf-8",
+    "mention_pick.js": "application/javascript; charset=utf-8",
     "phone_ui.js": "application/javascript; charset=utf-8",
     "favicon.ico": "image/x-icon",
     "live_ui.js": "application/javascript; charset=utf-8",

@@ -25,7 +25,7 @@ import rules  # noqa: E402
 class _RulesCase(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
-        # realpath expands Windows 8.3 short names in %TEMP% (POLAST~1).
+        # realpath expands Windows 8.3 short names in %TEMP% (e.g. JOHNSM~1).
         self.root = Path(os.path.realpath(self.tmp.name))
         self.rules_file = self.root / "rules.json"
         self.write_rules({})

@@ -119,9 +119,9 @@ def _check_script(script: str) -> str | None:
 def _default_output(name: str) -> str:
     stem = _safe_stem(name) or "model"
     agent = _agent()
-    if agent._external_drive_root() is not None:
-        return f"external/Blender/{stem}.obj"
-    return str(agent.WORKSPACE / "blender" / f"{stem}.obj")
+    import agent_config
+
+    return str(agent_config.default_output_dir() / "Blender" / f"{stem}.obj")
 
 
 def find_blender() -> Path | None:

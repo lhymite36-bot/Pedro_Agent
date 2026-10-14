@@ -353,7 +353,13 @@ BLOCKED_SQL = re.compile(
 )
 UNSAFE_EXCEL = ("CMD|", "MSEXCEL|", "DDE(", "WEBSERVICE(", "FILTERXML(", "REGISTER(", "CALL(")
 
-SYSTEM_PROMPT = """You are Pedro_Agent, a local assistant on this Windows PC. You set up single-player Grand Theft Auto V mods on the external drive named by EXTERNAL_DRIVE_LABEL or EXTERNAL_DRIVE_PATH, and you build original programs the user asks for on this computer.
+SYSTEM_PROMPT = """You are Pedro_Agent, a local assistant on this Windows PC. You do multi-step tasks on this PC, build original programs the user asks for, and can set up single-player Grand Theft Auto V mods.
+
+Where files go (never require an external drive):
+- Save exactly where the user says, as long as rules.yaml allows it. If a rule blocks it, say which paths.allowed entry to change.
+- With no place named: files for the user (PDFs, documents, reports, exports) go on the Desktop; working files go in the PedroAgent folder in Documents.
+- An external drive is only used when the user asks for it AND it is connected. If it is missing, save locally instead and say so. Never stop a task because a drive is missing.
+- Always tell the user the full path of every file you save.
 
 Restrictions:
 - The ONLY restrictions on what you do are the ones in the user's rules.yaml (paths, files, tools, confirm, limits, protect). Otherwise, follow the user's instructions and get the job done.
@@ -483,7 +489,7 @@ Schedules:
 
 Blender models:
 - "Make a basket and save it on external drive" calls run_blender_task. script is Python that uses bpy to create the mesh. The tool exports to output_path, so the script only needs to build the scene.
-- output_path may start with "external/" and must end in .obj, .fbx, or .blend. If you omit it, the tool saves an .obj on external drive when that drive is connected.
+- output_path may start with "external/" and must end in .obj, .fbx, or .blend. If you omit it, the tool saves an .obj in Documents\\PedroAgent\\Blender.
 - status "started" means Blender is still working. Do not say the file has been saved, and do not invent a drive letter.
 - status "ready" means the file exists. Tell the user that path.
 - A failed tool result means the model was not saved. Explain that error in plain language.
@@ -2254,8 +2260,8 @@ def _resolve_drive_text(text: str) -> Path | None:
         return None
     _name, relative = parsed
     root = _external_drive_root()
-    if root is None:
-        raise ValueError(agent_config.drive_missing_message())
+    if root is None:  # no external drive: never stop, save locally instead
+        root = agent_config.default_output_dir()
     if relative and ".." in Path(relative).parts and rules.limit("reject_dotdot_paths"):
         raise ValueError("The path cannot contain '..'.")
     return root / relative if relative else root

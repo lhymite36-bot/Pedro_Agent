@@ -2924,7 +2924,7 @@ class AgentToolTests(unittest.TestCase):
             {"action": "convert", "source": r"C:\Windows\clip.mp4"},
         )
         self.assertFalse(blocked["ok"])
-        self.assertIn("GameDrive", blocked["error"])
+        self.assertIn("isn't allowed", blocked["error"])  # points to the local user folder now (no drive required)
 
         folder = self.root / "batch"
         folder.mkdir()

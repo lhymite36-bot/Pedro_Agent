@@ -27,7 +27,7 @@
       ed.onclick = (e) => { e.stopPropagation(); openEditor(g); };
       d.append(ic, sp, ed, root.trashBtn('Delete group', () => delGroup(g))); d.onclick = () => openSession('group-' + g.id).then(() => { load(); root.applyBotHeader && root.applyBotHeader(); }); box.appendChild(d);
     });
-    root.applyBotHeader && root.applyBotHeader();
+    root.applyBotHeader && root.applyBotHeader(); root.updateMentionButton && root.updateMentionButton();
   }
   root.loadGroups = load;
   function groupFace(g) {
@@ -103,5 +103,54 @@
     $('#grp-delete').onclick = async () => { if (editing && await delGroup(editing)) closeEditor(); };
     setTimeout(load, 300);
   }
+  // ----- @mention picker (type @ or press + in a group chat) -----
+  function picker() {
+    const t = $('#t'); if (!t || !root.MentionPick) return;
+    const M = root.MentionPick;
+    const box = $('#composer .box');
+    const plus = document.createElement('button'); plus.type = 'button'; plus.className = 'ib'; plus.id = 'mention-btn';
+    plus.title = 'Mention a member'; plus.textContent = '+'; plus.hidden = true; box.insertBefore(plus, t);
+    const pop = document.createElement('div'); pop.id = 'mention-pop'; pop.setAttribute('role', 'listbox'); pop.hidden = true;
+    $('#composer').appendChild(pop);
+    let items = [], sel = 0, start = null;
+    function close() { pop.hidden = true; items = []; start = null; }
+    function render() {
+      pop.innerHTML = '';
+      items.forEach((m, i) => {
+        const r = document.createElement('div'); r.className = 'mention-item' + (i === sel ? ' sel' : ''); r.setAttribute('role', 'option');
+        const f = document.createElement('div'); f.className = 'mini-face'; createAvatar(f, { color: m.color || '#5b6cff', shape: m.avatar || 'round' });
+        const n = document.createElement('span'); n.textContent = m.name; const id = document.createElement('small'); id.textContent = '@' + m.id;
+        r.append(f, n, id);
+        r.addEventListener('mousedown', (e) => { e.preventDefault(); choose(i); });
+        r.addEventListener('touchstart', (e) => { e.preventDefault(); choose(i); }, { passive: false });
+        pop.appendChild(r);
+      });
+      pop.hidden = !items.length;
+    }
+    function open(q, st) {
+      const g = current(); if (!g) return close();
+      items = M.filterMembers(M.roster(g, root.pedroBots || [], main), q); sel = 0; start = st; render();
+    }
+    function choose(i) {
+      const m = items[i]; if (!m) return;
+      const caret = t.selectionStart; const r = M.applyMention(t.value, start, caret, m.id);
+      t.value = r.text; t.focus(); t.setSelectionRange(r.caret, r.caret); close();
+      t.dispatchEvent(new Event('input'));
+    }
+    t.addEventListener('input', () => {
+      if (!current()) return close();
+      const q = M.mentionQuery(t.value, t.selectionStart); if (q) open(q.query, q.start); else close();
+    });
+    t.addEventListener('keydown', (e) => {
+      if (pop.hidden) return;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); e.stopImmediatePropagation(); sel = (sel + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length; render(); }
+      else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); e.stopImmediatePropagation(); choose(sel); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); close(); }
+    }, true);
+    t.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== t) close(); }, 150));
+    plus.addEventListener('click', () => { t.focus(); open('', t.selectionStart); });
+    root.updateMentionButton = () => { plus.hidden = !current(); if (!current()) close(); };
+  }
+  picker();
   wire();
 })(this);

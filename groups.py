@@ -162,39 +162,115 @@ def display(speaker: str) -> dict[str, Any]:
     return {"id": b["id"], "name": b["name"], "color": b.get("color"), "avatar": b.get("avatar")}
 
 
+DEFAULT_LIMITS = {"max_turns": 40, "max_minutes": 30}
+ASSIGN = re.compile(r"^\s*\**\s*ASSIGN\s+@?([A-Za-z0-9_\-]+)\s*\**\s*[:\-]\s*(.+)$", re.I | re.M)
+DONE_RE = re.compile(r"^\s*\**\s*PROJECT\s+(DONE|COMPLETE)\b", re.I | re.M)
+ASK_RE = re.compile(r"^\s*\**\s*ASK\s+USER\s*[:\-]\s*(.+)$", re.I | re.M)
+
+
+def limits() -> dict[str, Any]:
+    try:
+        import rules
+
+        return rules.section("groups", DEFAULT_LIMITS)
+    except Exception:
+        return dict(DEFAULT_LIMITS)
+
+
+def _roster(group: dict[str, Any]) -> str:
+    return ", ".join(["@pedro (Pedro_Agent)"] + [f"@{m} ({display(m)['name']})" for m in group["members"]])
+
+
+def _tail(transcript: list[str], n: int = 14, cap: int = 1500) -> str:
+    return "\n".join(t if len(t) <= cap else t[:cap] + " …" for t in transcript[-n:])
+
+
 def _room_prompt(group: dict[str, Any], speaker: str, transcript: list[str], coordinating: bool) -> str:
-    roster = ", ".join(["@pedro (Pedro_Agent)"] + [f"@{m} ({display(m)['name']})" for m in group["members"]])
-    lines = [f"[Group room '{group['name']}'. Purpose: {group['purpose'] or 'general'}. Members: {roster}.",
+    lines = [f"[Group room '{group['name']}'. Purpose: {group['purpose'] or 'general'}. Members: {_roster(group)}.",
              f"You are {display(speaker)['name']}. Reply only as yourself, briefly."]
-    if coordinating:
-        lines.append("You coordinate this room: do your part, and if other members should handle parts, "
-                     "@mention each one with their part. Don't @mention anyone otherwise.")
-    lines.append("]\n\nConversation so far this turn:\n" + "\n".join(transcript))
+    lines.append("]\n\nConversation so far this turn:\n" + _tail(transcript))
     return "\n".join(lines)
 
 
-def run_group(group: dict[str, Any], text: str, history: list[Any], emit: Callable[[dict], Any], *,
-              model: str = "", store: Callable[[str, str, str], Any] | None = None, **kw: Any) -> list[tuple[str, str]]:
-    """One room turn. Returns [(speaker, reply)]. emit gets 'speaker' events
-    before each reply; store(session, role, text) saves tagged replies."""
+def _leader_prompt(group: dict[str, Any], leader: str, transcript: list[str]) -> str:
+    return (f"[Group project room '{group['name']}'. Purpose: {group['purpose'] or 'general'}. Members: {_roster(group)}.\n"
+            f"You are {display(leader)['name']}, the LEADER. Run the project to the end without asking the user unless you must.\n"
+            "Each reply: briefly review the latest result (check it is real and correct), then give EXACTLY ONE directive line:\n"
+            "  ASSIGN @member: <one concrete subtask with everything they need>   (you may assign @pedro or yourself too)\n"
+            "  PROJECT DONE: <final summary for the user, with the full path of every file made>\n"
+            "  ASK USER: <question>   (only if truly blocked, e.g. missing info or a needed yes)\n"
+            "As leader you plan, delegate and review: do NOT do the members' work yourself in this turn. Give each subtask to "
+            "the member whose purpose fits it best, in order (e.g. research before writing). Only report results that appear in the "
+            "project log; never claim a member did something they haven't. "
+            "Only declare PROJECT DONE after the work is finished and verified (files exist, content right). "
+            "Never send, delete or buy anything unless the user asked.]\n\nProject log:\n" + _tail(transcript))
+
+
+def _worker_prompt(group: dict[str, Any], worker: str, task: str, transcript: list[str]) -> str:
+    return (f"[Group project room '{group['name']}'. You are {display(worker)['name']}, a team MEMBER (not the leader: "
+            "never write ASSIGN, never review others). The leader assigned you this subtask:\n"
+            f"{task}\nDo it for real with your tools (start_task, create_task_plan, verify_screen, make_document, files…). "
+            "Save files where the task says, else on the Desktop, and give full paths. "
+            "End with a line starting 'DONE:' and the result, or 'BLOCKED:' and why. Never write 'PROJECT DONE' (only the leader does).]\n\nRecent project log:\n"
+            + _tail(transcript, 8))
+
+
+def _direct_prompt(group: dict[str, Any], who: str, text: str, transcript: list[str]) -> str:
+    return (f"[Group room '{group['name']}'. The user addressed YOU ({display(who)['name']}) directly with @mention. "
+            "Answer or do it yourself with your tools; don't hand it to anyone else. "
+            "Save files where asked, else on the Desktop, and give full paths.]\n\nUser: " + text +
+            "\n\nRecent room log:\n" + _tail(transcript[:-1] or [], 6))
+
+
+def _run_one(speaker: str, prompt: str, history: list[Any], model: str, kw: dict[str, Any]) -> str:
     import gta5_agent
 
+    if speaker == MAIN:
+        run = main_engine or gta5_agent.run_agent
+        return run(prompt, history, model, **kw) or ""
+    bot = bots.get_bot(speaker)
+    if bot is None:
+        return f"(@{speaker} isn't a bot any more)"
+    # members work from the prompt (task + recent log), not the whole room history, so they don't act as leader
+    return bots.run_bot(bot, prompt, [], model=model, extra_tools=GROUP_TOOLS, **kw)
+
+
+GROUP_TOOLS = {"start_task", "create_task_plan", "complete_plan_step", "revise_task_plan", "verify_screen",
+               "capture_screenshot_file", "make_document", "launch_any_app", "take_screenshot", "write_text_file",
+               "open_website", "list_task_routines", "get_task_routine"}
+
+
+def _pending_confirmation() -> str:
+    try:
+        import confirm_action
+
+        p = confirm_action.pending()
+        return p.get("label", "") if p else ""
+    except Exception:
+        return ""
+
+
+def run_group(group: dict[str, Any], text: str, history: list[Any], emit: Callable[[dict], Any], *,
+              model: str = "", store: Callable[[str, str, str], Any] | None = None,
+              cancel_event: Any = None, now: Callable[[], float] = time.time, **kw: Any) -> list[tuple[str, str]]:
+    """@mentions -> those members answer once. Otherwise the leader runs the project:
+    plan -> ASSIGN -> member works -> leader reviews -> ... -> PROJECT DONE (+ summary)."""
     session = SESSION_PREFIX + group["id"]
-    queue = mentions(text, group)
-    coordinating = not queue
-    if coordinating:
-        queue = [group["coordinator"]]
-    transcript = [f"Pedro: {text}"]; done: list[tuple[str, str]] = []
-    while queue and len(done) < MAX_SPEAKERS:
-        speaker = queue.pop(0)
+    done: list[tuple[str, str]] = []
+    transcript = [f"User: {text}"]
+    kw = dict(kw)
+    if cancel_event is not None:
+        kw["cancel_event"] = cancel_event
+    on_event = kw.get("on_event")
+
+    def say(speaker: str, prompt: str, status: str) -> str:
         emit({"event": "speaker", **display(speaker)})
-        prompt = _room_prompt(group, speaker, transcript, coordinating and speaker == group["coordinator"] and not done)
+        emit({"event": "step", "label": status, "name": ""})
+        emit({"event": "group_status", "who": display(speaker)["name"], "doing": status})
+        call_kw = dict(kw)
+        call_kw["on_text"] = lambda chunk: emit({"event": "token", "text": chunk})
         try:
-            if speaker == MAIN:
-                run = main_engine or gta5_agent.run_agent
-                reply = run(prompt, history, model, **kw) or ""
-            else:
-                reply = bots.run_bot(bots.get_bot(speaker), prompt, history, model=model, **kw)
+            reply = _run_one(speaker, prompt, history, model, call_kw)
         except Exception as exc:
             reply = f"(couldn't answer: {exc})"
         done.append((speaker, reply))
@@ -202,12 +278,77 @@ def run_group(group: dict[str, Any], text: str, history: list[Any], emit: Callab
         emit({"event": "done", "text": reply, "speaker": speaker})
         if store and reply:
             store(session, "assistant", f"[[@{speaker}]] {reply}")
-        if coordinating and len(done) == 1:   # coordinator hands work out by @mention
-            for m in mentions(reply, group):
-                if m != speaker and m not in queue and m not in [d[0] for d in done]:
-                    queue.append(m)
+        return reply
+
+    def stopped() -> bool:
+        return bool(cancel_event is not None and cancel_event.is_set())
+
+    direct = mentions(text, group)
+    if direct:
+        everyone = bool(re.search(r"@(all|everyone)\b", text, re.I))
+        for speaker in direct[:MAX_SPEAKERS]:
+            if stopped():
+                break
+            if everyone:
+                prompt = _room_prompt(group, speaker, transcript, False)
+            else:   # the user picked this member: it handles the message itself, with its tools
+                prompt = _direct_prompt(group, speaker, text, transcript)
+            say(speaker, prompt, f"{display(speaker)['name']} is working on your message")
+            if _pending_confirmation():
+                _notice(emit, store, session, f"Waiting for your yes to {_pending_confirmation()}. Reply 'yes' to continue.")
+                break
+        return done
+
+    lim = limits()
+    max_turns, deadline = int(lim.get("max_turns") or 40), now() + float(lim.get("max_minutes") or 30) * 60
+    leader = group["coordinator"]
+    turns = 0
+    while True:
+        if stopped():
+            _notice(emit, store, session, "Stopped. Say 'continue' to pick up where we left off.")
+            break
+        if turns >= max_turns or now() > deadline:
+            _notice(emit, store, session, f"Paused after {turns} turns (safety limit in rules.yaml › groups). "
+                                          "Say 'continue' to keep going.")
+            break
+        lead = say(leader, _leader_prompt(group, leader, transcript), f"{display(leader)['name']} is reviewing and planning")
+        turns += 1
+        if DONE_RE.search(lead):
+            emit({"event": "group_status", "who": display(leader)["name"], "doing": "Project complete"})
+            break
+        ask = ASK_RE.search(lead)
+        waiting = _pending_confirmation()
+        if ask or waiting or stopped():
+            if waiting:
+                _notice(emit, store, session, f"Waiting for your yes to {waiting}. Reply 'yes' to continue.")
+            break
+        m = ASSIGN.search(lead)
+        if m:
+            who = _names(group).get(_slug(m.group(1))) or _names(group).get(_slug(m.group(1)).replace("-", ""))
+            task = m.group(2).strip()
+        else:
+            named = [x for x in mentions(lead, group) if x != leader]
+            if not named:   # a plain answer (no directive, nobody handed work): the turn is over
+                break
+            who, task = named[0], lead.strip()
+        if not who:
+            transcript.append(f"System: @{m.group(1)} is not in this group. Members: {_roster(group)}.")
+            continue
+        say(who, _worker_prompt(group, who, task, transcript), f"{display(who)['name']} is working on: {task[:80]}")
+        turns += 1
+        waiting = _pending_confirmation()
+        if waiting:
+            _notice(emit, store, session, f"Waiting for your yes to {waiting}. Reply 'yes' to continue.")
+            break
     return done
 
+
+def _notice(emit: Callable[[dict], Any], store: Any, session: str, text: str) -> None:
+    emit({"event": "group_status", "who": "", "doing": text})
+    emit({"event": "speaker", **display(MAIN), "name": "Room"})
+    emit({"event": "done", "text": text, "speaker": MAIN})
+    if store:
+        store(session, "assistant", f"[[@{MAIN}]] _{text}_")
 
 def remove_bot(bot_id: str) -> int:
     """A deleted bot leaves every group; a coordinator falls back to Pedro_Agent."""

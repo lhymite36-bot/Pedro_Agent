@@ -53,9 +53,7 @@ def _project_dir(output_path: str, name: str) -> Path:
         parsed = agent_config.split_drive_prefix(text)
         if parsed is not None:
             _name, relative = parsed
-            root = agent._external_drive_root()
-            if root is None:
-                raise ValueError(agent_config.drive_missing_message())
+            root = agent._external_drive_root() or agent_config.default_output_dir()
             if relative and ".." in Path(relative).parts and rules.limit("reject_dotdot_paths"):
                 raise ValueError("The path cannot contain '..'.")
             target = root / relative if relative else root / "Apps" / folder

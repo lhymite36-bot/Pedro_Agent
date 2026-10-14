@@ -37,7 +37,7 @@
     if (!grp) document.querySelectorAll('#log .row.bot .face').forEach((f) => { if (f._av && f.dataset.look !== key) { f.dataset.look = key; f._av.setLook(l.color, l.shape); } });
     document.querySelectorAll('#bots .sess').forEach((d) => d.classList.toggle('active', bot && d.dataset.id === bot.id));
   }
-  root.applyBotHeader = applyHeader;
+  root.applyBotHeader = function () { applyHeader(); if (root.updateMentionButton) root.updateMentionButton(); };
 
   async function load() {
     const r = await (await fetch('/api/bots')).json(); bots = r.bots || []; root.pedroBots = bots; allTools = r.tools || [];

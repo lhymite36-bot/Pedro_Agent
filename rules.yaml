@@ -157,3 +157,7 @@ remote:                        # phone app + Live PC view from anywhere. OFF by 
 # people's systems/accounts, no online-game cheats or anti-cheat tampering,
 # no pirated software (cracks/keygens/repacks), no CAPTCHA / download-gate
 # bypassing. Gemini's own safety filters also apply and cannot be changed here.
+
+groups:                        # group project rooms (leader assigns -> member works -> leader reviews)
+  max_turns: 40                # safety limit per message; then it asks you to say "continue"
+  max_minutes: 30

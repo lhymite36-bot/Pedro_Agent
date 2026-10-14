@@ -18,6 +18,9 @@ class TaskRunnerTests(unittest.TestCase):
         self.d = tempfile.TemporaryDirectory()
         self.p = mock.patch.object(tr, "_storage", return_value=Path(self.d.name))
         self.p.start()
+        import rules   # temp test folders sit outside the public paths.allowed
+        allow = mock.patch.object(rules, "path_allowed", return_value=True)
+        allow.start(); self.addCleanup(allow.stop)
         tr.grab_png = lambda: png(); tr.sleep = lambda s: None
         self.pressed = []; tr.keys = lambda *k: self.pressed.append(k)
         self.pasted = []; tr.paste_text = self.pasted.append
@@ -115,3 +118,15 @@ class TaskRunnerTests(unittest.TestCase):
         for n in tr.TOOLS:
             self.assertIn(n, gta5_agent.TOOLS)
         self.assertEqual({d["name"] for d in tr.DECLARATIONS}, set(tr.TOOLS))
+
+
+class OutFolderTests(unittest.TestCase):
+    def test_named_and_blocked_folders(self):
+        import rules
+        desk = Path(tempfile.gettempdir()).resolve() / "Desktop"
+        with mock.patch.object(tr, "desktop", return_value=desk), \
+             mock.patch.object(rules, "path_allowed", side_effect=lambda p: "Windows" not in str(p)):
+            self.assertEqual(tr._out_folder("")[0], desk)
+            self.assertEqual(tr._out_folder("Desktop")[0], desk)
+            out, why = tr._out_folder("/C/Windows/Temp")
+            self.assertIsNone(out); self.assertIn("rules.yaml", why)

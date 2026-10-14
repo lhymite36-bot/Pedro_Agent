@@ -222,6 +222,34 @@ def _steps(steps: Any) -> list[dict[str, str]]:
     return out
 
 
+def _out_folder(folder: str) -> tuple[Path | None, str]:
+    """Where to save: Desktop by default; a user-named folder if rules.yaml allows it.
+    A folder on a drive that isn't plugged in falls back to the local PedroAgent folder (never required)."""
+    if not folder:
+        return desktop(), ""
+    raw = str(folder).strip()
+    named = {"desktop": desktop(), "documents": Path.home() / "Documents", "downloads": Path.home() / "Downloads"}
+    out = named.get(raw.casefold().strip("\\/")) or Path(os.path.expandvars(raw)).expanduser()
+    if not out.is_absolute():
+        out = Path.home() / out
+    note = ""
+    if os.name == "nt" and out.drive and not Path(out.drive + "\\").exists():
+        import agent_config
+
+        fallback = agent_config.default_output_dir()
+        note = f" Drive {out.drive} isn't connected, so I saved it locally instead."
+        out = fallback
+    try:
+        import rules
+
+        if not rules.path_allowed(out):
+            return None, (f"rules.yaml doesn't allow saving in {out}. Pick a folder in your user profile "
+                          f"(for example {desktop()}) or allow it in paths.allowed.")
+    except Exception:
+        pass
+    return out, note
+
+
 def make_document(title: str, steps: Any, format: str = "pdf", folder: str = "", headings: bool = False,
                   overwrite: bool = False) -> dict[str, Any]:
     """steps: [{text, image}] -> numbered steps with screenshots. Saved to the Desktop by default.
@@ -235,7 +263,9 @@ def make_document(title: str, steps: Any, format: str = "pdf", folder: str = "",
     fmt = (format or "pdf").casefold().lstrip(".")
     if fmt not in {"pdf", "docx"}:
         return _err("format must be pdf or docx.")
-    out_dir = Path(folder).expanduser() if folder else desktop()
+    out_dir, note = _out_folder(folder)
+    if out_dir is None:
+        return _err(note)
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / _safe_name(title, "." + fmt)
     if path.exists() and not overwrite:
@@ -244,7 +274,7 @@ def make_document(title: str, steps: Any, format: str = "pdf", folder: str = "",
             n += 1
         path = out_dir / _safe_name(f"{title} {n}", "." + fmt)
     (_pdf if fmt == "pdf" else _docx)(path, title, items, headings)
-    return _ok(f"Saved {path.name} with {len(items)} steps.", path=str(path), steps=len(items))
+    return _ok(f"Saved {path.name} with {len(items)} steps at {path}.{note}", path=str(path), steps=len(items))
 
 
 def _pdf(path: Path, title: str, items: list[dict[str, str]], headings: bool) -> None:

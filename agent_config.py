@@ -105,20 +105,27 @@ def match_volume(volumes: list[tuple[str, str]]) -> Path | None:
     return None
 
 
+def default_output_dir() -> Path:
+    """Local folder for agent-made files when the user names no place.
+    PEDRO_OUTPUT_DIR overrides; otherwise %USERPROFILE%\\Documents\\PedroAgent. Never an external drive."""
+    raw = os.environ.get("PEDRO_OUTPUT_DIR", "").strip().strip('"')
+    path = Path(raw).expanduser() if raw else Path.home() / "Documents" / "PedroAgent"
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+    return path
+
+
 def drive_missing_message() -> str:
     label = volume_label() or "external"
-    return (
-        f'The drive labeled "{label}" is not connected. '
-        "Set EXTERNAL_DRIVE_LABEL or EXTERNAL_DRIVE_PATH."
-    )
+    return (f'The drive labeled "{label}" is not connected, so it was skipped. '
+            f"Files can go in {default_output_dir()} or any folder you name instead.")
 
 
 def allowed_path_message() -> str:
-    label = volume_label() or "external"
-    return (
-        "Save the file in your user folder, the app workspace, "
-        f'or the drive labeled "{label}".'
-    )
+    return ("That folder isn't allowed by rules.yaml (paths.allowed / paths.blocked). "
+            f"Your user folder works, for example {default_output_dir()} or the Desktop.")
 
 
 def missing_settings() -> list[str]:

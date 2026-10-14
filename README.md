@@ -5,7 +5,7 @@
 Your own AI assistant for Windows. Chat or talk to it, let it work on your PC, make custom bots and put them in group chats, and reach it from your phone. You only need a free Gemini API key.
 
 <p align="center">
-  <a href="https://github.com/lhymite36-bot/Pedro_Agent/releases/download/v1.3.0-windows/PedroAgent-Setup-1.3.0.exe"><img alt="Download for Windows" src="https://img.shields.io/badge/Download%20for%20Windows-PedroAgent--Setup--1.3.0.exe-5b6cff?style=for-the-badge&logo=windows"></a>
+  <a href="https://github.com/lhymite36-bot/Pedro_Agent/releases/download/v1.4.0-windows/PedroAgent-Setup-1.4.0.exe"><img alt="Download for Windows" src="https://img.shields.io/badge/Download%20for%20Windows-PedroAgent--Setup--1.4.0.exe-5b6cff?style=for-the-badge&logo=windows"></a>
   &nbsp;
   <a href="https://github.com/lhymite36-bot/Pedro_Agent/releases/download/android-v1.3.0/PedroAgent-1.3.0.apk"><img alt="Android app" src="https://img.shields.io/badge/Android%20app-APK%201.3.0-3ad29f?style=for-the-badge&logo=android"></a>
 </p>
@@ -14,7 +14,7 @@ Your own AI assistant for Windows. Chat or talk to it, let it work on your PC, m
 
 ## Set up in 3 steps
 
-1. **Download and run** `PedroAgent-Setup-1.3.0.exe` (button above). No admin rights needed. If Windows SmartScreen warns you, click *More info → Run anyway* (the installer is not code-signed).
+1. **Download and run** `PedroAgent-Setup-1.4.0.exe` (button above). No admin rights needed. If Windows SmartScreen warns you, click *More info → Run anyway* (the installer is not code-signed).
 2. **Wait for setup.** It installs Python 3.12 if you don't have it, then the packages (a few minutes, needs internet). It adds *Pedro Agent* to your Desktop and Start menu.
 3. **Open Pedro Agent and paste your free Gemini API key** (get one at https://aistudio.google.com/apikey). Telegram is optional. Keys are saved only in the `.env` file on your PC.
 
@@ -33,7 +33,10 @@ After that the app finds your PC by itself, even when the link changes after a r
 - Chat and voice assistant that can work on your PC. Risky actions (delete, pay, send, shut down…) ask you first.
 - **Multi-step tasks, end to end**: ask for things like "read the assignment in Chrome, do it in Power BI, make a PDF with screenshots and send it to a classmate on WhatsApp". It plans a live checklist, works in your apps (Store apps too), checks each step on screen with vision and retries, takes real screenshots, builds a PDF or Word file on your Desktop, and stages WhatsApp Web messages (it checks the contact name and **asks before sending**). Finished tasks can be saved as reusable routines. It refuses graded tests and exams. Works from chat, voice, the phone app and Telegram.
 - **Custom bots** with their own role, colour, avatar, tools and scheduled tasks.
-- **Groups**: put bots in a room with a purpose. Your message goes to the room; the coordinator answers and hands parts to members with @mentions, or you @mention a bot (or `@all`) directly.
+- **Groups that run projects**: put bots in a room with a purpose. The leader plans, assigns each step to a member (`ASSIGN @writer: …`), the member does it for real with its tools, and the leader reviews and continues until it posts **PROJECT DONE** with a summary and the full path of every file. Live status shows who is working on what; **Stop** halts it. A safety limit (40 turns / 30 minutes, `groups:` in `rules.yaml`) pauses and asks you to continue. Sends, deletes and purchases still wait for your yes.
+- **@mention picker**: in a group, press **+** in the message box or type **@** to pick a member (with avatar), or *@all*. Filter as you type, arrows + Enter to choose; works with taps on the phone. A message to one bot goes straight to it and that bot does the work itself.
+
+![Mention picker](docs/mention-picker.png)
 - **Group pictures**: upload a photo from your PC or phone (crop with zoom/position) or pick a preset avatar and colour.
 - **Delete anything you made**: trash icons on chats, bots and groups (hover on PC, always shown on phone), plus *Clear all chats* in Settings. Every delete asks first; Pedro_Agent itself can't be deleted. Deleting a bot removes it from its groups; deleting a group keeps its bots.
 - **Phone app** (Android APK above) and a Live PC view. Off by default. Turn it on in Settings › Connect phone (see above).
@@ -44,6 +47,7 @@ After that the app finds your PC by itself, even when the link changes after a r
 
 - `rules.yaml` decides what the agent may do. It ships with safe defaults: it writes only in your user folder and its workspace, and confirmations are on.
 - Autopilot, Gemini Live voice and remote/phone access are **off** until you turn them on.
+- **No external drive needed.** Files go to your Desktop (documents you asked for) or `Documents\PedroAgent` (everything else). Name any folder in your user profile and it's used; a drive that isn't plugged in is skipped and the file is saved locally. The agent always tells you the full save path.
 - Nothing personal is in this repo. Your chats, bots, groups, keys and tokens stay on your PC (`storage/`, `.env`).
 
 ## Update, repair, uninstall

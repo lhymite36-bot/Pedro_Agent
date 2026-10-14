@@ -38,14 +38,71 @@ class GroupTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             groups.save_group({"name": " "})
 
-    def test_coordinator_hands_out_work_by_mention(self):
+    def test_leader_loop_assigns_reviews_and_finishes(self):
         g = groups.save_group({"name": "T", "members": ["writer", "editor"]})
+        script = iter(["Plan: research then write.\nASSIGN @writer: draft 3 facts about owls",
+                       "Good draft.\nASSIGN @editor: tidy it and save owls.pdf on the Desktop",
+                       "Checked the file.\nPROJECT DONE: owls.pdf saved at C:/Users/x/Desktop/owls.pdf"])
+        def eng(prompt, history, model, **kw):
+            self.calls.append(prompt)
+            if "LEADER" in prompt:
+                return next(script)
+            kw.get("on_text", lambda c: None)("work")
+            return "DONE: did it"
+        bots.engine = eng; groups.main_engine = eng
         events, stored = [], []
-        said = groups.run_group(g, "make a short", [], events.append, store=lambda s, r, t: stored.append(t))
-        self.assertEqual([s for s, _ in said], ["pedro", "writer", "editor"])
-        self.assertEqual([e["name"] for e in events if e["event"] == "speaker"], ["Pedro_Agent", "Writer", "Editor"])
+        said = groups.run_group(g, "Make a short PDF about owls", [], events.append, store=lambda s, r, t: stored.append(t))
+        self.assertEqual([s for s, _ in said], ["pedro", "writer", "pedro", "editor", "pedro"])
+        self.assertIn("draft 3 facts about owls", self.calls[1])
+        self.assertTrue(said[-1][1].startswith("Checked") and "PROJECT DONE" in said[-1][1])
+        status = [e["doing"] for e in events if e["event"] == "group_status"]
+        self.assertTrue(any(d.startswith("Writer is working on: draft 3 facts") for d in status))
+        self.assertEqual(status[-1], "Project complete")
+        self.assertTrue(any(e["event"] == "token" for e in events))   # replies stream
         self.assertTrue(stored[1].startswith("[[@writer]] "))
-        self.assertEqual(next(e for e in events if e.get("id") == "writer")["avatar"], "cat")
+
+    def test_loop_safety_limit_and_stop(self):
+        g = groups.save_group({"name": "T", "members": ["writer"]})
+        def eng(prompt, history, model, **kw):
+            return "ASSIGN @writer: more" if "LEADER" in prompt else "DONE: ok"
+        bots.engine = eng; groups.main_engine = eng
+        with mock.patch.object(groups, "limits", return_value={"max_turns": 6, "max_minutes": 30}):
+            ev = []
+            said = groups.run_group(g, "endless project", [], ev.append)
+        self.assertEqual(len(said), 6)
+        self.assertIn("Paused after 6 turns", [e for e in ev if e["event"] == "done"][-1]["text"])
+        import threading
+        stop = threading.Event()
+        def eng2(prompt, history, model, **kw):
+            stop.set(); return "ASSIGN @writer: x"
+        groups.main_engine = eng2
+        ev = []
+        said = groups.run_group(g, "project", [], ev.append, cancel_event=stop)
+        self.assertEqual(len(said), 1)
+
+    def test_loop_pauses_for_confirmation(self):
+        g = groups.save_group({"name": "T", "members": ["writer"]})
+        groups.main_engine = lambda p, h, m, **k: "ASSIGN @writer: send it"
+        bots.engine = lambda p, h, m, **k: "Waiting for a yes"
+        with mock.patch.object(groups, "_pending_confirmation", side_effect=["", "send a WhatsApp message to Maya"]):
+            ev = []
+            said = groups.run_group(g, "send the pdf", [], ev.append)
+        self.assertEqual([s for s, _ in said], ["pedro", "writer"])
+        self.assertIn("Waiting for your yes", ev[-1]["text"])
+
+    def test_direct_mention_goes_to_that_bot_only(self):
+        g = groups.save_group({"name": "T", "members": ["writer", "editor"]})
+        seen = []
+        bots.engine = lambda p, h, m, **k: (seen.append(p), "DONE: wrote it")[1]
+        groups.main_engine = lambda p, h, m, **k: self.fail("leader must not run for a direct mention")
+        said = groups.run_group(g, "@writer write a haiku about owls", [], lambda e: None)
+        self.assertEqual([s for s, _ in said], ["writer"])
+        self.assertIn("addressed YOU (Writer) directly", seen[0]); self.assertIn("haiku about owls", seen[0])
+
+    def test_chitchat_answers_once(self):
+        g = groups.save_group({"name": "T", "members": ["writer"]})
+        groups.main_engine = lambda p, h, m, **k: "Hi! What should we build?"
+        self.assertEqual(len(groups.run_group(g, "hello", [], lambda e: None)), 1)
 
     def test_mentions_go_direct(self):
         g = groups.save_group({"name": "T", "members": ["writer", "editor"]})

@@ -167,7 +167,7 @@ def _prompt(bot: dict[str, Any], text: str) -> str:
 
 
 def run_bot(bot: dict[str, Any], text: str, history: list[Any] | None = None, *,
-            model: str = "", unattended: bool = False, **kwargs: Any) -> str:
+            model: str = "", unattended: bool = False, extra_tools: set[str] | None = None, **kwargs: Any) -> str:
     """One turn for this bot on the normal engine, scoped to its tools/rules."""
     import gta5_agent
 
@@ -175,6 +175,8 @@ def run_bot(bot: dict[str, Any], text: str, history: list[Any] | None = None, *,
     chosen = bot.get("model") or model or os.environ.get("GEMINI_MODEL", gta5_agent.DEFAULT_MODEL)
     rules.set_thread_override(bot.get("rules") or None)
     scope = set(bot["tools"]) if bot["tools"] else set(gta5_agent.TOOLS)
+    if extra_tools:
+        scope |= {t for t in extra_tools if t in gta5_agent.TOOLS}
     gta5_agent.set_tool_scope(scope - NO_NESTING)
     gta5_agent.set_unattended(unattended)
     try:
