@@ -372,8 +372,28 @@ class AgentToolTests(unittest.TestCase):
         import confirm_action
         import emotion
         import routine_macros
+        import rules
         import voice_checkin
 
+        # Legacy tests pin the pre-rules behaviour: confirm only power,
+        # kill and network changes, and a 2 second voice pause.
+        os.environ["PEDRO_AGENT_NO_FILE_LOG"] = "1"
+        self._rules_dir = tempfile.TemporaryDirectory()
+        legacy_rules = Path(self._rules_dir.name) / "rules.json"
+        legacy_rules.write_text(json.dumps({
+            "confirm": {"categories": ["power", "kill_process", "network"]},
+            # Legacy restriction profile: every limit switched on with the old
+            # numbers, so these tests check that the rules reproduce the old
+            # behaviour. tests/test_upgrade.py checks the permissive defaults.
+            "paths": {"allowed": ["~", "{workspace}", "{external}"],
+                      "blocked": ["?:/Windows", "?:/Program Files", "?:/Program Files (x86)"]},
+            "files": {"allow_exe_writes": False},
+            "limits": {key: (True if isinstance(value, bool) else True)
+                       for key, value in rules.DEFAULT_RULES["limits"].items()},
+            "voice": {"pause_threshold": 2.0},
+        }), encoding="utf-8")
+        os.environ["RULES_FILE"] = str(legacy_rules)
+        rules.reset_cache()
         emotion.reset()
         confirm_action.reset()
         voice_checkin.reset()
@@ -455,6 +475,11 @@ class AgentToolTests(unittest.TestCase):
         gta5_agent.gmail_transport_override = self.original_gmail
         gta5_agent.contacts_override = self.original_contacts
         gta5_agent._turn_is_local = self.original_local_turn
+        os.environ.pop("RULES_FILE", None)
+        self._rules_dir.cleanup()
+        import rules as _rules
+
+        _rules.reset_cache()
         for key, value in self._remote_env.items():
             if value is None:
                 os.environ.pop(key, None)
@@ -3956,6 +3981,78 @@ class AgentToolTests(unittest.TestCase):
             gta5_agent.mcp_router.mcp_router("list_tools", server="notes")
         self.assertIn("real mcp", str(live.exception))
 
+    def test_rea_mcp_is_registered_without_spawning(self) -> None:
+        import agent_config
+        import mcp_router
+
+        example = (gta5_agent.APP_DIR / "mcp_servers.example.json").read_text(encoding="utf-8")
+        self.assertIn("rea-agents", example)
+        self.assertIn('"rea"', example)
+        self.assertNotIn("C:\\Users\\", example)
+        skill = (
+            gta5_agent.APP_DIR / "skills" / "reverse-engineer-anything" / "SKILL.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("analyze_javascript_application", skill)
+        self.assertIn("inspect_managed_artifact", skill)
+        self.assertIn("open_binary", skill)
+        self.assertIn('server "rea"', gta5_agent.SYSTEM_PROMPT)
+        self.assertIn("analyze_javascript_application", gta5_agent.SYSTEM_PROMPT)
+        self.assertNotIn("elevenlabs", gta5_agent.SYSTEM_PROMPT.casefold())
+        self.assertFalse(gta5_agent._request_needs_plan("reverse engineer this app"))
+        self.assertTrue(
+            gta5_agent._request_needs_plan(
+                "reverse engineer this app and update my spreadsheet"
+            )
+        )
+
+        config = self.root / "workspace" / "mcp_servers.json"
+        config.parent.mkdir(parents=True, exist_ok=True)
+        config.write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "notes": {"command": "python", "args": ["-m", "notes"]}
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        gta5_agent.mcp_config_override = config
+        with mock.patch("subprocess.run", side_effect=AssertionError("real rea")):
+            with mock.patch("subprocess.Popen", side_effect=AssertionError("real process")):
+                servers = mcp_router.ensure_rea_server(config)
+                listed = gta5_agent.invoke_tool("mcp_router", {"action": "list_servers"})
+        self.assertIn("rea", servers)
+        self.assertIn("notes", servers)
+        self.assertTrue(listed["ok"], listed)
+        self.assertEqual(sorted(listed["servers"]), ["notes", "rea"])
+        saved = json.loads(config.read_text(encoding="utf-8"))
+        self.assertIn("rea", saved["servers"])
+        self.assertEqual(saved["servers"]["rea"]["args"][-1], "--mcp")
+
+        previous = agent_config.rea_runner_override
+        agent_config.rea_runner_override = lambda: {"ok": True, "message": "REA is ready."}
+        try:
+            status = agent_config.rea_status()
+        finally:
+            agent_config.rea_runner_override = previous
+        self.assertEqual(status["ok"], "true")
+        self.assertIn("ready", status["message"])
+
+        with mock.patch("agent_config.shutil.which", return_value=None):
+            missing = agent_config.rea_status()
+        self.assertEqual(missing["ok"], "false")
+        self.assertIn("not installed", missing["message"])
+
+        with mock.patch("agent_config.shutil.which", return_value="rea"):
+            with mock.patch(
+                "agent_config.subprocess.run",
+                side_effect=AssertionError("real rea"),
+            ):
+                with self.assertRaises(AssertionError) as guard:
+                    agent_config.rea_status()
+        self.assertIn("real rea", str(guard.exception))
+
     def test_private_or_offline_turn_stays_on_ollama(self) -> None:
         self.assertIn("Ollama", gta5_agent.SYSTEM_PROMPT)
         self.assertIn("llama3.2", gta5_agent.SYSTEM_PROMPT)
@@ -5732,6 +5829,14 @@ class AgentToolTests(unittest.TestCase):
         self.assertIn("you are pedro_agent", gta5_agent.SYSTEM_PROMPT.casefold())
         self.assertNotIn("pedro 1", gta5_agent.SYSTEM_PROMPT.casefold())
         self.assertNotIn("elevenlabs", gta5_agent.SYSTEM_PROMPT.casefold())
+        self.assertIn('server "rea"', gta5_agent.SYSTEM_PROMPT)
+        self.assertTrue(
+            (gta5_agent.APP_DIR / "skills" / "reverse-engineer-anything" / "SKILL.md").is_file()
+        )
+        self.assertIn(
+            "rea-agents",
+            (gta5_agent.APP_DIR / "mcp_servers.example.json").read_text(encoding="utf-8"),
+        )
         requirements = (gta5_agent.APP_DIR / "requirements.txt").read_text(encoding="utf-8")
         self.assertIn("python-dotenv", requirements)
         self.assertNotIn("\nelevenlabs", requirements.casefold())

@@ -100,6 +100,18 @@ import wake_word
 import window_control
 
 import agent_config
+import agent_log
+import file_tools
+import rules
+import speech_level
+import team_agent
+import demo_skills
+import bots
+import code_loop
+import autopilot
+import self_upgrade
+import remote_access
+import screen_vision
 
 APP_DIR = agent_config.APP_DIR
 WORKSPACE = APP_DIR / "workspace"
@@ -112,7 +124,10 @@ MIN_EXE_BYTES = 1_000_000
 MAX_DOWNLOAD_BYTES = 4 * 1024**3
 MAX_ZIP_FILES = 20_000
 MAX_UNCOMPRESSED_BYTES = 8 * 1024**3
-MAX_TOOL_ROUNDS = 16
+MAX_TOOL_ROUNDS = 16  # legacy floor; rules.yaml agent.max_tool_rounds wins
+VISION_SETTLE_SECONDS = 0.6
+vision_locator_override: Callable[..., dict[str, Any]] | None = None
+uia_finder_override: Callable[..., dict[str, Any] | None] | None = None
 # Spoken replies only. Typed tool runs keep the full output budget.
 VOICE_MAX_OUTPUT_TOKENS = 384
 VOICE_SENTENCE_CHARS = 180
@@ -339,6 +354,12 @@ UNSAFE_EXCEL = ("CMD|", "MSEXCEL|", "DDE(", "WEBSERVICE(", "FILTERXML(", "REGIST
 
 SYSTEM_PROMPT = """You are Pedro_Agent, a local assistant on this Windows PC. You set up single-player Grand Theft Auto V mods on the external drive named by EXTERNAL_DRIVE_LABEL or EXTERNAL_DRIVE_PATH, and you build original programs the user asks for on this computer.
 
+Restrictions:
+- The ONLY restrictions on what you do are the ones in the user's rules.yaml (paths, files, tools, confirm, limits, protect). Otherwise, follow the user's instructions and get the job done.
+- When a tool result says something is blocked by a rule, tell the user the exact rules.yaml key to change. Do not try to get around a rule.
+- Actions in the confirm categories of rules.yaml wait for a clear yes from the user first.
+- Built-in and not configurable: you do not build malware or tools that attack other people's systems or accounts, you do not make cheats for online games or tamper with anti-cheat, and you do not download pirated software (cracks, keygens, repacks) or bypass a website's CAPTCHA or download gate.
+
 Use the tools for every filesystem or web action. Do not invent a path, a URL, a file list, or a success message. A step worked only when the tool result has ok set to true.
 
 When the user names a mod and does not give a file path or a direct URL, do this:
@@ -359,7 +380,7 @@ Rules you must follow:
 - Prefer mods/update/x64/dlcpacks/<pack> for .ydd, .yft, and .ytd files so the original game files stay untouched.
 - Use scripts/AddonPeds/<pack> when the user asks for AddonPeds.
 - Put .asi files and known loader DLLs in the game root. Put other .dll, .cs, and .vb files in scripts/.
-- Never replace an .exe. Never ask a tool to run a downloaded program.
+- Do not run a downloaded program unless the user asks for it by name.
 - You place files that are already in GTA V formats. You do not convert models from other games, and you do not edit .rpf archives. Say so when the tool result says the files still need OpenIV.
 - This is story-mode file setup. Do not remove or edit BattlEye or other online anti-cheat files.
 - When a tool returns an error, explain the cause in plain language and the next useful step. Do not repeat the same call with the same arguments.
@@ -377,7 +398,7 @@ Desktop control on this PC:
 - click_element x and y are a 0-1000 grid over the whole screen. 0,0 is the top-left. 1000,1000 is the bottom-right. Do not send image pixels or physical pixels. The click goes straight to that point.
 - When you already know the next clicks, typing, and keys, send them together in one perform_actions call. Do not take a screenshot between those steps. Example: [{"action":"click","x":500,"y":400},{"action":"type","text":"hello"},{"action":"press","key":"enter"}]. You may end that list with one screenshot.
 - Several tool calls in the same reply also run immediately, one after another, with no pause.
-- For a form or a menu, prefer press or a shortcut such as ctrl+l before a series of clicks. Do not type passwords, API keys, or tokens.
+- For a form or a menu, prefer press or a shortcut such as ctrl+l before a series of clicks. Type a password or key only when the user explicitly asks you to.
 - scroll direction is up, down, left, or right.
 - navigate_browser opens one http or https address in the default browser. It does not log in, solve a check, or pass a download gate.
 - browser_download_tool opens a page in Chromium, fills fields, clicks, and can save one file into Downloads, the Desktop, or external drive. A password is the env name BROWSER_PASSWORD. Never put a password, cookie value, or API key in the tool call.
@@ -391,15 +412,20 @@ Webcam, only when the user wants to be seen:
 - The camera opens for one frame and then closes. Do not call it on a timer, in a loop, or during ordinary chat. Do not call it again unless the user asks for another look.
 - A live feed is a different request. Use stream_pc_camera or stream_phone_camera only when the user asks to watch a live camera.
 
+Planning and execution:
+- For a goal that needs several actions, plan first (create_task_plan), then keep calling tools until every step is done or truly blocked. Do not stop to ask between steps unless you need information only the user has.
+- After each tool result, check it. If it failed, try a different approach before giving up.
+- To click something you can see, prefer click_screen_target with a short description. It finds, clicks, and retries. Use find_on_screen to check that something is visible.
+
 Multi-step work:
-- If the request has several parts (organizing files and then updating a spreadsheet or SQL), call create_task_plan first with the goal and a numbered list of steps. Do not call any other action tool until that plan exists.
+- If the request has several parts (organizing files and then updating a spreadsheet or SQL), call create_task_plan first with the goal and a numbered list of steps.
 - Do the steps in order. After each step succeeds, call complete_plan_step. Say one short sentence about that step.
 - If a step fails or the approach has to change, call revise_task_plan, tell the user what changed, and continue from the new steps.
 - A single action, such as "Open Excel" or "what did I copy?", does not need a plan.
 
 Clipboard:
 - "Fix the code I just copied" or "analyze this error log" calls get_clipboard_text. Use the returned text. Do not ask the user to paste it again.
-- Do not save clipboard text with remember_fact. Do not store passwords, API keys, or connection strings.
+- Do not save clipboard text with remember_fact unless the user asks. Store a password, API key, or connection string only when the user explicitly asks.
 
 Local files:
 - "Where did I save ..." or "find my notes about ..." calls search_local_files. Answer with the paths it returns. Do not invent a path. The index covers the Desktop, Documents, Downloads, the user home folder, and the external drive when that drive is connected. It does not open or run those files.
@@ -430,12 +456,12 @@ Media files:
 Git backups:
 - Commit only when the user asks. Push only when the user asks.
 - git_manager action is init, status, commit, or push. path is the project folder and may start with "external/".
-- A commit needs a short message that describes the change. Do not include keys, passwords, or crack names.
+- A commit needs a short message that describes the change.
 - Push uploads the current branch with git push. Never force-push, never change the remote URL, and never change git name or email. If git has no identity, tell the user to set that themselves.
 - .env, .pem, and .key files are left unstaged. Do not try to commit them.
 
 Windows and processes:
-- A frozen app calls kill_process with the program name, such as notepad. Never use it on a Windows system process.
+- A frozen app calls kill_process with the program name, such as notepad. Warn the user before closing a Windows system process.
 - focus_window brings a window to the front by its title.
 - manage_window_layout action is maximize, minimize, restore, snap_left, or snap_right.
 - manage_windows_and_processes does one of those actions when a single call is clearer.
@@ -444,22 +470,21 @@ Schedules:
 - "Check my downloads every hour and organize new files" calls schedule_background_task with task organize_downloads and interval_minutes 60.
 - "In 30 minutes, remind me to ..." calls schedule_background_task with task remind, delay_minutes 30, and the message.
 - task reindex_files rebuilds the external drive file index.
-- Do not schedule a script, a program, or a shell command. The tool refuses those.
+- "Run backup.py every day at 02:00" calls job_scheduler with task run_program, message set to the script or program path (plus arguments), and daily_at. schedule_background_task works the same with delay or interval minutes.
 
 Blender models:
-- "Make a basket and save it on external drive" calls run_blender_task. script is Python that uses bpy to create the mesh. Do not put a file path, an export call, or a shell command in the script.
+- "Make a basket and save it on external drive" calls run_blender_task. script is Python that uses bpy to create the mesh. The tool exports to output_path, so the script only needs to build the scene.
 - output_path may start with "external/" and must end in .obj, .fbx, or .blend. If you omit it, the tool saves an .obj on external drive when that drive is connected.
 - status "started" means Blender is still working. Do not say the file has been saved, and do not invent a drive letter.
 - status "ready" means the file exists. Tell the user that path.
 - A failed tool result means the model was not saved. Explain that error in plain language.
 - "Are you done?" or "open it" calls blender_job_status. Do not call run_blender_task again unless the user asks to rebuild or change the model. Pass open_file true only when blender_job_status says the file is ready and the user wants it opened.
-- Do not use this tool to run programs, install software, or edit the game.
 
 Programs you build on this computer:
 - When the user asks you to build, code, or make a program, app, tool, page, or a simple test version of software, call build_local_program. Do not refuse an original program because it is not a GTA mod.
-- Do not download, install, or copy a paid product such as Adobe After Effects. Do not create malware or a crack. Build a small original program that does the simple part they asked for, and say it is not the commercial product.
+- Do not copy or crack a paid product such as Adobe After Effects, and do not create malware. Build an original program that does what they asked, and say it is not the commercial product.
 - files is a JSON list of {"path":"main.py","content":"..."} . Paths stay inside the project. Use .py, .html, .css, .js, .json, .txt, .md, or .csv.
-- output_path is a folder. It may start with "external/". If you omit it, the tool uses the workspace builds folder. Do not put the program in the game folder.
+- output_path is a folder. It may start with "external/". If you omit it, the tool uses the workspace builds folder.
 - Set entry to the file that starts the program and run true when the user wants to use it now. The same Python that runs this agent starts a .py entry.
 - A cheap test video editor is a small window: import images, stack them as layers, set a start time and a duration, draw the frame at the playhead, and save a picture. Use tkinter. Pillow is installed. Do not claim the result is After Effects.
 - Tell the user the folder path from the tool result. Do not invent a path or say it ran unless started is true.
@@ -473,7 +498,9 @@ Script repair:
 MCP tools:
 - mcp_router reads servers from workspace/mcp_servers.json. action is list_servers, list_tools, or call.
 - Pass the server name and, for a call, the tool name and a JSON object of arguments. Do not pass a shell command.
-- Use it for a local database or another server the user already configured. If no servers are configured, say so.
+- Reverse engineering, decompilation, JavaScript/Electron unpacking, managed binary inspection, and native disassembly go through server "rea". Call list_tools on rea, then call the matching REA tool. Typical first tools: analyze_javascript_application for an ASAR or JS app, inspect_managed_artifact for a .NET assembly, open_binary for a native executable.
+- Skip REA when the work is ordinary source in this project. Do not use REA on game copies, BattlEye, .rpf archives, cracks, or repacks.
+- Routing notes live in skills/reverse-engineer-anything/SKILL.md. If no servers are configured, say so.
 
 Private replies:
 - If the user says to keep a request private, offline, or local only, answer on this PC with Ollama. Do not send that turn to Gemini.
@@ -492,7 +519,7 @@ Delegation:
 - delegate_subagent hands one task to a worker: blender, files, or system. Pass tool and a JSON object when you already know the tool. Workers cannot close programs or run a shell command. status "started" means the worker is not finished.
 
 Confirmation:
-- kill_process, shutdown_computer, and a Wi-Fi or VPN connect or disconnect, wait for a clear yes. In voice mode the question is "Are you sure you want to execute [action]?" Continue only after a spoken yes. Do not say it ran before that yes.
+- Actions in the confirm categories of rules.yaml (by default: deleting files, payments, sending messages or email, shutdown, closing programs, and Wi-Fi or VPN changes) wait for a clear yes. In voice mode the question is "Are you sure you want to execute [action]?" Continue only after a spoken yes. Do not say it ran before that yes.
 
 Power:
 - "Shut down the PC", "turn off the computer", or "power off" calls shutdown_computer. It shuts down this PC only after a clear yes. Do not say the PC is shutting down before that yes. Closing one program is kill_process, not a shutdown.
@@ -525,7 +552,7 @@ Notes search:
 - "Find the script where I configured ..." or "What are the specs in my notes?" calls file_content_rag_search. It searches the local file index and returns snippets. It is not a cloud embedding model. Do not open or run the files.
 
 Extra schedules:
-- job_scheduler can run organize_downloads, reindex_files, remind, health_check, screenshot_to_phone, or backup_notes. daily_at is a time such as 02:00. backup_notes copies text notes only. Refuse a full disk or game copy. Do not schedule a script or a program.
+- job_scheduler can run organize_downloads, reindex_files, remind, health_check, screenshot_to_phone, or backup_notes. daily_at is a time such as 02:00. backup_notes copies text notes only. task run_program (message = the program or script path) runs a program or script on the schedule.
 
 Routines:
 - routine_macro_engine action save stores up to 8 tool steps under a name. "Execute Workflow 3D-Export" calls it with action run and that name. A saved step that closes a program still waits for a yes. action recent only lists recent tool names. Do not invent a destructive routine.
@@ -553,7 +580,7 @@ Memory:
 - Facts listed under "Known facts saved on this computer" are already loaded. Use them. Do not ask again for a name, a preference, or a game path that is listed there.
 - When the user shares a lasting name, preference, path, or instruction that is not already listed, call remember_fact.
 - When the user asks what you know, what a path was, or to recall an earlier instruction, call recall_memory and answer from that result.
-- Do not invent memories. Do not store passwords, API keys, or connection strings.
+- Do not invent memories. Store a password, API key, or connection string only when the user explicitly asks.
 """
 
 
@@ -881,6 +908,9 @@ def _filename_from_response(url: str, headers: Any) -> str:
 
 def _zip_target(dest: Path, name: str) -> Path:
     normalized = name.replace("\\", "/")
+    if not rules.protect("archive_path_safety"):
+        cleaned = [p for p in normalized.split("/") if p not in {"", "."}]
+        return dest.joinpath(*cleaned).resolve() if cleaned else dest
     if normalized.startswith("/") or re.match(r"^[A-Za-z]:", normalized):
         raise ValueError(f"Unsafe path in archive: {name}")
     parts = [part for part in normalized.split("/") if part not in {"", "."}]
@@ -905,12 +935,12 @@ def _extract_zip(zip_path: Path, dest: Path) -> dict[str, Any]:
     written = 0
     with zipfile.ZipFile(zip_path) as archive:
         infos = [info for info in archive.infolist() if info.filename]
-        if len(infos) > MAX_ZIP_FILES:
+        if rules.limit("archive_size_caps") and len(infos) > MAX_ZIP_FILES:
             raise ValueError(
                 f"The archive has {len(infos)} entries, above the limit of {MAX_ZIP_FILES}."
             )
         total_size = sum(info.file_size for info in infos)
-        if total_size > MAX_UNCOMPRESSED_BYTES:
+        if rules.limit("archive_size_caps") and total_size > MAX_UNCOMPRESSED_BYTES:
             raise ValueError(
                 "The archive expands past the "
                 f"{MAX_UNCOMPRESSED_BYTES // (1024**3)} GiB limit."
@@ -921,7 +951,7 @@ def _extract_zip(zip_path: Path, dest: Path) -> dict[str, Any]:
                     f"The archive entry is encrypted and was skipped: {info.filename}. "
                     "Use a zip that is not password protected."
                 )
-            if _is_zip_symlink(info):
+            if rules.protect("archive_path_safety") and _is_zip_symlink(info):
                 raise ValueError(
                     f"The archive contains a link, which was refused: {info.filename}"
                 )
@@ -950,7 +980,8 @@ def _require_public_http_url(url: str) -> str:
     parsed = urlparse(url)
     if parsed.scheme not in {"https", "http"} or not parsed.hostname:
         raise ValueError("Only http and https URLs can be downloaded.")
-    _host_is_public(parsed.hostname)
+    if rules.limit("public_urls_only"):
+        _host_is_public(parsed.hostname)
     return url
 
 
@@ -1025,7 +1056,7 @@ def _download_and_extract(
                     f"Download failed with HTTP {response.status_code} for {response.url}."
                 )
             declared = response.headers.get("Content-Length")
-            if declared and declared.isdigit() and int(declared) > MAX_DOWNLOAD_BYTES:
+            if declared and declared.isdigit() and int(declared) > MAX_DOWNLOAD_BYTES and rules.limit("archive_size_caps"):
                 return _err(
                     "The file is larger than the "
                     f"{MAX_DOWNLOAD_BYTES // (1024**3)} GiB download limit."
@@ -1044,7 +1075,7 @@ def _download_and_extract(
                     if not chunk:
                         continue
                     received += len(chunk)
-                    if received > MAX_DOWNLOAD_BYTES:
+                    if received > MAX_DOWNLOAD_BYTES and rules.limit("archive_size_caps"):
                         raise ValueError(
                             "The download exceeded the "
                             f"{MAX_DOWNLOAD_BYTES // (1024**3)} GiB limit."
@@ -1096,7 +1127,7 @@ def _archive_kind(path: Path, filename: str) -> str:
 
 def _check_archive_names(dest: Path, names: list[str]) -> None:
     files = [name for name in names if name and name not in {".", "/", "\\"}]
-    if len(files) > MAX_ZIP_FILES:
+    if rules.limit("archive_size_caps") and len(files) > MAX_ZIP_FILES:
         raise ValueError(
             f"The archive has {len(files)} entries, above the limit of {MAX_ZIP_FILES}."
         )
@@ -1674,6 +1705,8 @@ def _game_relative(game: Path, destination: str) -> str:
         try:
             return str(resolved.relative_to(game.resolve()))
         except ValueError as exc:
+            if not rules.limit("mod_writes_in_game_folder_only"):
+                return str(resolved)
             raise ValueError(
                 f"Destination is outside the game folder: {destination}"
             ) from exc
@@ -1685,6 +1718,11 @@ def _resolve_in_game(game: Path, relative: str) -> Path:
     if not relative:
         return game.resolve()
     raw = Path(relative)
+    if not rules.limit("mod_writes_in_game_folder_only"):
+        target = raw.resolve() if raw.is_absolute() else (game / raw).resolve()
+        if not _path_is_allowed(target):
+            raise ValueError(rules.allowed_path_message())
+        return target
     if raw.is_absolute() or ".." in raw.parts:
         raise ValueError(f"Path escapes the game folder: {relative}")
     target = (game / raw).resolve()
@@ -1694,9 +1732,8 @@ def _resolve_in_game(game: Path, relative: str) -> Path:
 
 
 def _protected_reason(path: Path) -> str | None:
-    if path.suffix.casefold() == ".exe" or path.name.casefold() == "gta5.exe":
-        return f"Refusing to write an executable: {path.name}"
-    return None
+    """files.allow_exe_writes / files.blocked_extensions in rules.yaml."""
+    return rules.file_write_reason(path)
 
 
 def _prepare_dest_file(dest: Path, overwrite: bool) -> str | None:
@@ -2210,29 +2247,23 @@ def _resolve_drive_text(text: str) -> Path | None:
     root = _external_drive_root()
     if root is None:
         raise ValueError(agent_config.drive_missing_message())
-    if relative and ".." in Path(relative).parts:
+    if relative and ".." in Path(relative).parts and rules.limit("reject_dotdot_paths"):
         raise ValueError("The path cannot contain '..'.")
     return root / relative if relative else root
 
 
 def _is_blocked_system_path(path: Path) -> bool:
-    parts = [part.casefold() for part in path.parts]
-    return len(parts) >= 2 and parts[1] in {
-        "windows",
-        "program files",
-        "program files (x86)",
-    }
+    """paths.blocked in rules.yaml (defaults: Windows and Program Files)."""
+    external = _external_drive_root()
+    return rules.path_blocked(path, WORKSPACE.resolve(), external.resolve() if external else None)
 
 
 def _path_is_allowed(path: Path) -> bool:
-    if _is_blocked_system_path(path):
-        return False
-    roots = [Path.home().resolve(), WORKSPACE.resolve()]
+    """paths.allowed / paths.blocked in rules.yaml decide. Blocked wins."""
     external = _external_drive_root()
-    if external is not None:
-        roots.append(external.resolve())
-    resolved = path.resolve()
-    return any(resolved == root or root in resolved.parents for root in roots)
+    return rules.path_allowed(
+        path.resolve(), WORKSPACE.resolve(), external.resolve() if external else None
+    )
 
 
 def _resolve_user_path(file_path: str, suffix: str | tuple[str, ...]) -> Path:
@@ -2244,7 +2275,7 @@ def _resolve_user_path(file_path: str, suffix: str | tuple[str, ...]) -> Path:
         target = drive_target
     else:
         target = Path(text).expanduser()
-        if ".." in target.parts:
+        if ".." in target.parts and rules.limit("reject_dotdot_paths"):
             raise ValueError("The path cannot contain '..'.")
     allowed = (suffix,) if isinstance(suffix, str) else suffix
     if target.suffix == "":
@@ -2266,7 +2297,11 @@ def _excel_cell(value: Any) -> Any:
     if len(value) > 2000:
         raise ValueError("A cell is longer than 2000 characters.")
     upper = value.lstrip().upper()
-    if upper.startswith("=") and any(token in upper for token in UNSAFE_EXCEL):
+    if (
+        rules.limit("excel_block_risky_formulas")
+        and upper.startswith("=")
+        and any(token in upper for token in UNSAFE_EXCEL)
+    ):
         raise ValueError("That Excel formula is not allowed.")
     return value
 
@@ -2367,7 +2402,7 @@ def _sql_text(query: str) -> str:
     if len(parts) != 1:
         raise ValueError("Send one SQL statement at a time.")
     statement = parts[0]
-    if BLOCKED_SQL.search(statement):
+    if rules.limit("sql_safe_mode") and BLOCKED_SQL.search(statement):
         raise ValueError("That SQL statement is not allowed.")
     return statement
 
@@ -2403,7 +2438,7 @@ def _open_database(connection: str, read_only: bool) -> Any:
     if not text:
         raise ValueError("A sqlite file path or local SQL Server connection string is required.")
     if _connection_is_odbc(text):
-        if not _odbc_server_is_local(text):
+        if rules.limit("sql_local_servers_only") and not _odbc_server_is_local(text):
             raise ValueError("SQL Server connections are limited to this PC (localhost).")
         try:
             import pyodbc
@@ -2612,7 +2647,7 @@ def remember_fact(fact: str, topic: str = "fact") -> dict[str, Any]:
         return _err(
             "topic must be identity, preference, path, instruction, or fact."
         )
-    if _memory_is_secret(text):
+    if rules.limit("refuse_secret_text") and _memory_is_secret(text):
         return _err("That fact looks like a password or API key, so it was not saved.")
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     key = _memory_key(text)
@@ -3234,9 +3269,10 @@ def type_text(text: str) -> dict[str, Any]:
     try:
         if not isinstance(text, str) or text == "":
             return _err("text is required.")
-        if len(text) > TYPE_TEXT_LIMIT:
-            return _err(f"type_text is limited to {TYPE_TEXT_LIMIT} characters.")
-        if _memory_is_secret(text):
+        type_cap = rules.cap("type_text_max_chars", TYPE_TEXT_LIMIT)
+        if type_cap is not None and len(text) > type_cap:
+            return _err(f"type_text is limited to {type_cap} characters (limits.type_text_max_chars).")
+        if rules.limit("refuse_secret_text") and _memory_is_secret(text):
             return _err("Refusing to type a password, API key, or token.")
         if any(ord(char) < 32 or ord(char) == 127 for char in text):
             return _err("type_text accepts visible characters only.")
@@ -3374,8 +3410,9 @@ def perform_actions(actions: Any) -> dict[str, Any]:
             return _err("actions must be a list of action objects.")
     if not isinstance(actions, list) or not actions:
         return _err("actions must be a non-empty list.")
-    if len(actions) > MAX_ACTION_BATCH:
-        return _err(f"At most {MAX_ACTION_BATCH} actions can run in one batch.")
+    batch_cap = rules.cap("max_action_batch", MAX_ACTION_BATCH)
+    if batch_cap is not None and len(actions) > batch_cap:
+        return _err(f"At most {batch_cap} actions can run in one batch (limits.max_action_batch).")
     completed: list[dict[str, Any]] = []
     image: bytes | None = None
     mime: str | None = None
@@ -3480,6 +3517,7 @@ _PLAN_FAMILIES: tuple[tuple[str, ...], ...] = (
     ("text me", "telegram", "discord"),
     ("email", "e-mail", "gmail"),
     ("shut down", "shutdown", "power off", "turn off"),
+    ("reverse engineer", "decompile", "disassembl"),
 )
 
 
@@ -3524,6 +3562,8 @@ def _request_needs_plan(text: str) -> bool:
 
 def _plan_blocks(name: str) -> dict[str, Any] | None:
     if name in _PLAN_FREE_TOOLS:
+        return None
+    if not rules.limit("require_plan_for_multistep"):
         return None
     if not _request_needs_plan(_turn_request):
         return None
@@ -3638,8 +3678,9 @@ def create_task_plan(goal: str, steps: Any) -> dict[str, Any]:
         return _err("steps must be a list of step texts.")
     if len(parsed) < 2:
         return _err("A plan needs at least 2 steps.")
-    if len(parsed) > MAX_PLAN_STEPS:
-        return _err(f"A plan can have at most {MAX_PLAN_STEPS} steps.")
+    plan_cap = rules.cap("max_plan_steps", MAX_PLAN_STEPS)
+    if plan_cap is not None and len(parsed) > plan_cap:
+        return _err(f"A plan can have at most {plan_cap} steps (limits.max_plan_steps).")
     _task_plan = {
         "goal": goal_text,
         "steps": [
@@ -3699,8 +3740,9 @@ def revise_task_plan(step: Any, reason: str, remaining_steps: Any) -> dict[str, 
     if plan is None:
         return _err("No plan is active. Call create_task_plan first.")
     prefix = [entry for entry in plan["steps"] if entry["number"] <= item["number"]]
-    if len(prefix) + len(new_steps) > MAX_PLAN_STEPS:
-        return _err(f"A plan can have at most {MAX_PLAN_STEPS} steps.")
+    plan_cap = rules.cap("max_plan_steps", MAX_PLAN_STEPS)
+    if plan_cap is not None and len(prefix) + len(new_steps) > plan_cap:
+        return _err(f"A plan can have at most {plan_cap} steps (limits.max_plan_steps).")
     item["status"] = "blocked"
     item["note"] = note
     print(f"[plan] pivot at {item['number']}: {note}", flush=True)
@@ -3809,6 +3851,10 @@ TOOLS: dict[str, Callable[..., dict[str, Any]]] = {
     "gmail_send_message": gmail_mail.gmail_send_message,
     "people_contact_search": gmail_mail.people_contact_search,
     "shutdown_computer": power_control.shutdown_computer,
+    "find_on_screen": screen_vision.find_on_screen,
+    "click_screen_target": screen_vision.click_screen_target,
+    "write_text_file": file_tools.write_text_file,
+    "delete_path": file_tools.delete_path,
 }
 
 TOOL_DECLARATIONS = [
@@ -4768,8 +4814,8 @@ TOOL_DECLARATIONS = [
         "description": (
             "Call a tool on an MCP server listed in workspace/mcp_servers.json. "
             "action is list_servers, list_tools, or call. Pass the server name "
-            "and, for a call, the tool name plus a JSON object. Do not pass a "
-            "shell command."
+            "and, for a call, the tool name plus a JSON object. Reverse "
+            "engineering uses server rea. Do not pass a shell command."
         ),
         "parameters": {
             "type": "object",
@@ -4833,6 +4879,11 @@ TOOL_DECLARATIONS.extend(diagnostics.DECLARATIONS)
 TOOL_DECLARATIONS.extend(local_search.RAG_DECLARATIONS)
 TOOL_DECLARATIONS.extend(task_schedule.JOB_DECLARATIONS)
 TOOL_DECLARATIONS.extend(routine_macros.DECLARATIONS)
+# Stage 2 modules each bring DECLARATIONS and TOOLS.
+STAGE2_MODULES = [team_agent, bots, demo_skills, code_loop, autopilot, self_upgrade, remote_access]
+for _stage2 in STAGE2_MODULES:
+    TOOL_DECLARATIONS.extend(_stage2.DECLARATIONS)
+    TOOLS.update(_stage2.TOOLS)
 TOOL_DECLARATIONS.append(
     {
         "name": "webcam_vision_tool",
@@ -4968,29 +5019,155 @@ TOOL_DECLARATIONS.append(
 )
 
 
+# Tools that must stay on the calling thread (audio, UI, GUI automation) or that
+# already manage their own background jobs.
+_NO_TIMEOUT_TOOLS = {
+    "speak_response", "listen_to_microphone", "stream_pc_camera", "stream_phone_camera",
+}
+tool_timeout_override: float | None = None
+
+
+class ToolTimeout(RuntimeError):
+    pass
+
+# Upgrade tools (vision clicking, general files). Appended last so older tool
+# indexes stay stable.
+TOOL_DECLARATIONS.extend([
+    {
+        "name": "find_on_screen",
+        "description": "Take a screenshot and locate a described UI element with vision. Returns its centre on the 0-1000 grid.",
+        "parameters": {"type": "object", "properties": {
+            "description": {"type": "string", "description": "What to find, e.g. 'the blue Sign in button'."},
+            "control_name": {"type": "string"}, "window_title": {"type": "string"}},
+            "required": ["description"]},
+    },
+    {
+        "name": "click_screen_target",
+        "description": (
+            "Click a UI element described in words. Optionally focuses a window first, "
+            "finds the element with vision, clicks, and retries with a fresh screenshot. "
+            "Prefer this over guessing click_element coordinates."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "description": {"type": "string"},
+            "window_title": {"type": "string", "description": "Window to bring to front first. Optional."},
+            "double_click": {"type": "boolean"},
+            "retries": {"type": "integer", "description": "Extra attempts, 0-4. Default from rules speed.retries."},
+            "control_name": {"type": "string", "description": "Exact visible name of the control, if known (fast UI Automation lookup)."}},
+            "required": ["description"]},
+    },
+    {
+        "name": "write_text_file",
+        "description": "Write a text file (code, notes, config) at a path the user's rules allow.",
+        "parameters": {"type": "object", "properties": {
+            "path": {"type": "string"}, "content": {"type": "string"},
+            "overwrite": {"type": "boolean"}}, "required": ["path", "content"]},
+    },
+    {
+        "name": "delete_path",
+        "description": "Delete a file or folder (Recycle Bin when available). The user's rules may require a yes first.",
+        "parameters": {"type": "object", "properties": {
+            "path": {"type": "string"}, "recursive": {"type": "boolean"}}, "required": ["path"]},
+    },
+])
+
+
+def _tool_timeout_seconds() -> float:
+    if tool_timeout_override is not None:
+        return float(tool_timeout_override)
+    try:
+        return float(rules.agent_setting("tool_timeout_seconds", 300))
+    except (TypeError, ValueError):
+        return 300.0
+
+
+def _call_with_timeout(name: str, function: Callable[..., Any], arguments: dict[str, Any]) -> Any:
+    """Run a tool with a timeout so one stuck call cannot freeze the agent.
+
+    The tool runs in a daemon thread. On timeout the agent moves on and the
+    thread is abandoned (Python cannot kill threads safely).
+    """
+    limit = _tool_timeout_seconds()
+    if limit <= 0 or name in _NO_TIMEOUT_TOOLS:
+        return function(**arguments)
+    box: dict[str, Any] = {}
+
+    def runner() -> None:
+        try:
+            box["result"] = function(**arguments)
+        except BaseException as exc:  # re-raised on the caller thread
+            box["error"] = exc
+
+    worker = threading.Thread(target=runner, name=f"tool-{name}", daemon=True)
+    worker.start()
+    worker.join(limit)
+    if worker.is_alive():
+        raise ToolTimeout(f"timed out after {int(limit)}s (agent.tool_timeout_seconds in rules.yaml)")
+    if "error" in box:
+        raise box["error"]
+    return box.get("result")
+
+
+_tool_scope = threading.local()
+
+
+def set_tool_scope(names: set[str] | None) -> None:
+    """Limit this thread's tool calls (team sub-agents). None = no limit."""
+    _tool_scope.allowed = None if names is None else set(names)
+
+
+def _unattended() -> bool:
+    return bool(getattr(_tool_scope, "unattended", False))
+
+
+def set_unattended(on: bool) -> None:
+    """Autopilot threads: risky actions wait for a yes instead of asking aloud."""
+    _tool_scope.unattended = bool(on)
+
+
 def invoke_tool(name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
     """Run one declared tool. Exceptions become error payloads for the model."""
     function = TOOLS.get(name)
     if function is None:
         return _err(f"Unknown tool: {name}")
+    scope = getattr(_tool_scope, "allowed", None)
+    if scope is not None and name not in scope:
+        return _err(f"{name} is not one of this team member's tools.", blocked_by_scope=True)
     blocked = _plan_blocks(name)
     if blocked is not None:
         return blocked
     arguments = dict(arguments or {})
+    rule_block = rules.tool_block_reason(name)
+    if rule_block is not None:
+        return _err(rule_block, blocked_by_rules=True)
     if confirm_action.is_sensitive(name, arguments):
         if not confirm_action.consume_grant(name, arguments):
             label = confirm_action.label_for(name, arguments)
+            if _unattended():
+                confirm_action.remember(name, arguments, label)
+                return _err(f"Waiting for a yes before {label}.", needs_confirmation=True,
+                            approved=False, label=label)
             if not voice_mode_active:
                 confirm_action.remember(name, arguments, label)
             decision = confirm_action.confirm_sensitive_action(label)
             if not decision.get("approved"):
                 return decision
+    started = time.monotonic()
     try:
-        result = function(**arguments)
+        result = _call_with_timeout(name, function, arguments)
     except TypeError as exc:
         return _err(f"Bad arguments for {name}: {exc}")
+    except AssertionError:
+        raise
     except Exception as exc:
+        agent_log.event("tool_error", tool=name, error=_scrub(str(exc))[:500])
         return _err(f"{name} failed: {exc}")
+    agent_log.event(
+        "tool",
+        tool=name,
+        ok=bool(isinstance(result, dict) and result.get("ok")),
+        ms=int((time.monotonic() - started) * 1000),
+    )
     if not isinstance(result, dict) or "ok" not in result:
         return _err(f"{name} returned an unexpected result.")
     if result.get("ok"):
@@ -5358,6 +5535,31 @@ def _thinking_rejected(exc: BaseException) -> bool:
     )
 
 
+def _result_image(result: dict[str, Any]) -> str | None:
+    """A screenshot/webcam/image path in a tool result, for the chat preview."""
+    path = str(result.get("path") or result.get("image_path") or "")
+    if path.casefold().endswith((".png", ".jpg", ".jpeg")):
+        return path
+    return None
+
+
+def model_candidates(first: str | None = None) -> list[str]:
+    """First choice, then rules.yaml agent.models, then the built-in fallbacks."""
+    order: list[str] = []
+    for name in [first, *(rules.agent_setting("models", []) or []), *FALLBACK_MODELS]:
+        name = str(name or "").strip()
+        if name and name not in order:
+            order.append(name)
+    return order
+
+
+def max_tool_rounds() -> int:
+    try:
+        return max(1, int(rules.agent_setting("max_tool_rounds", MAX_TOOL_ROUNDS)))
+    except (TypeError, ValueError):
+        return MAX_TOOL_ROUNDS
+
+
 def _model_configs(voice: bool) -> tuple[Any, Any | None]:
     """Build the Gemini config. Voice replies use a short cap and minimal thinking.
 
@@ -5444,6 +5646,8 @@ def run_agent(
     voice: bool = False,
     on_sentence: Callable[[str], None] | None = None,
     cancel_event: threading.Event | None = None,
+    on_text: Callable[[str], None] | None = None,
+    on_event: Callable[[dict[str, Any]], None] | None = None,
 ) -> str:
     """Send one user turn and follow tool calls until the model answers.
 
@@ -5481,13 +5685,19 @@ def run_agent(
     config, voice_plain = _model_configs(voice)
     active_config = config
     history.append(types.Content(role="user", parts=[types.Part.from_text(text=user_text)]))
-    model_order = [model]
-    for fallback in FALLBACK_MODELS:
-        if fallback not in model_order:
-            model_order.append(fallback)
+    model_order = model_candidates(model)
     voice_lines: list[str] = []
+    stream_text = on_text is not None and not voice
+    rounds = max_tool_rounds()
 
-    for _ in range(MAX_TOOL_ROUNDS):
+    def _emit(kind: str, **fields: Any) -> None:
+        if on_event is not None:
+            try:
+                on_event({"event": kind, **fields})
+            except Exception:
+                pass
+
+    for _round in range(rounds):
         delays = (2, 5, 12)
         response = None
         quota_error: BaseException | None = None
@@ -5498,10 +5708,22 @@ def run_agent(
                     f"Switching to {active_model}.",
                     flush=True,
                 )
+                agent_log.event("model_switch", frm=model_order[index - 1], to=active_model)
+                _emit("model_switch", model=active_model)
             for delay in (*delays, None):
                 spoke = {"yes": False}
                 try:
-                    if voice:
+                    if stream_text:
+                        response = _request_voice_model(
+                            client,
+                            active_model,
+                            history,
+                            active_config,
+                            on_sentence=on_text,
+                            cancel_event=cancel_event,
+                            spoke=spoke,
+                        )
+                    elif voice:
                         response = _request_voice_model(
                             client,
                             active_model,
@@ -5596,6 +5818,7 @@ def run_agent(
             if voice:
                 return "\n".join(voice_lines) or "Gemini returned no text."
             text = _text_from(response)
+            _emit("final", text=text)
             return text or "Gemini returned no text."
 
         preamble = voice_lines[-1] if voice and voice_lines else _text_from(response)
@@ -5605,7 +5828,15 @@ def run_agent(
         for call in calls:
             name = call.name or ""
             arguments = dict(call.args or {})
+            _emit("tool_start", name=name, arguments=_redacted_tool_arguments(name, arguments))
             result = _execute_logged_tool(name, arguments)
+            _emit(
+                "tool_end",
+                name=name,
+                ok=bool(result.get("ok")),
+                detail=_scrub(str(result.get("message") or result.get("error") or ""))[:400],
+                image=_result_image(result),
+            )
             response_parts.append(
                 _function_response(name, result, getattr(call, "id", None))
             )
@@ -5617,7 +5848,8 @@ def run_agent(
         return "\n".join(voice_lines)
     return (
         "Stopped after "
-        f"{MAX_TOOL_ROUNDS} tool rounds. Ask for the next step on its own."
+        f"{rounds} tool rounds. Ask for the next step on its own, or raise "
+        "agent.max_tool_rounds in rules.yaml."
     )
 
 
@@ -5979,6 +6211,7 @@ def _play_mp3_pygame(
     music = pygame.mixer.music
     music.set_volume(1.0)
     music.load(str(path))
+    speech_level.start(speech_level.envelope_for_file(path))
     try:
         if stop_event is not None and stop_event.is_set():
             return
@@ -5987,8 +6220,10 @@ def _play_mp3_pygame(
         while music.get_busy():
             if stop_event is not None and stop_event.is_set():
                 break
+            speech_level.update(music.get_pos())
             clock.tick(100)
     finally:
+        speech_level.stop()
         music.stop()
         unload = getattr(music, "unload", None)
         if callable(unload):
@@ -6321,6 +6556,15 @@ def _barge_followup(result: dict[str, Any]) -> dict[str, Any] | None:
     return {"ok": True, "text": transcript}
 
 
+def _pause_threshold() -> float:
+    """voice.pause_threshold in rules.yaml; lower means faster turns."""
+    try:
+        value = float(rules.voice_setting("pause_threshold", LISTEN_PAUSE_THRESHOLD))
+    except (TypeError, ValueError):
+        return LISTEN_PAUSE_THRESHOLD
+    return min(max(value, 0.5), 5.0)
+
+
 def listen_to_microphone(
     timeout: float = 8,
     phrase_time_limit: float | None = None,
@@ -6349,7 +6593,7 @@ def listen_to_microphone(
             )
     try:
         recognizer = speech_module.Recognizer()
-        recognizer.pause_threshold = LISTEN_PAUSE_THRESHOLD
+        recognizer.pause_threshold = _pause_threshold()
         recognizer.non_speaking_duration = min(
             LISTEN_NON_SPEAKING_SECONDS,
             LISTEN_PAUSE_THRESHOLD,
@@ -7084,6 +7328,7 @@ def run_init() -> int:
     print("Folders:")
     for folder in created["folders"]:
         print(f"  {folder}")
+    mcp_router.ensure_rea_server()
     ffmpeg = agent_config.ffmpeg_status()
     if ffmpeg:
         print(f"ffmpeg: {ffmpeg}")
@@ -7095,6 +7340,8 @@ def run_init() -> int:
         print(f"OpenCV: {cv2.__version__}")
     except ImportError:
         print("OpenCV: not installed. From the project folder run: pip install -r requirements.txt")
+    rea = agent_config.rea_status()
+    print(f"REA: {rea.get('message') or 'not checked.'}")
     if os.name == "nt":
         print("Connected volumes:")
         try:
@@ -7143,9 +7390,23 @@ def _parser() -> argparse.ArgumentParser:
         help="Create logs, data, and temp folders and check the environment.",
     )
     parser.add_argument(
+        "--app",
+        action="store_true",
+        help="Open the desktop chat window (local web UI) instead of the console.",
+    )
+    parser.add_argument(
+        "--port", type=int, default=int(os.environ.get("PEDRO_APP_PORT", "8765")),
+        help="Port for --app. Default 8765.",
+    )
+    parser.add_argument(
         "--voice",
         action="store_true",
         help="Start in voice mode. Speak over a reply to interrupt it.",
+    )
+    parser.add_argument(
+        "--live",
+        action="store_true",
+        help="Gemini Live realtime voice (sees your screen, barge-in). Falls back to --voice.",
     )
     return parser
 
@@ -7181,6 +7442,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.init:
         return run_init()
+    if args.app:
+        import chat_app
+
+        return chat_app.run(args.model, port=args.port)
     if args.check_tools:
         return check_tools()
     missing = agent_config.missing_settings()
@@ -7212,6 +7477,14 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     voice = bool(args.voice)
+    if args.live or (voice and rules.section("live", {"enabled": False}).get("enabled")):
+        import live_voice
+
+        live = live_voice.run()
+        if not live.get("fallback"):
+            return 0 if live.get("ok") else 1
+        print(f"{live.get('error')} Using the normal voice mode.", flush=True)
+        voice = True
     if tts_engine.cloud_configured():
         voice_line = f"Voice: {tts_engine.active_voice_label()}."
     else:
@@ -7219,11 +7492,18 @@ def main(argv: list[str] | None = None) -> int:
             f"Voice: {_neural_voice()}. "
             "Set ELEVENLABS_API_KEY in .env for the cloud voice."
         )
+    if shutil.which("rea"):
+        rea_line = "REA: rea is on PATH. Reverse engineering uses mcp_router server rea."
+    elif shutil.which("npx"):
+        rea_line = "REA: npx is available. Reverse engineering uses mcp_router server rea."
+    else:
+        rea_line = "REA: not found. Install with npm install --global rea-agents."
     print(
         f"{AGENT_NAME}. Type a request, or exit to quit.\n"
         "Type v and press Enter to speak. Press T while it listens, "
         'or say "text mode", to type again.\n'
-        f"{voice_line}"
+        f"{voice_line}\n"
+        f"{rea_line}"
     )
     if voice:
         print(

@@ -16,6 +16,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import rules
+
 EXPORT_SUFFIXES = (".obj", ".fbx", ".blend")
 SCRIPT_LIMIT = 50_000
 TIMEOUT_SECONDS = 600
@@ -94,7 +96,7 @@ def _check_script(script: str) -> str | None:
     text = script or ""
     if not text.strip():
         return "A bpy script is required."
-    if len(text) > SCRIPT_LIMIT:
+    if rules.limit("blender_script_checks") and len(text) > SCRIPT_LIMIT:
         return "The modeling script is too long."
     if "\x00" in text:
         return "The modeling script contains a null character."
@@ -104,7 +106,7 @@ def _check_script(script: str) -> str | None:
         return "The modeling script cannot contain an API key."
     if not re.search(r"\bbpy\b", text):
         return "The script must use Blender's bpy API."
-    for pattern, message in _FORBIDDEN:
+    for pattern, message in (_FORBIDDEN if rules.limit("blender_script_checks") else ()):
         if re.search(pattern, text, flags=re.IGNORECASE):
             return message
     try:

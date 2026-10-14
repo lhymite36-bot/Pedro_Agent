@@ -15,6 +15,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
+import rules
+
 MAX_ATTEMPTS = 3
 TIMEOUT_SECONDS = 30
 _JOIN_SECONDS = 0.5
@@ -65,7 +67,7 @@ def _check_source(path: Path, source: str) -> str | None:
 def _resolve(script_path: str) -> Path:
     agent = _agent()
     path = agent._resolve_user_path(script_path, ".py")
-    if _game_folder(path):
+    if rules.limit("keep_builds_out_of_game_folder") and _game_folder(path):
         raise ValueError("Do not run or repair a script inside the game folder.")
     if not path.is_file():
         raise ValueError("That Python file does not exist.")

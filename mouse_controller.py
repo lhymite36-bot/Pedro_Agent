@@ -65,6 +65,10 @@ def configure_desktop(desktop: Any) -> Any:
     """Turn on the corner failsafe and do not pause between pointer actions."""
     desktop.FAILSAFE = True
     desktop.PAUSE = PAUSE_SECONDS
+    # No hidden waits between or inside actions (speed: section in rules.yaml).
+    for name in ("MINIMUM_DURATION", "MINIMUM_SLEEP", "DARWIN_CATCH_UP_TIME"):
+        if hasattr(desktop, name):
+            setattr(desktop, name, 0)
     return desktop
 
 

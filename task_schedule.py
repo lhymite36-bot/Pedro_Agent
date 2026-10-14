@@ -8,11 +8,16 @@ remind prints a message when it is due.
 from __future__ import annotations
 
 import shutil
+import os
+import subprocess
+import sys
 import threading
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+
+import rules
 
 ALLOWED = {"organize_downloads", "reindex_files", "remind"}
 SCRIPT_MARKERS = (".py", ".bat", ".exe", ".ps1", ".cmd", ".com", "script", "powershell")
@@ -135,7 +140,7 @@ def organize_downloads_folder() -> dict[str, Any]:
         if not path.is_file() or path.is_symlink():
             continue
         suffix = path.suffix.casefold()
-        if suffix in LEAVE_IN_PLACE:
+        if suffix in LEAVE_IN_PLACE and rules.limit("downloads_leave_programs_in_place"):
             skipped.append(path.name)
             continue
         group = GROUPS.get(suffix, "Other")
@@ -175,7 +180,93 @@ def _run_job(job: dict[str, Any]) -> dict[str, Any]:
         return remote_bridge._deliver_screenshot()
     if task == "backup_notes":
         return backup_notes()
+    if task == "run_program":
+        return run_program(job.get("command") or "")
     return agent._err(f"Unknown scheduled task: {task}")
+
+
+program_runner_override: Any = None  # tests: fn(argv) -> None
+
+
+def _program_request(task: str, message: str) -> str | None:
+    """A script/program to schedule, or None. Off when scheduler_allowlist_only is on."""
+    if rules.limit("scheduler_allowlist_only"):
+        return None
+    name = " ".join((task or "").casefold().replace("-", " ").split()).replace(" ", "_")
+    if name in {"run_program", "run_script", "program", "script", "run"}:
+        return " ".join((message or "").split()) or None
+    folded = (task or "").casefold()
+    if any(marker in folded for marker in SCRIPT_MARKERS):
+        return (task or "").strip()
+    return None
+
+
+def _argv(command: str) -> list[str]:
+    import shlex
+
+    parts = shlex.split(command, posix=(os.name != "nt"))
+    parts = [p.strip('"') for p in parts]
+    if not parts:
+        raise ValueError("Say which program or script to run.")
+    head = parts[0].casefold()
+    if head.endswith(".py"):
+        return [sys.executable, *parts]
+    if head.endswith(".ps1"):
+        return ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", *parts]
+    if head.endswith((".bat", ".cmd")):
+        return ["cmd", "/c", *parts]
+    return parts
+
+
+def run_program(command: str) -> dict[str, Any]:
+    """Start a program or script the user scheduled. No shell string parsing."""
+    agent = _agent()
+    try:
+        argv = _argv(command)
+        if program_runner_override is not None:
+            program_runner_override(argv)
+        else:
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if argv[0] in {"cmd", "powershell", sys.executable} else 0
+            subprocess.Popen(argv, creationflags=flags)
+        return agent._ok(f"Started {command}.", argv=argv)
+    except Exception as exc:
+        return agent._err(f"run_program failed: {exc}")
+
+
+def _queue_program(command: str, delay_minutes: Any, interval_minutes: Any, daily_at: str) -> dict[str, Any]:
+    global _next_id
+    agent = _agent()
+    try:
+        _argv(command)
+    except Exception as exc:
+        return agent._err(str(exc))
+    daily = _daily_at(str(daily_at or ""))
+    if isinstance(daily, dict):
+        return daily
+    stamp, daily_delay = daily
+    delay = _minutes(delay_minutes, "delay_minutes")
+    if isinstance(delay, dict):
+        return delay
+    interval = _minutes(interval_minutes, "interval_minutes")
+    if isinstance(interval, dict):
+        return interval
+    if stamp:
+        delay, interval = daily_delay / 60.0, 1440.0
+    elif delay == 0 and interval == 0:
+        return agent._err("Say when to run it, in minutes or as a daily time.")
+    repeat = interval > 0
+    first = delay if delay > 0 else interval
+    rule = f"every day at {stamp}" if stamp else _rule_text(int(interval if repeat else first), repeat)
+    with _lock:
+        job_cap = rules.cap("scheduler_max_jobs", 20)
+        if job_cap is not None and len(_jobs) >= job_cap:
+            return agent._err(f"There are already {job_cap} scheduled tasks (limits.scheduler_max_jobs).")
+        job = {"id": _next_id, "task": "run_program", "command": command, "message": "",
+               "next_run": _now() + first * 60, "interval": interval * 60 if repeat else 0,
+               "rule": rule, "daily_at": stamp}
+        _next_id += 1
+        _jobs.append(job)
+    return agent._ok(f"Scheduled {command} ({rule}).", id=job["id"], task="run_program", rule=rule)
 
 
 def run_due_tasks() -> list[dict[str, Any]]:
@@ -324,14 +415,17 @@ def job_scheduler(
     agent = _agent()
     try:
         folded = (task or "").casefold()
-        if any(phrase in folded for phrase in _FULL_COPY):
+        program = _program_request(task, message)
+        if program is not None:
+            return _queue_program(program, delay_minutes, interval_minutes, daily_at)
+        if rules.limit("scheduler_allowlist_only") and any(phrase in folded for phrase in _FULL_COPY):
             return agent._err(
                 "A full disk or game copy is not a scheduled task. "
                 "I can back up text notes only."
             )
         if any(marker in folded for marker in SCRIPT_MARKERS):
             return agent._err(
-                "Scheduled tasks cannot run scripts or programs. "
+                "Scheduled tasks cannot run scripts or programs (limits.scheduler_allowlist_only). "
                 "Use organize_downloads, reindex_files, remind, health_check, "
                 "screenshot_to_phone, or backup_notes."
             )
@@ -360,7 +454,7 @@ def job_scheduler(
         note = agent._scrub(" ".join((message or "").split())[:300])
         if canonical == "remind" and not note:
             return agent._err("A reminder needs a message.")
-        if note and agent._memory_is_secret(note):
+        if note and rules.limit("refuse_secret_text") and agent._memory_is_secret(note):
             return agent._err("That reminder looks like a password or API key.")
         repeat = interval > 0
         first = delay if delay > 0 else interval
@@ -378,8 +472,9 @@ def job_scheduler(
             "daily_at": stamp,
         }
         with _lock:
-            if len(_jobs) >= 20:
-                return agent._err("There are already 20 scheduled tasks.")
+            job_cap = rules.cap("scheduler_max_jobs", 20)
+            if job_cap is not None and len(_jobs) >= job_cap:
+                return agent._err(f"There are already {job_cap} scheduled tasks (limits.scheduler_max_jobs).")
             _next_id += 1
             _jobs.append(job)
         print(f"[schedule] {rule}: {canonical}", flush=True)
@@ -400,21 +495,20 @@ JOB_DECLARATIONS = [
         "name": "job_scheduler",
         "description": (
             "Schedule organize_downloads, reindex_files, remind, health_check, "
-            "screenshot_to_phone, or backup_notes. daily_at is a 24-hour time "
-            "such as 02:00. backup_notes copies text notes only. It does not "
-            "copy the game or run a script."
+            "screenshot_to_phone, backup_notes, or run_program (message = program "
+            "or script path plus arguments). daily_at is a 24-hour time such as 02:00."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "task": {"type": "string", "description": "Allowlisted task name."},
+                "task": {"type": "string", "description": "Task name, or run_program to run a script/program."},
                 "delay_minutes": {"type": "number", "description": "Minutes from now. Minimum 1."},
                 "interval_minutes": {
                     "type": "number",
                     "description": "Repeat interval in minutes. Minimum 1.",
                 },
                 "daily_at": {"type": "string", "description": "Daily time, such as 02:00."},
-                "message": {"type": "string", "description": "Reminder text, when task is remind."},
+                "message": {"type": "string", "description": "Reminder text for remind, or the program/script path and arguments for run_program."},
             },
             "required": ["task"],
         },
@@ -434,9 +528,12 @@ def schedule_background_task(
     try:
         name = " ".join((task or "").casefold().replace("-", " ").split()).replace(" ", "_")
         folded = (task or "").casefold()
+        program = _program_request(task, message)
+        if program is not None:
+            return _queue_program(program, delay_minutes, interval_minutes, "")
         if any(marker in folded for marker in SCRIPT_MARKERS):
             return agent._err(
-                "Scheduled tasks cannot run scripts or programs. "
+                "Scheduled tasks cannot run scripts or programs (limits.scheduler_allowlist_only). "
                 "Use organize_downloads, reindex_files, or remind."
             )
         aliases = {
@@ -465,7 +562,7 @@ def schedule_background_task(
         note = agent._scrub(" ".join((message or "").split())[:300])
         if canonical == "remind" and not note:
             return agent._err("A reminder needs a message.")
-        if note and agent._memory_is_secret(note):
+        if note and rules.limit("refuse_secret_text") and agent._memory_is_secret(note):
             return agent._err("That reminder looks like a password or API key.")
         repeat = interval > 0
         first = delay if delay > 0 else interval
@@ -479,8 +576,9 @@ def schedule_background_task(
             "rule": rule,
         }
         with _lock:
-            if len(_jobs) >= 20:
-                return agent._err("There are already 20 scheduled tasks.")
+            job_cap = rules.cap("scheduler_max_jobs", 20)
+            if job_cap is not None and len(_jobs) >= job_cap:
+                return agent._err(f"There are already {job_cap} scheduled tasks (limits.scheduler_max_jobs).")
             _next_id += 1
             _jobs.append(job)
         print(f"[schedule] {rule}: {canonical}", flush=True)

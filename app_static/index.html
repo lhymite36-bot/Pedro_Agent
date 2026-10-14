@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Pedro_Agent</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<link rel="stylesheet" href="/app.css">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0b0b0f">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="icon" href="/favicon.ico" sizes="any"><link rel="icon" href="/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="/icon-192.png">
+</head><body>
+<aside id="side">
+  <div class="brand"><div class="mini" id="brand-avatar"></div><div><b>Pedro_Agent</b><small>Your PC assistant</small></div></div>
+  <button class="side-btn" id="new" type="button"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>New chat</button>
+  <div class="side-label row-label">Bots<button class="ib small" id="newbot" type="button" title="New bot">+</button></div>
+  <div id="bots"></div>
+  <div class="side-label row-label">Groups<button class="ib small" id="newgroup" type="button" title="New group">+</button></div>
+  <div id="groups"></div>
+  <div class="side-label">Chats</div>
+  <div id="sessions"></div>
+  <button class="side-btn" id="livebtn" type="button"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>Live PC</button>
+  <button class="side-btn" id="setbtn" type="button"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</button>
+  <div id="status-card">
+    <div><span><i class="dot" id="st-agent"></i>Agent</span><span id="st-agent-t">ready</span></div>
+    <div><span><i class="dot" id="st-tg"></i>Telegram</span><span id="st-tg-t">off</span></div>
+    <div><span><i class="dot" id="st-voice"></i>Voice</span><span id="st-voice-t">off</span></div>
+    <div><span>Model</span><span id="st-model">-</span></div>
+  </div>
+</aside>
+<main>
+  <header>
+    <button class="ib" id="menubtn" type="button" title="Chats"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+    <div id="hdr-avatar"></div>
+    <div class="who"><b>Pedro_Agent</b><small id="mood">Idle</small></div>
+    <div class="spacer"></div>
+  </header>
+  <div id="log"></div>
+  <div id="empty">
+    <div class="big" id="empty-avatar"></div>
+    <h2>What can I do for you?</h2>
+    <p>Type, or press the mic and talk.</p>
+    <div class="hint-row">
+      <button class="hint" type="button">Organize my Downloads folder</button>
+      <button class="hint" type="button">Take a screenshot and tell me what's open</button>
+      <button class="hint" type="button">Build a small Python timer app</button>
+    </div>
+  </div>
+  <section id="livepane" aria-label="Live PC">
+    <div class="live-head"><b>Live PC</b><span id="live-now">Idle</span><div class="spacer"></div>
+      <select id="live-mode" title="View mode"><option value="stream">Stream</option><option value="frames">Frames</option></select>
+      <label class="fps"><input type="range" id="live-fps" min="1" max="5" step="0.5" value="3"><span id="live-fps-v">3 fps</span></label>
+      <button class="ib" id="live-close" type="button" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+    <div class="live-screen"><img id="live-img" alt="Your PC screen"></div>
+    <div id="live-control" style="display:none">
+      <label class="ctl"><input type="checkbox" id="live-ctl-on"> Tap the screen to click</label>
+      <button class="btn ghost" id="live-allow" type="button">Allow control</button>
+      <form id="live-type"><input id="live-text" placeholder="Type on the PC…"><button class="btn" type="submit">Send</button></form>
+      <span id="live-ctl-msg"></span>
+    </div>
+    <h4>Activity</h4>
+    <div id="live-feed"></div>
+  </section>
+  <form id="composer">
+    <div class="box">
+      <textarea id="t" rows="1" placeholder="Message Pedro_Agent…"></textarea>
+      <div id="wave"></div>
+      <button type="button" class="ib" id="hands" title="Hands-free: keep listening after each reply"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h2l3-7 4 14 3-9 2 4h4"/></svg></button>
+      <button type="button" class="ib" id="mic" title="Talk (or press Space)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+      <button type="submit" class="ib" id="send" title="Send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+    </div>
+    <div class="sub"><span id="status"></span><span>Enter to send · Shift+Enter new line · Space to talk</span></div>
+  </form>
+</main>
+<nav id="bottomnav">
+  <button type="button" data-nav="chats" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/></svg>Chats</button>
+  <button type="button" data-nav="bots"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 4v4M9 14h.01M15 14h.01"/></svg>Bots</button>
+  <button type="button" data-nav="live"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>Live</button>
+  <button type="button" data-nav="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>Settings</button>
+</nav>
+<div id="sidescrim"></div>
+<div id="overlay"></div>
+<section id="settings" aria-label="Settings">
+  <div class="set-head"><b>Settings</b><button class="ib" id="close-set" type="button" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <div class="tabs"><button class="tab active" data-pane="p-general" type="button">General</button><button class="tab" data-pane="p-voice" type="button">Voice</button><button class="tab" data-pane="p-rules" type="button">Rules</button></div>
+  <div class="pane active" id="p-general">
+    <div class="field"><div>Model<small>Free Gemini models, tried in order on quota errors.</small></div><select id="model2"></select></div>
+    <div class="field"><div>Telegram<small>Answers your bot from this window.</small></div><span id="tg-line">-</span></div>
+  </div>
+  <div class="pane" id="p-voice">
+    <div class="field"><div>Speak replies<small>Voice only: answer out loud when you talked to it.</small></div><select id="speak"><option value="voice">Voice only</option><option value="always">Always</option><option value="never">Never</option></select></div>
+    <div class="field"><div>Wake word<small id="wake-small">Listen in the background for the wake phrase.</small></div><label class="switch"><input type="checkbox" id="wake"><span></span></label></div>
+    <div class="field"><div>Hands-free<small>Listen again after every reply.</small></div><label class="switch"><input type="checkbox" id="hands2"><span></span></label></div>
+    <p style="color:var(--dim);font-size:13px">End-of-sentence pause and other voice timings are in Rules → <code>voice:</code>.</p>
+  </div>
+  <div class="pane" id="p-rules">
+    <p style="color:var(--dim);margin-top:0">Your rules decide what the agent may do. Changes apply on the next action.</p>
+    <div id="rulespath" style="color:var(--dim);font-size:12px;margin-bottom:6px"></div>
+    <textarea id="rules" spellcheck="false"></textarea>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:10px"><button class="btn" id="saverules" type="button">Save rules</button><button class="btn ghost" id="reloadrules" type="button">Reload</button><span id="rulesmsg"></span></div>
+  </div>
+</section>
+<section id="grped" class="drawer" aria-label="Group editor">
+  <div class="set-head"><b id="grped-title">New group</b><button class="ib" id="close-grped" type="button" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <div class="pane active">
+    <input id="grp-name" placeholder="Group name, e.g. Shorts Team" maxlength="60">
+    <h4>Purpose</h4><textarea id="grp-purpose" rows="3" placeholder="What this group is for…"></textarea>
+    <h4>Members <small>reply in turn; @mention one (or @all) to ask directly</small></h4><div id="grp-members" class="grp-members"></div>
+    <h4>Coordinator <small>answers first and hands parts of a task to members</small></h4><select id="grp-coord"></select>
+    <div class="actions"><button class="btn" id="grp-save" type="button">Save group</button><button class="btn ghost danger" id="grp-delete" type="button">Delete</button><span id="grpmsg"></span></div>
+  </div>
+</section>
+<section id="boted" class="drawer" aria-label="Bot editor">
+  <div class="set-head"><b id="boted-title">New bot</b><button class="ib" id="close-boted" type="button" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <div class="pane active">
+    <div class="bot-top"><div id="bot-preview"></div>
+      <div class="grow"><input id="bot-name" placeholder="Bot name, e.g. Inbox Helper" maxlength="60">
+      <div class="inline"><label>Colour <input type="color" id="bot-color" value="#7c8cff"></label>
+      <input type="hidden" id="bot-shape" value="round">
+      <label>Model <input id="bot-model" placeholder="default"></label></div></div></div>
+    <h4>Character</h4><div class="shape-pick" id="shape-pick"></div>
+    <h4>Role / system prompt</h4>
+    <textarea id="bot-role" rows="4" placeholder="You are my email assistant. Keep replies short…"></textarea>
+    <h4>Tasks <small>one-off (run with ▶) or scheduled</small></h4>
+    <div id="bot-tasks"></div><button class="btn ghost" id="bot-addtask" type="button">+ Add task</button>
+    <h4>Allowed tools <small>none ticked = every tool rules.yaml allows</small></h4>
+    <input id="bot-toolfilter" placeholder="Filter tools…"><div id="bot-tools"></div>
+    <h4>Rules override <small>optional JSON merged over rules.yaml for this bot, e.g. {"confirm":{"extra_tools":["write_file"]}}</small></h4>
+    <textarea id="bot-rules" rows="4" spellcheck="false"></textarea>
+    <div class="actions"><button class="btn" id="bot-save" type="button">Save bot</button><button class="btn ghost danger" id="bot-delete" type="button">Delete</button><span id="botmsg"></span></div>
+  </div>
+</section>
+<div id="lightbox"><img alt=""></div>
+<script src="/markdown.js"></script>
+<script src="/avatar.js"></script>
+<script src="/handsfree.js"></script>
+<script src="/app.js"></script>
+<script src="/bots_ui.js"></script>
+<script src="/groups_ui.js"></script>
+<script src="/live_ui.js"></script>
+<div id="firstrun" class="firstrun" hidden><form id="fr-form"><h2>Welcome to Pedro_Agent</h2>
+<p>Paste your own free Gemini API key to start. Get one free at aistudio.google.com/apikey. It is saved only in the .env file on this PC.</p>
+<input id="fr-key" type="password" placeholder="Gemini API key" autocomplete="off">
+<details><summary>Telegram (optional)</summary><input id="fr-tg" type="password" placeholder="Telegram bot token" autocomplete="off"><input id="fr-chat" placeholder="Your Telegram chat ID"></details>
+<p id="fr-err" class="fr-err"></p><button type="submit">Save and start</button></form></div>
+</body></html>

@@ -1,0 +1,159 @@
+# Pedro_Agent rules. YOU decide what the agent may do.
+# Edit here or in the chat app (python main.py --app) -> Settings.
+# Changes apply on the next tool call; no restart needed.
+
+paths:
+  # Folders the agent may write files in. Use "*" to allow everywhere.
+  #   ~            = your user folder
+  #   {workspace}  = the agent's workspace folder
+  #   {external}   = your external drive (EXTERNAL_DRIVE_PATH / EXTERNAL_DRIVE_LABEL)
+  allowed:
+    - "~"
+    - "{workspace}"
+    - "{external}"
+  # Never written, even if inside an allowed folder. Examples:
+  #   - "?:/Windows"
+  #   - "?:/Program Files"
+  blocked:
+    - "?:/Windows"
+    - "?:/Program Files"
+    - "?:/Program Files (x86)"
+
+files:
+  allow_exe_writes: false       # false = never write or replace .exe files
+  blocked_extensions: []       # e.g. [".bat", ".ps1"]
+
+tools:
+  allowed: []                  # empty = all tools allowed
+  blocked: []                  # e.g. ["gmail_send_message", "kill_process"]
+
+confirm:
+  enabled: true                # false = never ask before risky actions
+  # The agent asks "are you sure?" before these. Remove any you don't want.
+  categories:
+    - delete                   # deleting files/folders
+    - payment                  # clicks/forms mentioning pay, checkout, buy, purchase
+    - send_message             # email, Telegram/Discord messages
+    - power                    # shutdown
+    - kill_process             # force-closing programs
+    - network                  # Wi-Fi / VPN connect/disconnect
+    - self_upgrade             # installing or rolling back a self-upgrade patch
+    - remote_control           # clicks/keys sent from the phone's Live PC page
+  extra_tools: []              # any other tool names that should ask first
+
+agent:
+  # Free Gemini models, tried in order when one hits its quota.
+  models:
+    - gemini-3.5-flash-lite
+    - gemini-3.1-flash-lite
+    - gemini-2.5-flash
+    - gemini-2.5-flash-lite
+  max_tool_rounds: 30          # steps per request before it stops and reports
+  tool_timeout_seconds: 300    # a stuck tool is abandoned after this
+
+voice:
+  pause_threshold: 1.2         # seconds of silence that end your turn (lower = faster)
+  auto_speak: false            # chat app speaks replies aloud by default
+
+speed:                         # screen control timing (lower = faster, less forgiving)
+  settle_seconds: 0.12         # wait after focusing/clicking before checking the screen
+  retry_wait_seconds: 0.2      # wait between retries
+  retries: 1                   # extra attempts when something isn't found
+  vision_max_width: 1024       # screenshots are shrunk to this width for vision
+  vision_jpeg_quality: 60
+  vision_model: gemini-2.5-flash-lite   # fastest free model for finding things
+  use_ui_automation: true      # find buttons by name first (instant), vision second
+  ui_automation_timeout_seconds: 1.5
+  window_cache_seconds: 30
+  pixel_diff_threshold: 0.002  # how much of the screen must change to count as a hit
+
+# ---------------------------------------------------------------------------
+# Limits that used to be hardcoded. ALL OFF by default (permissive).
+# Set a switch to true to bring the old behaviour back. Numbers: 0 = unlimited
+# (true = the old built-in number).
+limits:
+  scheduler_allowlist_only: false       # true = no scheduled scripts/programs, only built-in jobs
+  scheduler_max_jobs: 0                 # old: 20
+  refuse_secret_text: true             # refuse to remember/type/schedule/commit text that looks like a password or key
+  build_allowed_extensions_only: false  # build_local_program: only .py .html .css .js .json .txt .md .csv
+  build_size_caps: false                # build_local_program: max 40 files / size caps
+  build_refuse_api_key_in_files: true  # refuse project files containing GEMINI_API_KEY
+  keep_builds_out_of_game_folder: false # no builds / script repair inside the GTA V folder
+  mod_writes_in_game_folder_only: false # mod copy tools may only write inside the GTA V folder
+  archive_size_caps: true              # 4 GiB download, 20,000 entries, 8 GiB unpacked
+  public_urls_only: true               # refuse downloads from LAN / localhost addresses
+  reject_dotdot_paths: true            # refuse paths containing ".."
+  excel_block_risky_formulas: true     # refuse DDE / CMD / WEBSERVICE style formulas
+  sql_safe_mode: true                  # refuse xp_cmdshell, OPENROWSET, ATTACH, PRAGMA writes...
+  sql_local_servers_only: false         # SQL Server only on localhost
+  require_plan_for_multistep: false     # force create_task_plan before acting on multi-part requests
+  max_plan_steps: 0                     # old: 8
+  max_action_batch: 0                   # perform_actions batch size, old: 12
+  type_text_max_chars: 0                # old: 500
+  browser_action_caps: false            # browser_download_tool: 8 actions, 1 download, only Enter/Tab/Escape keys, 500-char fills
+  browser_env_prefix_only: false        # browser fills may only read BROWSER_* environment variables
+  blender_script_checks: false          # refuse Blender scripts with file paths / exports / shell calls / huge size
+  downloads_leave_programs_in_place: false  # organize_downloads skips .exe/.msi/.bat/... files
+
+# Accident protection. ON by default. Switch off only if you are sure.
+protect:
+  never_delete_drive_root: true
+  never_delete_home_folder: true
+  never_delete_agent_folder: true       # the agent's own code (workspace/ files can still be deleted)
+  archive_path_safety: true             # zip entries cannot escape their folder or be links
+  git_unstage_secrets: true             # .env / .pem / .key stay out of commits
+  skill_typing_stays_local: true        # demo skills: typed text stays in actions.json, not sent to Gemini
+
+# --- Stage 2 features ---
+team:                          # run_team: planner + coder/browser/files/research agents + reviewer
+  max_parallel: 2              # sub-agents running at once
+  max_subtasks: 6
+  review: true                 # reviewer checks the combined result
+  review_rounds: 1             # times the reviewer may send a sub-task back
+
+skills:                        # learn by demonstration (record_demonstration / replay_skill)
+  max_record_seconds: 300
+  frame_every_seconds: 2.0     # screenshot interval while recording (plus one per click)
+  max_frames: 8                # screenshots sent to Gemini vision for the summary
+  replay_speed: 1.0
+
+code:                          # code_engineer: write -> test -> fix loop
+  max_iterations: 5
+  test_timeout_seconds: 300
+  default_test_command: python -m pytest -q
+  git_commit: true             # commit when tests pass (only if the folder is a git repo)
+
+live:                          # Gemini Live realtime voice (python main.py --live)
+  enabled: false               # true = --voice uses Live first, falls back to normal voice
+  models:                      # tried in order
+    - gemini-2.5-flash-native-audio-preview-12-2025
+    - gemini-live-2.5-flash-preview
+  voice_name: Puck
+  send_screen: true            # share a screen frame with Live
+  screen_every_seconds: 1.0
+  allow_tools: true            # Live can call the agent's tools (rules still apply)
+
+upgrade:                       # self_upgrade: fixes proposed from logs/agent.jsonl failures
+  test_command: python -m pytest -q -x   # run in a copy of the project before anything is applied
+  test_timeout_seconds: 600
+
+remote:                        # phone app + Live PC view from anywhere. OFF by default.
+  enabled: false               # true = start the sign-in-protected remote server with the chat app
+  bind: 127.0.0.1              # keep 127.0.0.1 and use a tunnel; never put it straight on the internet
+  port: 8766                   # separate from the local app (8765), which stays PC-only
+  session_hours: 12            # phone stays signed in this long
+  tunnel: none                 # none | cloudflared (free Cloudflare quick tunnel, new URL each start)
+  cloudflared_path: ""         # if cloudflared.exe is not on PATH
+  public_url: ""               # e.g. your Tailscale https://pc.tailnet.ts.net, sent by Telegram
+  send_link_telegram: true     # send the sign-in link to your Telegram chat when it is ready
+  max_fps: 5                   # Live PC frame rate cap (phone can choose 0.5..max)
+  default_fps: 3
+  max_width: 1280              # live frames are shrunk to this width
+  jpeg_quality: 55
+  allow_control: false         # true = phone may click/type on the PC (still asks yes: confirm remote_control)
+  control_minutes: 10          # how long one "yes" allows control
+
+# NOT configurable (built in, on purpose): no malware or attacks on other
+# people's systems/accounts, no online-game cheats or anti-cheat tampering,
+# no pirated software (cracks/keygens/repacks), no CAPTCHA / download-gate
+# bypassing. Gemini's own safety filters also apply and cannot be changed here.

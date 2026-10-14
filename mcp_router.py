@@ -45,6 +45,8 @@ def _load_servers() -> dict[str, dict[str, Any]]:
         raise ValueError("The MCP config could not be read.") from exc
     raw = data.get("servers") if isinstance(data, dict) else None
     if not isinstance(raw, dict):
+        raw = data.get("mcpServers") if isinstance(data, dict) else None
+    if not isinstance(raw, dict):
         return {}
     servers: dict[str, dict[str, Any]] = {}
     for name, spec in raw.items():
@@ -289,3 +291,47 @@ def mcp_router(
         raise
     except Exception as exc:
         return agent._err(f"mcp_router failed: {agent._scrub(str(exc))[:500]}")
+
+
+def rea_server_spec() -> dict[str, Any]:
+    """Command line for the REA MCP server. The model cannot change this."""
+    import agent_config
+
+    command = agent_config.rea_command()
+    if command and Path(command[0]).name.lower().startswith("rea"):
+        return {"command": command[0], "args": ["--mcp"]}
+    if command:
+        return {"command": command[0], "args": [*command[1:], "--mcp"]}
+    return {"command": "npx", "args": ["-y", "rea-agents@latest", "--mcp"]}
+
+
+def ensure_rea_server(path: Path | None = None) -> dict[str, Any]:
+    """Add the REA server to the MCP config when it is missing. Existing names stay."""
+    target = Path(path) if path is not None else _config_path()
+    if target is None:
+        return {}
+    servers: dict[str, dict[str, Any]] = {}
+    data: dict[str, Any] = {}
+    if target.is_file():
+        try:
+            loaded = json.loads(target.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            loaded = {}
+        if isinstance(loaded, dict):
+            data = loaded
+            raw = loaded.get("servers")
+            if not isinstance(raw, dict):
+                raw = loaded.get("mcpServers")
+            if isinstance(raw, dict):
+                servers = {
+                    str(name): dict(spec)
+                    for name, spec in raw.items()
+                    if isinstance(name, str) and isinstance(spec, dict)
+                }
+    if "rea" not in servers:
+        servers["rea"] = rea_server_spec()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        payload = dict(data)
+        payload["servers"] = servers
+        target.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return servers

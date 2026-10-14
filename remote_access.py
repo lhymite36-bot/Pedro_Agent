@@ -1,0 +1,545 @@
+"""Phone / away-from-home access to the chat app and the Live PC view.
+
+OFF unless rules.yaml remote.enabled is true. It runs as a SEPARATE server
+(default 127.0.0.1:8766) so the normal local app on 8765 is never exposed.
+Every request needs a session cookie; you get one only by logging in with the
+long random access token (storage/remote_token.txt) or, if set, the PIN in the
+REMOTE_PIN environment variable (6+ digits). Failed logins are rate-limited
+and lock out. View-only by default; remote clicks/typing need
+remote.allow_control: true AND (if the remote_control confirm category is on)
+a "yes" from the phone that opens a short control window.
+
+To reach it from outside your home, run a free tunnel to that port, e.g.
+cloudflared (Cloudflare quick tunnel) or Tailscale. See README.
+"""
+
+from __future__ import annotations
+
+import hmac
+import json
+import os
+import re
+import secrets
+import shutil
+import subprocess
+import threading
+import time
+from http.server import ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
+from urllib.parse import parse_qs, urlparse
+
+import rules
+
+DEFAULTS = {
+    "enabled": False,
+    "bind": "127.0.0.1",
+    "port": 8766,
+    "session_hours": 12,
+    "allow_control": False,
+    "control_minutes": 10,
+    "tunnel": "none",            # none | cloudflared
+    "cloudflared_path": "",
+    "public_url": "",            # e.g. your Tailscale https name; sent by Telegram
+    "send_link_telegram": True,
+    "max_fps": 5,
+    "default_fps": 3,
+    "publish_url": True,         # post the tunnel URL (never the token) so the phone app auto-connects
+    "publish_server": "https://ntfy.sh",
+    "publish_every_hours": 6,
+}
+COOKIE = "pedro_session"
+MAX_FAILS_PER_IP = 5
+LOCKOUT_SECONDS = 300
+GLOBAL_FAIL_LIMIT = 30           # then all logins are refused until restart
+
+_sessions: dict[str, float] = {}
+_fails: dict[str, list[float]] = {}
+_global_fails = 0
+_control_until = 0.0
+_lock = threading.Lock()
+
+
+def settings() -> dict[str, Any]:
+    return rules.section("remote", DEFAULTS)
+
+
+def _storage() -> Path:
+    import agent_config
+
+    return agent_config.storage_dir()
+
+
+def token_path() -> Path:
+    return _storage() / "remote_token.txt"
+
+
+def access_token(create: bool = True) -> str:
+    path = token_path()
+    if path.is_file():
+        value = path.read_text(encoding="utf-8").strip()
+        if len(value) >= 32:
+            return value
+    if not create:
+        return ""
+    value = secrets.token_urlsafe(32)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(value, encoding="utf-8")
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+    return value
+
+
+def rotate_token() -> str:
+    try:
+        token_path().unlink()
+    except FileNotFoundError:
+        pass
+    with _lock:
+        _sessions.clear()
+    return access_token()
+
+
+def _pin() -> str:
+    pin = os.environ.get("REMOTE_PIN", "").strip()
+    return pin if re.fullmatch(r"\d{6,12}", pin) else ""
+
+
+def reset_state() -> None:
+    global _global_fails, _control_until
+    with _lock:
+        _sessions.clear()
+        _fails.clear()
+        _global_fails = 0
+        _control_until = 0.0
+
+
+def check_login(secret: str, ip: str, now: float | None = None) -> tuple[bool, str]:
+    """Returns (ok, error). Rate-limited per IP plus a global cap."""
+    global _global_fails
+    now = time.time() if now is None else now
+    with _lock:
+        if _global_fails >= GLOBAL_FAIL_LIMIT:
+            return False, "Too many failed logins. Restart the app on your PC to try again."
+        recent = [t for t in _fails.get(ip, []) if now - t < LOCKOUT_SECONDS]
+        _fails[ip] = recent
+        if len(recent) >= MAX_FAILS_PER_IP:
+            return False, "Too many attempts. Wait 5 minutes."
+    secret = (secret or "").strip()
+    good = bool(secret) and (hmac.compare_digest(secret, access_token())
+                             or (bool(_pin()) and hmac.compare_digest(secret, _pin())))
+    if good:
+        return True, ""
+    with _lock:
+        _fails.setdefault(ip, []).append(now)
+        _global_fails += 1
+    return False, "Wrong token or PIN."
+
+
+def new_session(now: float | None = None) -> str:
+    sid = secrets.token_urlsafe(32)
+    with _lock:
+        _sessions[sid] = (time.time() if now is None else now) + float(settings()["session_hours"]) * 3600
+    return sid
+
+
+def session_valid(cookie_header: str, now: float | None = None) -> bool:
+    now = time.time() if now is None else now
+    sid = ""
+    for part in (cookie_header or "").split(";"):
+        name, _, value = part.strip().partition("=")
+        if name == COOKIE:
+            sid = value
+    if not sid:
+        return False
+    with _lock:
+        expires = _sessions.get(sid)
+        if expires is None:
+            return False
+        if expires < now:
+            _sessions.pop(sid, None)
+            return False
+    return True
+
+
+def end_session(cookie_header: str) -> None:
+    for part in (cookie_header or "").split(";"):
+        name, _, value = part.strip().partition("=")
+        if name == COOKIE:
+            with _lock:
+                _sessions.pop(value, None)
+
+
+# ---- remote control ----
+
+def control_needs_yes() -> bool:
+    return rules.needs_confirmation("remote_control_action", {})
+
+
+def allow_control(confirm: str) -> dict[str, Any]:
+    global _control_until
+    if not settings()["allow_control"]:
+        return {"ok": False, "error": "Remote control is off (rules.yaml remote.allow_control)."}
+    if control_needs_yes() and str(confirm).strip().casefold() != "yes":
+        return {"ok": False, "error": "Needs your yes.", "needs_confirmation": True}
+    minutes = max(1, int(settings()["control_minutes"] or 10))
+    with _lock:
+        _control_until = time.time() + minutes * 60
+    _note(f"Remote control allowed for {minutes} min")
+    return {"ok": True, "message": f"Control allowed for {minutes} minutes."}
+
+
+def control_open() -> bool:
+    if not settings()["allow_control"]:
+        return False
+    return (not control_needs_yes()) or time.time() < _control_until
+
+
+def remote_control_action(type: str, x: float = 0.0, y: float = 0.0, text: str = "") -> dict[str, Any]:
+    """Phone -> PC input. Registered as a tool so rules.yaml tools.blocked applies."""
+    import pyautogui
+
+    kind = (type or "").casefold()
+    if kind == "click":
+        width, height = pyautogui.size()
+        px, py = int(max(0.0, min(1.0, float(x))) * (width - 1)), int(max(0.0, min(1.0, float(y))) * (height - 1))
+        pyautogui.click(px, py)
+        return {"ok": True, "message": f"Clicked {px},{py}."}
+    if kind == "type":
+        value = str(text)[:500]
+        pyautogui.write(value, interval=0.01)
+        return {"ok": True, "message": f"Typed {len(value)} characters."}
+    return {"ok": False, "error": "type must be click or type."}
+
+
+def do_control(data: dict[str, Any]) -> dict[str, Any]:
+    if not settings()["allow_control"]:
+        return {"ok": False, "error": "View only. Set remote.allow_control: true in rules.yaml to allow control."}
+    if not control_open():
+        return {"ok": False, "error": "Tap 'Allow control' first.", "needs_confirmation": True}
+    reason = rules.tool_block_reason("remote_control_action")
+    if reason:
+        return {"ok": False, "error": reason}
+    import gta5_agent
+
+    function = gta5_agent.TOOLS.get("remote_control_action", remote_control_action)
+    args = {"type": str(data.get("type") or ""), "x": float(data.get("x") or 0), "y": float(data.get("y") or 0),
+            "text": str(data.get("text") or "")}
+    try:
+        result = function(**args)
+    except Exception as exc:
+        result = {"ok": False, "error": str(exc)}
+    _note(f"Remote {args['type']}" + (" ok" if result.get("ok") else " failed"))
+    return result
+
+
+def _note(text: str) -> None:
+    try:
+        import live_pc
+
+        live_pc.note("activity", text=text)
+    except Exception:
+        pass
+
+
+# ---- login page (self-contained, no external assets) ----
+
+LOGIN_HTML = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pedro_Agent - sign in</title><meta name="theme-color" content="#0b0b0f"><link rel="manifest" href="/manifest.webmanifest">
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0b0f;color:#ececf1;font:16px system-ui,sans-serif}
+form{background:#111116;border:1px solid #23232d;border-radius:16px;padding:28px;width:min(360px,88vw)}h1{font-size:20px;margin:0 0 6px}
+p{color:#8e8ea0;font-size:14px;margin:0 0 16px}input{width:100%;box-sizing:border-box;padding:12px;border-radius:10px;border:1px solid #23232d;background:#17171e;color:#fff;font-size:16px}
+button{margin-top:12px;width:100%;padding:12px;border:0;border-radius:10px;background:#7c8cff;color:#fff;font-size:16px}#e{color:#ff6b6b;font-size:14px;min-height:20px;margin-top:8px}</style></head>
+<body><form id="f"><h1>Pedro_Agent</h1><p>Enter your access token or PIN.</p><input id="s" type="password" autocomplete="current-password" autofocus>
+<button>Sign in</button><div id="e"></div></form><script>
+async function go(secret){const r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({secret})});
+const j=await r.json();if(j.ok){location.replace('/');}else{document.getElementById('e').textContent=j.error||'Failed';}}
+document.getElementById('f').onsubmit=(e)=>{e.preventDefault();go(document.getElementById('s').value);};
+const h=new URLSearchParams(location.hash.slice(1)).get('t');if(h){history.replaceState(null,'','/login');go(h);}
+</script></body></html>"""
+
+PUBLIC_PATHS = {"/login", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"}
+
+
+def make_remote_handler(state: Any) -> type:
+    import chat_app
+
+    Base = chat_app.make_handler(state)
+
+    class RemoteHandler(Base):  # type: ignore[misc, valid-type]
+        remote = True
+
+        def _secure(self) -> bool:
+            return self.headers.get("X-Forwarded-Proto", "").casefold() == "https"
+
+        def _gate(self) -> bool:
+            path = urlparse(self.path).path
+            if path in PUBLIC_PATHS:
+                return True
+            if session_valid(self.headers.get("Cookie", "")):
+                return True
+            if path in {"/", "/index.html"} and self.command == "GET":
+                self.send_response(302)
+                self.send_header("Location", "/login")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+            else:
+                self._send(401, b'{"error":"sign in first"}')
+            return False
+
+        def _send(self, code: int, body: bytes, kind: str = "application/json") -> None:
+            self.send_response(code)
+            self.send_header("Content-Type", kind)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _client_ip(self) -> str:
+            return (self.headers.get("CF-Connecting-IP") or self.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+                    or self.client_address[0])
+
+        def do_GET(self) -> None:
+            path = urlparse(self.path).path
+            if path == "/login":
+                self._send(200, LOGIN_HTML.encode(), "text/html; charset=utf-8")
+                return
+            if path == "/logout":
+                end_session(self.headers.get("Cookie", ""))
+                self.send_response(302)
+                self.send_header("Set-Cookie", f"{COOKIE}=; Max-Age=0; Path=/; HttpOnly; SameSite=Strict")
+                self.send_header("Location", "/login")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            if path == "/api/rules" or path == "/api/settings":
+                if not self._gate():
+                    return
+            super().do_GET()
+
+        def do_POST(self) -> None:
+            path = urlparse(self.path).path
+            if path == "/login":
+                if not self._same_origin():
+                    self._send(403, b'{"error":"cross-origin"}')
+                    return
+                data = self._body()
+                ok, error = check_login(str(data.get("secret") or ""), self._client_ip())
+                if not ok:
+                    _note("Failed remote sign-in")
+                    self._json({"ok": False, "error": error}, 401)
+                    return
+                sid = new_session()
+                max_age = int(float(settings()["session_hours"]) * 3600)
+                body = b'{"ok":true}'
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Set-Cookie", f"{COOKIE}={sid}; Max-Age={max_age}; Path=/; HttpOnly; SameSite=Strict"
+                                 + ("; Secure" if self._secure() else ""))
+                self.end_headers()
+                self.wfile.write(body)
+                _note("Phone signed in")
+                return
+            if not self._gate():
+                return
+            if not self._same_origin():
+                self._send(403, b'{"error":"cross-origin"}')
+                return
+            if path == "/api/rules":  # editing rules from outside is not allowed
+                self._json({"ok": False, "error": "Rules can only be changed on the PC."}, 403)
+                return
+            if path == "/live/control/allow":
+                self._json(allow_control(str(self._body().get("confirm") or "")))
+                return
+            if path == "/live/control":
+                self._json(do_control(self._body()))
+                return
+            super().do_POST()
+
+    # The base do_POST calls _gate again; that is fine (cookie still valid).
+    return RemoteHandler
+
+
+# ---- server + tunnel ----
+
+_server: ThreadingHTTPServer | None = None
+_tunnel: subprocess.Popen | None = None
+public_url = ""
+
+
+def start(state: Any) -> dict[str, Any]:
+    global _server
+    cfg = settings()
+    if not cfg["enabled"]:
+        return {"ok": False, "error": "Remote access is off (rules.yaml remote.enabled)."}
+    if _server is not None:
+        return {"ok": True, "message": "Already running."}
+    token = access_token()
+    _server = ThreadingHTTPServer((str(cfg["bind"]), int(cfg["port"])), make_remote_handler(state))
+    _server.daemon_threads = True
+    threading.Thread(target=_server.serve_forever, name="remote-server", daemon=True).start()
+    local = f"http://127.0.0.1:{_server.server_address[1]}/"
+    info = {"ok": True, "local_url": local, "token_file": str(token_path())}
+    if str(cfg["tunnel"]).casefold() == "cloudflared":
+        threading.Thread(target=start_tunnel, args=(_server.server_address[1],), daemon=True).start()
+    elif cfg["public_url"]:
+        _announce(str(cfg["public_url"]), token)
+    info["message"] = f"Remote access on {local} (token in {token_path()})."
+    return info
+
+
+def stop() -> None:
+    global _server, _tunnel
+    if _tunnel is not None:
+        try:
+            _tunnel.terminate()
+        except Exception:
+            pass
+        _tunnel = None
+    if _server is not None:
+        try:
+            _server.shutdown()
+            _server.server_close()
+        except Exception:
+            pass
+        _server = None
+
+
+def cloudflared_exe() -> str | None:
+    configured = str(settings()["cloudflared_path"] or "").strip()
+    if configured and Path(configured).is_file():
+        return configured
+    return shutil.which("cloudflared")
+
+
+TUNNEL_URL = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
+
+
+def parse_tunnel_url(line: str) -> str:
+    match = TUNNEL_URL.search(line or "")
+    return match.group(0) if match else ""
+
+
+def start_tunnel(port: int) -> str:
+    """Cloudflare quick tunnel (free, no account). Returns the https URL."""
+    global _tunnel, public_url
+    exe = cloudflared_exe()
+    if not exe:
+        print("Remote: cloudflared not found. Install it (winget install Cloudflare.cloudflared) or use Tailscale.", flush=True)
+        return ""
+    flags: dict[str, Any] = {}
+    if os.name == "nt":
+        flags["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    _tunnel = subprocess.Popen([exe, "tunnel", "--no-autoupdate", "--url", f"http://127.0.0.1:{port}"],
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, shell=False, **flags)
+    deadline = time.time() + 60
+    for line in _tunnel.stdout or []:
+        url = parse_tunnel_url(line)
+        if url:
+            public_url = url
+            _announce(url, access_token())
+            break
+        if time.time() > deadline:
+            break
+    return public_url
+
+
+def link_with_token(url: str, token: str) -> str:
+    # Token in the #fragment: browsers never send it to the server or tunnel logs.
+    return url.rstrip("/") + "/login#t=" + token
+
+
+# ---- auto-connect: publish the current URL (signed, never the token) ----
+# Topic name and signature both come from the access token, which only this PC
+# and your phone know. Strangers can't find the topic, and the phone ignores any
+# message whose HMAC doesn't match, so nobody can redirect it to a fake site.
+
+def publish_topic(token: str) -> str:
+    import hashlib
+
+    return "pedro-" + hashlib.sha256(("pedro-topic:" + token).encode()).hexdigest()[:32]
+
+
+def sign_url(url: str, token: str, ts: int | None = None) -> str:
+    import hashlib
+
+    ts = int(time.time()) if ts is None else int(ts)
+    mac = hmac.new(("pedro-url:" + token).encode(), f"{url}|{ts}".encode(), hashlib.sha256).hexdigest()
+    return json.dumps({"url": url, "ts": ts, "sig": mac})
+
+
+def verify_signed(body: str, token: str) -> str:
+    try:
+        d = json.loads(body)
+        url, ts = str(d["url"]), int(d["ts"])
+    except Exception:
+        return ""
+    if not TUNNEL_URL.fullmatch(url) and not url.startswith("https://"):
+        return ""
+    good = json.loads(sign_url(url, token, ts))["sig"]
+    return url if hmac.compare_digest(good, str(d.get("sig", ""))) else ""
+
+
+def publish_url(url: str, token: str) -> bool:
+    import urllib.request
+
+    cfg = settings()
+    if not cfg["publish_url"] or not url or not token:
+        return False
+    target = str(cfg["publish_server"]).rstrip("/") + "/" + publish_topic(token)
+    try:
+        req = urllib.request.Request(target, data=sign_url(url, token).encode(), method="POST",
+                                     headers={"Title": "pedro-url", "Cache": "yes"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return 200 <= r.status < 300
+    except Exception as exc:
+        print(f"Remote: couldn't publish link for the phone app ({exc}).", flush=True)
+        return False
+
+
+def _republish_loop(url: str, token: str) -> None:
+    hours = max(1.0, float(settings()["publish_every_hours"] or 6))
+    while public_url == url:
+        if publish_url(url, token):
+            print("Remote: phone app auto-connect link published.", flush=True)
+        time.sleep(hours * 3600)
+
+
+def _announce(url: str, token: str) -> None:
+    global public_url
+    public_url = url
+    threading.Thread(target=_republish_loop, args=(url, token), daemon=True).start()
+    print(f"Remote: {url}  (sign in with the token in {token_path()})", flush=True)
+    _note("Remote link ready")
+    if not settings()["send_link_telegram"]:
+        return
+    try:
+        import remote_bridge
+
+        if remote_bridge.paired():
+            remote_bridge.notify(f"Pedro_Agent on your phone: {link_with_token(url, token)}\n"
+                                 "Open it, then use 'Add to Home screen' to install. Don't share this link.")
+    except Exception:
+        pass
+
+
+def status() -> dict[str, Any]:
+    cfg = settings()
+    return {"enabled": bool(cfg["enabled"]), "running": _server is not None, "public_url": public_url,
+            "allow_control": bool(cfg["allow_control"]), "tunnel": cfg["tunnel"]}
+
+
+DECLARATIONS = [{
+    "name": "remote_control_action",
+    "description": "Internal: phone Live PC input (click at a 0..1 screen point, or type text). Only used by the Live PC page.",
+    "parameters": {"type": "object", "properties": {"type": {"type": "string"}, "x": {"type": "number"},
+                                                     "y": {"type": "number"}, "text": {"type": "string"}},
+                   "required": ["type"]},
+}]
+TOOLS = {"remote_control_action": remote_control_action}

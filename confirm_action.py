@@ -1,8 +1,8 @@
 """Ask before a high-impact tool runs.
 
 Voice mode speaks one question and listens once. Text mode does not run the
-tool until the next user message is a short yes. There is no registry editor
-and no general delete tool.
+tool until the next user message is a short yes. What needs a yes is set in
+rules.yaml (confirm section).
 """
 
 from __future__ import annotations
@@ -17,6 +17,9 @@ POSITIVE = {
     "do it",
     "go ahead",
     "sure",
+    "y",
+    "ok",
+    "okay",
 }
 _NETWORK = {
     "wifi_connect",
@@ -48,19 +51,21 @@ def _folded_action(value: Any) -> str:
 
 
 def is_sensitive(name: str, arguments: dict[str, Any]) -> bool:
-    if name == "kill_process":
-        return True
-    if name == "shutdown_computer":
-        return True
-    if name == "manage_windows_and_processes":
-        return _folded_action(arguments.get("action")) in {"kill", "kill process"}
-    if name == "network_manager":
-        action = str(arguments.get("action") or "").strip().casefold().replace("-", "_").replace(" ", "_")
-        return action in _NETWORK
-    return False
+    """The user's rules.yaml (confirm section) decides what needs a yes."""
+    import rules
+
+    return rules.needs_confirmation(name, arguments)
 
 
 def label_for(name: str, arguments: dict[str, Any]) -> str:
+    if name == "delete_path":
+        return f"delete {arguments.get('path') or 'that path'}"
+    if name == "gmail_send_message":
+        return f"send an email to {arguments.get('to') or arguments.get('recipient') or 'that contact'}"
+    if name == "send_remote_update":
+        return "send a message to your phone"
+    if name not in {"kill_process", "shutdown_computer", "manage_windows_and_processes", "network_manager"}:
+        return f"run {name.replace('_', ' ')}"
     if name == "kill_process":
         return f"kill {arguments.get('process_name') or 'a program'}"
     if name == "shutdown_computer":
@@ -81,6 +86,11 @@ def remember(name: str, arguments: dict[str, Any], label: str) -> None:
         "arguments": dict(arguments),
         "label": label,
     }
+
+
+def pending() -> dict[str, Any] | None:
+    """The action waiting for a yes, or None."""
+    return dict(_pending) if _pending is not None else None
 
 
 def note_user_text(text: str) -> None:

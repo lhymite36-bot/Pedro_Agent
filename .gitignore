@@ -48,3 +48,25 @@ gta5_path.json
 contacts.json
 routines.json
 mcp_servers.json
+
+# Stage 2: recorded actions can contain typed text; remote token
+skills/*/actions.json
+skills/*/frames/
+remote_token.txt
+bots/
+!app_static/*.png
+
+# Personal runtime data (never commit)
+rules.local.yaml
+ui_settings.json
+remote_token.txt
+*.jks
+*.keystore
+android_app/build/
+groups/
+bots/
+dist/
+*.bak*
+bak-*/
+
+!docs/*.png

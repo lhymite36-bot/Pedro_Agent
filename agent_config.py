@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import subprocess
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parent
@@ -145,6 +146,11 @@ def prepare_checkout(root: Path | None = None) -> dict[str, list[str]]:
     store = storage_dir() if root is None else base / "storage"
     store.mkdir(parents=True, exist_ok=True)
     folders.append(str(store))
+    example = APP_DIR / "mcp_servers.example.json"
+    mcp_target = base / "workspace" / "mcp_servers.json"
+    if example.is_file() and not mcp_target.is_file():
+        mcp_target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(example, mcp_target)
     return {"folders": folders}
 
 
@@ -156,3 +162,55 @@ def ffmpeg_status() -> str:
     if found:
         return found
     return ""
+
+
+rea_runner_override = None
+
+
+def rea_command() -> list[str]:
+    """CLI used to talk to REA. Tests never spawn this."""
+    for name in ("rea.cmd", "rea"):
+        rea = shutil.which(name)
+        if rea:
+            return [rea]
+    for name in ("npx.cmd", "npx"):
+        npx = shutil.which(name)
+        if npx:
+            return [npx, "-y", "rea-agents@latest"]
+    return []
+
+
+def rea_status() -> dict[str, str]:
+    """Whether the REA CLI answers. Tests set rea_runner_override."""
+    if rea_runner_override is not None:
+        result = rea_runner_override()
+        if isinstance(result, dict):
+            return {
+                "ok": "true" if result.get("ok") else "false",
+                "message": str(result.get("message") or ""),
+            }
+        return {"ok": "false", "message": "The REA check returned nothing."}
+    command = rea_command()
+    if not command:
+        return {
+            "ok": "false",
+            "message": "REA is not installed. From a shell with Node.js run: npm install --global rea-agents",
+        }
+    probe = [*command, "--help"]
+    try:
+        completed = subprocess.run(
+            probe,
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+            shell=False,
+        )
+    except AssertionError:
+        raise
+    except Exception as exc:
+        return {"ok": "false", "message": f"REA did not answer. {exc}"}
+    text = (completed.stdout or completed.stderr or "").strip()
+    if completed.returncode != 0:
+        return {"ok": "false", "message": text[:300] or "REA did not answer."}
+    return {"ok": "true", "message": text.splitlines()[0][:200] if text else "REA is ready."}

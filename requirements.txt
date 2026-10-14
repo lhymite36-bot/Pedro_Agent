@@ -48,5 +48,22 @@ playwright>=1.49.0
 # .\.venv\Scripts\python.exe -m pip install openai-whisper
 # Idle time uses ctypes, not pywin32. File search is SQLite FTS, not chromadb.
 # Schedules use the schedule package already listed above, not APScheduler.
+# Reverse engineering uses the REA CLI over MCP. It is not a pip package.
+# npm install --global rea-agents
 # Cloud speech uses urllib when a speech key is set. edge-tts remains the local voice.
 # No extra speech package is installed for that.
+# --- Upgrade (v2) ---
+# rules.yaml is read with PyYAML. rules.json works without it.
+pyyaml>=6.0
+# Optional: opens the chat app in its own desktop window instead of a browser tab.
+pywebview>=5.0
+# Optional: delete_path moves files to the Recycle Bin instead of deleting permanently.
+send2trash>=1.8
+# Optional, faster clicking: find buttons by name with Windows UI Automation
+# before falling back to vision. Either one works; uiautomation is faster.
+uiautomation>=2.0.20; sys_platform == "win32"
+pywinauto>=0.6.8; sys_platform == "win32"
+# --- Stage 2 ---
+# No new pip packages. Demonstration recording uses pynput + mss + pillow (above).
+# Gemini Live uses google-genai + pyaudiowpatch (above). Autopilot Gmail uses imaplib (stdlib).
+# Optional remote access tunnel (not pip): winget install Cloudflare.cloudflared  -- or Tailscale.

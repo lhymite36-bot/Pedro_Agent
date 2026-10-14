@@ -1,0 +1,27 @@
+# Autopilot: things the agent watches and what it does when they change.
+# Runs while the chat app is open (or say "start autopilot" in any mode).
+# Risky actions (rules.yaml confirm categories) wait for your yes.
+enabled: false
+check_every_seconds: 60
+notify: true                  # send the result to Telegram/Discord when set up
+watchers:
+  - name: new-downloads
+    type: folder
+    path: ~/Downloads
+    pattern: "*.pdf"
+    prompt: "A new PDF arrived: {path}. If it is an invoice, move it to ~/Documents/Invoices."
+  # - name: boss-mail
+  #   type: gmail               # uses GMAIL_ADDRESS + GMAIL_APP_PASSWORD (IMAP, read-only peek)
+  #   from: boss@example.com
+  #   subject: ""
+  #   prompt: "New email from {from}: {subject}\n{snippet}\nSummarise it for me."
+  # - name: phone-commands
+  #   type: telegram
+  #   match: "^run backup"
+  #   prompt: "Run my backup routine. Message was: {text}"
+  # - name: price-watch
+  #   type: url
+  #   url: https://example.com/product
+  #   contains: "In stock"      # optional: fire only when this text appears
+  #   prompt: "{url} changed and now says In stock. Tell me."
+  #   bot: Shopper              # optional: let one of your bots handle it

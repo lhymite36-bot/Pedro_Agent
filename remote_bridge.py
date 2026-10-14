@@ -28,6 +28,16 @@ _stop = threading.Event()
 _thread: threading.Thread | None = None
 _offset = 0
 _lock = threading.Lock()
+# Set by the chat app so Telegram turns share its agent state and history:
+# answer_handler(text) -> reply; history_hook(role, text) logs side replies.
+answer_handler: Any = None
+history_hook: Any = None
+# Callbacks given every incoming Telegram text (autopilot telegram watchers).
+message_listeners: list[Any] = []
+_console_history: list[Any] = []
+_instance_lock_handle: Any = None
+_conflict_logged = False
+NEGATIVE = {"no", "nope", "cancel", "stop", "don't", "dont", "n"}
 _SCREENSHOT_REQUEST = re.compile(
     r"""
     \A\s*
@@ -487,16 +497,75 @@ def _schedule_screenshot() -> dict[str, Any]:
     return agent._ok("The screenshot is being sent.", status="started")
 
 
+def _log(role: str, text: str) -> None:
+    if history_hook is not None:
+        try:
+            history_hook(role, text)
+        except Exception:
+            pass
+
+
+def _confirm_reply(text: str) -> str | None:
+    """A yes/no answer to a waiting confirm-before action, or None.
+
+    "yes" runs the waiting action right away (no second model call);
+    "no" cancels it. Any other text cancels it and is handled normally.
+    """
+    import confirm_action
+
+    waiting = confirm_action.pending()
+    if waiting is None:
+        return None
+    folded = " ".join((text or "").casefold().split()).strip(" .!?")
+    agent = _agent()
+    if folded in confirm_action.POSITIVE:
+        _log("user", text)
+        agent.begin_task_turn(text)  # grants the waiting action
+        result = agent.invoke_tool(waiting["name"], waiting["arguments"])
+        detail = str(result.get("message") or result.get("error") or "")
+        reply = ("Done: " if result.get("ok") else "That failed: ") + detail
+        _log("assistant", reply)
+        return reply
+    if folded in NEGATIVE:
+        _log("user", text)
+        confirm_action.note_user_text(text)  # cancels it
+        reply = f"Cancelled: {waiting.get('label') or waiting['name']}."
+        _log("assistant", reply)
+        return reply
+    return None
+
+
+def _with_confirm_hint(reply: str) -> str:
+    import confirm_action
+
+    waiting = confirm_action.pending()
+    if waiting is not None and "reply yes" not in reply.casefold():
+        reply = f"{reply}\n\nReply yes to {waiting.get('label') or 'go ahead'}, or no to cancel."
+    return reply
+
+
 def _answer(text: str) -> str:
     agent = _agent()
+    for listener in list(message_listeners):
+        try:
+            listener(text)
+        except Exception:
+            pass
+    confirmed = _confirm_reply(text)
+    if confirmed is not None:
+        return _scrubbed(confirmed)[:3500]
     if agent.remote_reply_override is not None:
         reply = agent.remote_reply_override(text)
-        return _scrubbed(str(reply or ""))[:3500]
+        return _scrubbed(_with_confirm_hint(str(reply or "")))[:3500]
+    if answer_handler is not None:
+        reply = answer_handler(text)
+        return _scrubbed(_with_confirm_hint(str(reply or "")))[:3500]
     import gta5_agent
 
-    history: list[Any] = []
-    answer = gta5_agent.run_agent(text, history, os.environ.get("GEMINI_MODEL", gta5_agent.DEFAULT_MODEL))
-    return _scrubbed(str(answer or ""))[:3500]
+    # One running conversation per process, so "yes" follow-ups have context.
+    answer = gta5_agent.run_agent(text, _console_history, os.environ.get("GEMINI_MODEL", gta5_agent.DEFAULT_MODEL))
+    del _console_history[:-40]
+    return _scrubbed(_with_confirm_hint(str(answer or "")))[:3500]
 
 
 def notify(text: str) -> dict[str, Any]:
@@ -825,6 +894,13 @@ def poll_once() -> dict[str, Any]:
             offset = _offset
         payload = _http("telegram_updates", {"offset": offset})
     except Exception as exc:
+        global _conflict_logged
+        if "409" in str(exc):
+            if not _conflict_logged:
+                _conflict_logged = True
+                print("[phone] Another copy of the bot is polling Telegram (409). "
+                      "Close the other Pedro_Agent window.", flush=True)
+            return agent._err("Telegram conflict (409): another bridge is polling.", conflict=True)
         return agent._err(f"Telegram could not be reached. {_scrubbed(str(exc))}")
     updates = payload.get("result") if isinstance(payload, dict) else None
     if not isinstance(updates, list):
@@ -851,6 +927,8 @@ def poll_once() -> dict[str, Any]:
         if not text:
             continue
         if wants_screenshot(text):
+            _log("user", text)
+            _log("assistant", "[sent a screenshot to Telegram]")
             _schedule_screenshot()
             replied += 1
             print("[phone] Answered a screenshot request.", flush=True)
@@ -886,11 +964,70 @@ def poll_once() -> dict[str, Any]:
 
 def _loop() -> None:
     while not _stop.is_set():
+        wait = 2
         try:
-            poll_once()
+            result = poll_once()
+            if isinstance(result, dict) and result.get("conflict"):
+                wait = 30
         except Exception as exc:
             print(f"[phone] {_scrubbed(str(exc))}", flush=True)
-        _stop.wait(2)
+        _stop.wait(wait)
+
+
+def _lock_path() -> Path:
+    import agent_config
+
+    folder = agent_config.storage_dir()
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder / "telegram_bridge.lock"
+
+
+def _acquire_instance_lock() -> bool:
+    """One poller per PC: an OS file lock, released automatically if the process dies."""
+    global _instance_lock_handle
+    if _instance_lock_handle is not None:
+        return True
+    handle = open(_lock_path(), "a+")
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        handle.close()
+        return False
+    _instance_lock_handle = handle
+    return True
+
+
+def _release_instance_lock() -> None:
+    global _instance_lock_handle
+    handle = _instance_lock_handle
+    _instance_lock_handle = None
+    if handle is None:
+        return
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    except OSError:
+        pass
+    handle.close()
+
+
+def bridge_running() -> bool:
+    return _thread is not None and _thread.is_alive()
 
 
 def start_remote_bridge() -> None:
@@ -899,6 +1036,10 @@ def start_remote_bridge() -> None:
     if not paired():
         return
     if _thread is not None and _thread.is_alive():
+        return
+    if not _acquire_instance_lock():
+        print("[phone] Telegram bridge is already running in another Pedro_Agent "
+              "window; this one will not poll.", flush=True)
         return
     _stop.clear()
     _thread = threading.Thread(target=_loop, name="phone-bridge", daemon=True)
@@ -913,6 +1054,7 @@ def stop_remote_bridge() -> None:
     if thread is not None and thread.is_alive() and thread is not threading.current_thread():
         thread.join(timeout=2)
     _thread = None
+    _release_instance_lock()
 
 
 def reset_remote_bridge() -> None:

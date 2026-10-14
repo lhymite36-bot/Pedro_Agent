@@ -13,6 +13,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+import rules
+
 ACTIONS = {
     "init": "init",
     "initialize": "init",
@@ -55,6 +57,8 @@ def _resolve_repo(agent: Any, path: str) -> Path:
 
 
 def _secret(path_text: str) -> bool:
+    if not rules.protect("git_unstage_secrets"):
+        return False
     name = Path(path_text.replace("\\", "/")).name.casefold()
     if name in SECRET_NAMES or name.endswith(".env"):
         return True
@@ -120,10 +124,13 @@ def _message_problem(agent: Any, message: str) -> str | None:
     text = " ".join((message or "").split())
     if not text:
         return "A commit message is required."
-    if agent.PIRACY_TERMS.search(text) or KEY_TEXT.search(text):
+    if agent.PIRACY_TERMS.search(text):
+        # Kept built-in piracy rule (not a rules.yaml switch).
+        return "The commit message cannot name a crack or repack."
+    if rules.limit("refuse_secret_text") and KEY_TEXT.search(text):
         return "The commit message cannot contain a crack, a key, or a password."
     live = os.environ.get("GEMINI_API_KEY", "")
-    if live and live in message:
+    if live and live in message and rules.limit("refuse_secret_text"):
         return "The commit message cannot contain a crack, a key, or a password."
     return None
 

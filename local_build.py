@@ -14,6 +14,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import rules
+
 ALLOWED_SUFFIXES = {".py", ".html", ".css", ".js", ".json", ".txt", ".md", ".csv"}
 MAX_FILES = 40
 MAX_FILE_CHARS = 100_000
@@ -54,12 +56,12 @@ def _project_dir(output_path: str, name: str) -> Path:
             root = agent._external_drive_root()
             if root is None:
                 raise ValueError(agent_config.drive_missing_message())
-            if relative and ".." in Path(relative).parts:
+            if relative and ".." in Path(relative).parts and rules.limit("reject_dotdot_paths"):
                 raise ValueError("The path cannot contain '..'.")
             target = root / relative if relative else root / "Apps" / folder
         else:
             target = Path(text).expanduser()
-            if ".." in target.parts:
+            if ".." in target.parts and rules.limit("reject_dotdot_paths"):
                 raise ValueError("The path cannot contain '..'.")
         if target.suffix:
             raise ValueError("output_path must be a folder.")
@@ -69,7 +71,7 @@ def _project_dir(output_path: str, name: str) -> Path:
             "Save the program in your user folder, the app workspace, or the external drive."
         )
     cursor = resolved
-    while True:
+    while rules.limit("keep_builds_out_of_game_folder"):
         if (cursor / "GTA5.exe").is_file():
             raise ValueError("Do not build a program inside the game folder.")
         if cursor == cursor.parent:
@@ -85,7 +87,7 @@ def _relative_file(value: str) -> Path:
     path = Path(text)
     if path.is_absolute() or ".." in path.parts:
         raise ValueError(f"The file path {value!r} must stay inside the project.")
-    if path.suffix.casefold() not in ALLOWED_SUFFIXES:
+    if rules.limit("build_allowed_extensions_only") and path.suffix.casefold() not in ALLOWED_SUFFIXES:
         allowed = ", ".join(sorted(ALLOWED_SUFFIXES))
         raise ValueError(f"Files must use one of these extensions: {allowed}.")
     return path
@@ -106,7 +108,8 @@ def _checked_files(raw: Any) -> list[tuple[Path, str]]:
         raise ValueError(
             'files must be a JSON list of {"path":"main.py","content":"..."} objects.'
         )
-    if len(raw) > MAX_FILES:
+    caps = rules.limit("build_size_caps")
+    if caps and len(raw) > MAX_FILES:
         raise ValueError(f"A project can contain at most {MAX_FILES} files.")
     key = os.environ.get("GEMINI_API_KEY", "")
     prepared: list[tuple[Path, str]] = []
@@ -119,14 +122,14 @@ def _checked_files(raw: Any) -> list[tuple[Path, str]]:
         content = item.get("content")
         if not isinstance(content, str) or not content.strip():
             raise ValueError(f"{relative.as_posix()} has no content.")
-        if len(content) > MAX_FILE_CHARS:
+        if caps and len(content) > MAX_FILE_CHARS:
             raise ValueError(f"{relative.as_posix()} is too long.")
         total += len(content)
-        if total > MAX_TOTAL_CHARS:
+        if caps and total > MAX_TOTAL_CHARS:
             raise ValueError("The project is too large.")
         if "\x00" in content:
             raise ValueError(f"{relative.as_posix()} contains a null character.")
-        if key and key in content:
+        if key and key in content and rules.limit("build_refuse_api_key_in_files"):
             raise ValueError("A project file cannot contain an API key.")
         if agent.PIRACY_TERMS.search(content) or _INSTALLER.search(content):
             raise ValueError(

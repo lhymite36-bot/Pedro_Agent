@@ -13,6 +13,8 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any
+
+import rules
 from urllib.parse import urlparse
 
 CHECK_WAIT_SECONDS = 90
@@ -97,6 +99,10 @@ def _check_url(url: str) -> str:
 
 def _env_name(name: str) -> str:
     cleaned = (name or "").strip()
+    if not rules.limit("browser_env_prefix_only"):
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", cleaned):
+            raise ValueError("env must be an environment variable name.")
+        return cleaned
     if not _ENV_NAME.fullmatch(cleaned) or cleaned in _BLOCKED_ENV:
         raise ValueError("env must name a BROWSER_ variable, not an API key or token.")
     if cleaned.startswith(("GEMINI", "TELEGRAM", "DISCORD")):
@@ -135,7 +141,8 @@ def _actions(raw: Any) -> list[dict[str, Any]]:
         raw = []
     if not isinstance(raw, list):
         raise ValueError("actions must be a list.")
-    if len(raw) > MAX_ACTIONS:
+    caps = rules.limit("browser_action_caps")
+    if caps and len(raw) > MAX_ACTIONS:
         raise ValueError("At most 8 browser actions are allowed.")
     steps: list[dict[str, Any]] = []
     downloads = 0
@@ -156,9 +163,9 @@ def _actions(raw: Any) -> list[dict[str, Any]]:
             if env_name:
                 step["env"] = _env_name(env_name)
             elif isinstance(text, str) and text:
-                if len(text) > 500:
+                if caps and len(text) > 500:
                     raise ValueError("Fill text is longer than 500 characters.")
-                if _fill_is_secret(text):
+                if rules.limit("refuse_secret_text") and _fill_is_secret(text):
                     raise ValueError(
                         "Put a password in an environment variable and pass its name in env."
                     )
@@ -167,14 +174,16 @@ def _actions(raw: Any) -> list[dict[str, Any]]:
                 raise ValueError("A fill needs text or env.")
         if action == "press":
             key = str(item.get("key") or "")
-            if key not in _KEYS:
+            if caps and key not in _KEYS:
                 raise ValueError("press key must be Enter, Tab, or Escape.")
+            if not key.strip():
+                raise ValueError("press needs a key name.")
             step["key"] = key
         if action == "click" and item.get("download") is True:
             step["download"] = True
             downloads += 1
         steps.append(step)
-    if downloads > 1:
+    if caps and downloads > 1:
         raise ValueError("Only one download click is allowed.")
     return steps
 
