@@ -82,6 +82,7 @@
   <div class="set-head"><b>Settings</b><button class="ib" id="close-set" type="button" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
   <div class="tabs"><button class="tab active" data-pane="p-general" type="button">General</button><button class="tab" data-pane="p-voice" type="button">Voice</button><button class="tab" data-pane="p-rules" type="button">Rules</button></div>
   <div class="pane active" id="p-general">
+    <div class="field"><div>Chats<small>Deletes every normal chat. Bots, groups and their rooms stay.</small></div><button class="btn ghost danger" id="clear-chats" type="button">Clear all chats</button></div>
     <div class="field"><div>Model<small>Free Gemini models, tried in order on quota errors.</small></div><select id="model2"></select></div>
     <div class="field"><div>Telegram<small>Answers your bot from this window.</small></div><span id="tg-line">-</span></div>
   </div>
@@ -101,7 +102,15 @@
 <section id="grped" class="drawer" aria-label="Group editor">
   <div class="set-head"><b id="grped-title">New group</b><button class="ib" id="close-grped" type="button" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
   <div class="pane active">
-    <input id="grp-name" placeholder="Group name, e.g. Shorts Team" maxlength="60">
+    <div class="grp-top"><div class="grp-picbox"><div id="grp-preview"></div><canvas id="grp-crop" width="160" height="160" hidden></canvas></div>
+      <div class="grow"><input id="grp-name" placeholder="Group name, e.g. Shorts Team" maxlength="60">
+      <div class="inline"><label class="btn ghost">Upload picture<input id="grp-file" type="file" accept="image/*" hidden></label>
+      <button class="btn ghost" id="grp-picclear" type="button" hidden>Use preset</button></div>
+      <div class="inline"><label>Colour <input type="color" id="grp-color" value="#5b9dff"></label>
+      <label>Avatar <select id="grp-avatar"><option>round</option><option>square</option><option>spark</option><option>robot</option><option>cat</option><option>ghost</option><option>bunny</option></select></label></div>
+      <div id="grp-cropctl" class="inline" hidden><label>Zoom <input id="grp-zoom" type="range" min="1" max="4" step="0.05" value="1"></label>
+      <label>Left/right <input id="grp-panx" type="range" min="0" max="1" step="0.01" value="0.5"></label>
+      <label>Up/down <input id="grp-pany" type="range" min="0" max="1" step="0.01" value="0.5"></label></div></div></div>
     <h4>Purpose</h4><textarea id="grp-purpose" rows="3" placeholder="What this group is for…"></textarea>
     <h4>Members <small>reply in turn; @mention one (or @all) to ask directly</small></h4><div id="grp-members" class="grp-members"></div>
     <h4>Coordinator <small>answers first and hands parts of a task to members</small></h4><select id="grp-coord"></select>

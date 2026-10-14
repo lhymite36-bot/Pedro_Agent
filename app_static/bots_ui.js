@@ -30,7 +30,9 @@
     const grp = root.currentGroup && root.currentGroup();
     $('.who b').textContent = grp ? grp.name : bot ? bot.name : 'Pedro_Agent';
     $('#t').placeholder = 'Message ' + (grp ? grp.name + ' (@ to mention)' : bot ? bot.name : 'Pedro_Agent') + '…';
-    const l = look(bot); const key = l.color + l.shape;
+    const l = grp ? { color: grp.color || DEFAULT.color, shape: grp.avatar || 'round' } : look(bot); const key = l.color + l.shape;
+    let pic = $('#hdr-pic'); if (!pic) { pic = document.createElement('img'); pic.id = 'hdr-pic'; pic.alt = ''; hdr.appendChild(pic); }
+    pic.hidden = !(grp && grp.picture); if (grp && grp.picture) pic.src = grp.picture;
     if (hdr.dataset.look !== key && root.mainAvatars) { hdr.dataset.look = key; root.mainAvatars[0].setLook(l.color, l.shape); root.mainAvatars[2].setLook(l.color, l.shape); }
     if (!grp) document.querySelectorAll('#log .row.bot .face').forEach((f) => { if (f._av && f.dataset.look !== key) { f.dataset.look = key; f._av.setLook(l.color, l.shape); } });
     document.querySelectorAll('#bots .sess').forEach((d) => d.classList.toggle('active', bot && d.dataset.id === bot.id));
@@ -46,12 +48,18 @@
       const sp = document.createElement('span'); sp.textContent = b.name;
       const ed = document.createElement('button'); ed.type = 'button'; ed.className = 'edit'; ed.title = 'Edit bot'; ed.textContent = '✎';
       ed.onclick = (e) => { e.stopPropagation(); openEditor(b); };
-      d.append(face, sp, ed); d.onclick = () => { openSession('bot-' + b.id).then(applyHeader); };
+      d.append(face, sp, ed, root.trashBtn('Delete bot', () => deleteBot(b))); d.onclick = () => { openSession('bot-' + b.id).then(applyHeader); };
       box.appendChild(d);
     });
     applyHeader();
   }
   root.loadBots = load;
+  async function deleteBot(b) {
+    if (!confirm('Delete the bot "' + b.name + '" and its chat? It will also leave any groups it is in.')) return false;
+    await fetch('/api/bots/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: b.id, confirm: true }) });
+    if (session === 'bot-' + b.id) $('#new').click();
+    await load(); if (root.loadGroups) root.loadGroups(); return true;
+  }
 
   function taskRow(t) {
     const row = document.createElement('div'); row.className = 'task';
@@ -134,12 +142,7 @@
       if (!r.ok) { $('#botmsg').textContent = r.error || 'Could not save.'; return; }
       editing = r.bot; await load(); openEditor(r.bot); $('#botmsg').textContent = 'Saved.';
     };
-    $('#bot-delete').onclick = async () => {
-      if (!editing || !confirm('Delete ' + editing.name + ' and its chat?')) return;
-      await fetch('/api/bots/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: editing.id }) });
-      if (session === 'bot-' + editing.id) $('#new').click();
-      closeEditor(); load();
-    };
+    $('#bot-delete').onclick = async () => { if (editing && await deleteBot(editing)) closeEditor(); };
     previewAv = createAvatar($('#bot-preview')); buildPicker();
     load();
   }

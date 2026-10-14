@@ -187,6 +187,18 @@ def save_setup(data: dict) -> dict:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return {"ok": True, **setup_status()}
 
+
+def clear_chats(state) -> int:
+    """Delete every normal chat. Bot and group rooms (and the bots/groups) stay."""
+    n = 0
+    for row in chat_store.sessions():
+        sid = str(row.get("session") or "")
+        if sid and not sid.startswith((bots.SESSION_PREFIX, groups.SESSION_PREFIX)):
+            chat_store.delete_session(sid)
+            state.histories.pop(sid, None)
+            n += 1
+    return n
+
 def _ui_settings_path():
     import agent_config
 
@@ -653,17 +665,29 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     self._json({"ok": groups.delete_group(gid)})
             elif url.path == "/api/bots/delete":
                 bot_id = str(data.get("id") or "")
-                state.histories.pop(bots.SESSION_PREFIX + bot_id, None)
-                self._json({"ok": bots.delete_bot(bot_id)})
+                if not data.get("confirm"):
+                    self._json({"ok": False, "error": "Confirm the delete."}, 400)
+                else:
+                    state.histories.pop(bots.SESSION_PREFIX + bot_id, None)
+                    ok = bots.delete_bot(bot_id)
+                    self._json({"ok": ok, "groups_updated": groups.remove_bot(bot_id) if ok else 0})
             elif url.path == "/api/bots/run_task":
                 bot_id, task_id = str(data.get("id") or ""), str(data.get("task") or "")
                 threading.Thread(target=bots.run_task, args=(bot_id, task_id),
                                  kwargs={"unattended": False}, daemon=True).start()
                 self._json({"ok": True, "started": True})
             elif url.path == "/api/delete_session":
-                chat_store.delete_session(str(data.get("session") or ""))
-                state.histories.pop(str(data.get("session") or ""), None)
-                self._json({"ok": True})
+                if not data.get("confirm"):
+                    self._json({"ok": False, "error": "Confirm the delete."}, 400)
+                else:
+                    chat_store.delete_session(str(data.get("session") or ""))
+                    state.histories.pop(str(data.get("session") or ""), None)
+                    self._json({"ok": True})
+            elif url.path == "/api/clear_chats":
+                if data.get("confirm") != "clear":
+                    self._json({"ok": False, "error": "Confirm clearing all chats."}, 400)
+                else:
+                    self._json({"ok": True, "deleted": clear_chats(state)})
             else:
                 self._send(404, b"{}")
 

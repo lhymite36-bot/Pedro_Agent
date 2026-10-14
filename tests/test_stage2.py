@@ -284,7 +284,7 @@ class BotTests(_Tmp):
             chat_app.stream_turn(state, "bot-coder", "hello", events.append, speak=False)
             self.assertIn("Write code", self.calls[-1]["prompt"])
             self.assertEqual(events[-2]["text"], "bot reply")
-            self.assertTrue(post("/api/bots/delete", {"id": "coder"})["ok"])
+            self.assertTrue(post("/api/bots/delete", {"id": "coder", "confirm": True})["ok"])
             self.assertEqual(self.bots.list_bots(), [])
         finally:
             chat_app.shutdown(server)

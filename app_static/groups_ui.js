@@ -21,15 +21,40 @@
     const box = $('#groups'); if (!box) return; box.innerHTML = '';
     groups.forEach((g) => {
       const d = document.createElement('div'); d.className = 'sess botitem' + (current() && current().id === g.id ? ' active' : ''); d.dataset.id = g.id;
-      const ic = document.createElement('i'); ic.className = 'grp-ic'; ic.textContent = '👥';
+      const ic = groupFace(g);
       const sp = document.createElement('span'); sp.textContent = g.name; sp.title = g.purpose || '';
       const ed = document.createElement('button'); ed.type = 'button'; ed.className = 'edit'; ed.title = 'Edit group'; ed.textContent = '✎';
       ed.onclick = (e) => { e.stopPropagation(); openEditor(g); };
-      d.append(ic, sp, ed); d.onclick = () => openSession('group-' + g.id).then(() => { load(); root.applyBotHeader && root.applyBotHeader(); }); box.appendChild(d);
+      d.append(ic, sp, ed, root.trashBtn('Delete group', () => delGroup(g))); d.onclick = () => openSession('group-' + g.id).then(() => { load(); root.applyBotHeader && root.applyBotHeader(); }); box.appendChild(d);
     });
     root.applyBotHeader && root.applyBotHeader();
   }
   root.loadGroups = load;
+  function groupFace(g) {
+    if (g.picture) { const im = document.createElement('img'); im.className = 'grp-pic'; im.src = g.picture; im.alt = ''; return im; }
+    const f = document.createElement('div'); f.className = 'mini-face'; createAvatar(f, { color: g.color || '#5b9dff', shape: g.avatar || 'round' }); return f;
+  }
+  // ----- picture: upload, square crop with zoom, resize to 160px; or preset look -----
+  let picSrc = null, picData = '';
+  function drawPic() {
+    const c = $('#grp-crop'); const x = c.getContext('2d'); x.clearRect(0, 0, 160, 160);
+    if (!picSrc) { picData = ''; showPic(); return; }
+    const z = parseFloat($('#grp-zoom').value) || 1, side = Math.min(picSrc.width, picSrc.height) / z;
+    const sx = (picSrc.width - side) * Number($('#grp-panx').value), sy = (picSrc.height - side) * Number($('#grp-pany').value);
+    x.drawImage(picSrc, sx, sy, side, side, 0, 0, 160, 160); picData = c.toDataURL('image/jpeg', 0.85); showPic();
+  }
+  function showPic() {
+    const has = !!picData; $('#grp-crop').hidden = !has; $('#grp-cropctl').hidden = !(has && picSrc);
+    $('#grp-preview').hidden = has; $('#grp-picclear').hidden = !has;
+    if (!has && grpPrev) grpPrev.setLook($('#grp-color').value, $('#grp-avatar').value);
+  }
+  let grpPrev = null;
+  async function delGroup(g) {
+    if (!confirm('Delete the group "' + g.name + '" and its chat? The bots themselves stay.')) return false;
+    await post('/api/groups/delete', { id: g.id, confirm: true });
+    if (session === 'group-' + g.id) $('#new').click();
+    await load(); return true;
+  }
   function memberBoxes(sel) {
     const box = $('#grp-members'); box.innerHTML = '';
     const pa = document.createElement('label'); pa.innerHTML = '<input type="checkbox" checked disabled> Pedro_Agent (always in)'; box.appendChild(pa);
@@ -47,6 +72,9 @@
   }
   function openEditor(g) {
     editing = g; $('#grped-title').textContent = g ? 'Edit group' : 'New group';
+    picSrc = null; picData = g && g.picture ? g.picture : ''; $('#grp-color').value = (g && g.color) || '#5b9dff'; $('#grp-avatar').value = (g && g.avatar) || 'round';
+    if (picData) { const im = new Image(); im.onload = () => { const c = $('#grp-crop'); c.getContext('2d').drawImage(im, 0, 0, 160, 160); }; im.src = picData; }
+    showPic();
     $('#grp-name').value = g ? g.name : ''; $('#grp-purpose').value = g ? g.purpose : ''; $('#grp-coord').value = '';
     memberBoxes(g ? g.members : []); coordOptions(); $('#grp-delete').style.display = g ? '' : 'none'; $('#grpmsg').textContent = '';
     $('#grped').classList.add('open'); $('#overlay').classList.add('open');
@@ -55,18 +83,24 @@
   function wire() {
     if (!$('#grped')) return;
     $('#newgroup').onclick = () => openEditor(null);
+    grpPrev = createAvatar($('#grp-preview'), { color: '#5b9dff', shape: 'round' });
+    $('#grp-file').onchange = (e) => {
+      const f = e.target.files && e.target.files[0]; if (!f) return;
+      if (!/^image\//.test(f.type)) { $('#grpmsg').textContent = 'Pick an image file.'; return; }
+      const url = URL.createObjectURL(f); const im = new Image();
+      im.onload = () => { picSrc = im; $('#grp-zoom').value = 1; $('#grp-panx').value = 0.5; $('#grp-pany').value = 0.5; drawPic(); URL.revokeObjectURL(url); };
+      im.onerror = () => { $('#grpmsg').textContent = 'Could not read that image.'; }; im.src = url; e.target.value = '';
+    };
+    ['#grp-zoom', '#grp-panx', '#grp-pany'].forEach((k) => { $(k).oninput = drawPic; });
+    $('#grp-picclear').onclick = () => { picSrc = null; picData = ''; showPic(); };
+    $('#grp-color').oninput = showPic; $('#grp-avatar').onchange = showPic;
     $('#close-grped').onclick = closeEditor; $('#overlay').addEventListener('click', closeEditor);
     $('#grp-save').onclick = async () => {
-      const r = await post('/api/groups', { id: editing ? editing.id : '', name: $('#grp-name').value, purpose: $('#grp-purpose').value, members: chosen(), coordinator: $('#grp-coord').value });
+      const r = await post('/api/groups', { id: editing ? editing.id : '', name: $('#grp-name').value, picture: picData, color: $('#grp-color').value, avatar: $('#grp-avatar').value, purpose: $('#grp-purpose').value, members: chosen(), coordinator: $('#grp-coord').value });
       if (!r.ok) { $('#grpmsg').textContent = r.error || 'Could not save.'; return; }
       closeEditor(); await load(); openSession(r.session).then(load);
     };
-    $('#grp-delete').onclick = async () => {
-      if (!editing || !confirm('Delete the group "' + editing.name + '" and its chat? The bots themselves stay.')) return;
-      await post('/api/groups/delete', { id: editing.id, confirm: true });
-      if (session === 'group-' + editing.id) $('#new').click();
-      closeEditor(); load();
-    };
+    $('#grp-delete').onclick = async () => { if (editing && await delGroup(editing)) closeEditor(); };
     setTimeout(load, 300);
   }
   wire();

@@ -25,6 +25,8 @@ MAIN = "pedro"                 # Pedro_Agent itself
 MAX_SPEAKERS = 6               # replies per message, so a room can't loop forever
 TAG = re.compile(r"^\[\[@([a-z0-9-]+)\]\]\s?")
 _lock = threading.RLock()
+PICTURE = re.compile(r"data:image/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+")
+MAX_PICTURE = 280_000          # chars of data URL (~200 KB image)
 
 # Tests replace: main_engine(prompt, history, model, **kw) -> str
 main_engine: Callable[..., str] | None = None
@@ -56,7 +58,13 @@ def normalise(data: dict[str, Any]) -> dict[str, Any]:
     coord = _slug(str(data.get("coordinator") or MAIN))
     if coord != MAIN and coord not in members:
         coord = MAIN
+    pic = str(data.get("picture") or "")
+    if pic and not (PICTURE.fullmatch(pic) and len(pic) <= MAX_PICTURE):
+        raise ValueError("That picture can't be used (PNG/JPEG/WebP up to ~200 KB).")
+    color = str(data.get("color") or "#5b9dff")
     return {"id": _slug(str(data.get("id") or "")) or _slug(name) or uuid.uuid4().hex[:8], "name": name,
+            "picture": pic, "color": color if bots.COLOR.fullmatch(color) else "#5b9dff",
+            "avatar": str(data.get("avatar")) if data.get("avatar") in bots.AVATARS else "round",
             "purpose": str(data.get("purpose") or "").strip()[:1000], "members": members,
             "coordinator": coord, "created": float(data.get("created") or time.time())}
 
@@ -199,3 +207,19 @@ def run_group(group: dict[str, Any], text: str, history: list[Any], emit: Callab
                 if m != speaker and m not in queue and m not in [d[0] for d in done]:
                     queue.append(m)
     return done
+
+
+def remove_bot(bot_id: str) -> int:
+    """A deleted bot leaves every group; a coordinator falls back to Pedro_Agent."""
+    gone, changed = _slug(bot_id), 0
+    with _lock:
+        for g in list_groups():
+            if gone in g.get("members", []):
+                g["members"] = [m for m in g["members"] if m != gone]
+                if g.get("coordinator") == gone:
+                    g["coordinator"] = MAIN
+                tmp = _path(g["id"]).with_suffix(".tmp")
+                tmp.write_text(json.dumps(g, indent=2), encoding="utf-8")
+                os.replace(tmp, _path(g["id"]))
+                changed += 1
+    return changed

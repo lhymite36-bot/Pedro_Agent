@@ -167,9 +167,29 @@ async function loadSessions() {
     const d = document.createElement('div'); d.className = 'sess' + (s.session === session ? ' active' : '');
     if (s.session === 'telegram') { const t = document.createElement('i'); t.className = 'tag'; t.textContent = 'Telegram'; d.appendChild(t); }
     const sp = document.createElement('span'); sp.textContent = s.title || s.session; d.appendChild(sp);
+    d.appendChild(trashBtn('Delete chat', () => deleteChat(s.session, s.title || 'this chat')));
     d.onclick = () => openSession(s.session); box.appendChild(d);
   });
 }
+// ---------- delete (always asks first) ----------
+function trashBtn(title, onDel) {
+  const b = document.createElement('button'); b.type = 'button'; b.className = 'trash'; b.title = title; b.setAttribute('aria-label', title);
+  b.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>';
+  b.onclick = (e) => { e.stopPropagation(); onDel(); }; return b;
+}
+window.trashBtn = trashBtn;
+async function deleteChat(id, title) {
+  if (!confirm('Delete the chat "' + title + '"? This can\'t be undone.')) return;
+  await api('/api/delete_session', { session: id, confirm: true });
+  if (session === id) $('#new').click(); else loadSessions();
+}
+async function clearAllChats() {
+  if (!confirm('Delete ALL your chats? Bots, groups and their rooms are kept. This can\'t be undone.')) return;
+  const r = await api('/api/clear_chats', { confirm: 'clear' });
+  if (!String(session).startsWith('bot-') && !String(session).startsWith('group-')) $('#new').click(); else loadSessions();
+  setStatus('Deleted ' + (r.deleted || 0) + ' chats.');
+}
+if ($('#clear-chats')) $('#clear-chats').onclick = clearAllChats;
 async function openSession(s) {
   session = s; localStorage.session = s; $('#log').innerHTML = '';
   const rows = await api('/api/history?session=' + encodeURIComponent(s));
