@@ -141,7 +141,13 @@ def _names(group: dict[str, Any]) -> dict[str, str]:
 
 
 _CHAT_WORDS = re.compile(r"^(hi+|hey+|hello+|yo|sup|hola|good (morning|afternoon|evening|night)|thanks?( you)?|thank u|ty|ok(ay)?|cool|nice|great|lol|bye|see you|how are (you|u)( all| guys)?|what'?s up|wassup|gm|gn)\b", re.I)
-_TASK_WORDS = re.compile(r"\b(make|create|build|write|draft|research|find|search|send|open|install|fix|plan|design|code|analy[sz]e|summari[sz]e|translate|compare|list|save|download|edit|generate|prepare|schedule|check|calculate|report|pdf|docx?|excel|presentation|email|whatsapp)\b", re.I)
+_TASK_WORDS = re.compile(r"\b(make|create|build|write|draft|research|find|search|send|open|install|fix|plan|design|code|program|develop|analy[sz]e|summari[sz]e|translate|compare|list|save|download|edit|generate|prepare|schedule|check|calculate|report|pdf|docx?|excel|presentation|email|whatsapp|app|script|file|folder|website|game)\b", re.I)
+
+
+def is_task(text: str) -> bool:
+    """A real job (build/make/create/code/file/PDF...) rather than talk or a question."""
+    t = re.sub(r"@[A-Za-z0-9_\-]+", "", text or "").strip()
+    return bool(t) and bool(_TASK_WORDS.search(t)) and not is_chitchat(text)
 
 
 def is_chitchat(text: str) -> bool:
@@ -269,7 +275,9 @@ def _leader_prompt(group: dict[str, Any], leader: str, transcript: list[str]) ->
             "  PROJECT DONE: <final summary for the user, with the full path of every file made>\n"
             "  ASK USER: <question>   (only if truly blocked, e.g. missing info or a needed yes)\n"
             "As leader you plan, delegate and review: do NOT do the members' work yourself in this turn. Give each subtask to "
-            "the member whose purpose fits it best, in order (e.g. research before writing). Only report results that appear in the "
+            "the member whose purpose fits it best, in order (e.g. research before writing). Don't ask the user for style or "
+            "preferences: pick sensible defaults and start. A build means real files (build_local_program / write_text_file / "
+            "make_document) with full save paths. Only report results that appear in the "
             "project log; never claim a member did something they haven't. "
             "Only declare PROJECT DONE after the work is finished and verified (files exist, content right). "
             "Never send, delete or buy anything unless the user asked.]\n\nProject log:\n" + _tail(transcript))
@@ -278,8 +286,9 @@ def _leader_prompt(group: dict[str, Any], leader: str, transcript: list[str]) ->
 def _worker_prompt(group: dict[str, Any], worker: str, task: str, transcript: list[str]) -> str:
     return (f"[Group project room '{group['name']}'. You are {display(worker)['name']}, a team MEMBER (not the leader: "
             "never write ASSIGN, never review others). The leader assigned you this subtask:\n"
-            f"{task}\nDo it for real with your tools (start_task, create_task_plan, verify_screen, make_document, files…). "
-            "Save files where the task says, else on the Desktop, and give full paths. "
+            f"{task}\nDo it NOW for real with your tools: don't discuss, don't ask questions, don't just describe a plan. "
+            "To build an app/script use build_local_program (or write_text_file); for documents use make_document. "
+            "Pick sensible defaults yourself. Save files where the task says, else on the Desktop, and give the full path of every file. "
             "End with a line starting 'DONE:' and the result, or 'BLOCKED:' and why. Never write 'PROJECT DONE' (only the leader does).]\n\nRecent project log:\n"
             + _tail(transcript, 8))
 
@@ -304,7 +313,7 @@ def _run_one(speaker: str, prompt: str, history: list[Any], model: str, kw: dict
     return bots.run_bot(bot, prompt, [], model=model, extra_tools=GROUP_TOOLS, **kw)
 
 
-GROUP_TOOLS = {"start_task", "create_task_plan", "complete_plan_step", "revise_task_plan", "verify_screen",
+GROUP_TOOLS = {"build_local_program", "search_local_files", "start_task", "create_task_plan", "complete_plan_step", "revise_task_plan", "verify_screen",
                "capture_screenshot_file", "make_document", "launch_any_app", "take_screenshot", "write_text_file",
                "open_website", "list_task_routines", "get_task_routine"}
 
@@ -354,8 +363,9 @@ def run_group(group: dict[str, Any], text: str, history: list[Any], emit: Callab
         return bool(cancel_event is not None and cancel_event.is_set())
 
     direct = mentions(text, group)
-    if direct:
-        everyone = bool(re.search(r"@(all|everyone)\b", text, re.I))
+    everyone = bool(re.search(r"@(all|everyone)\b", text, re.I))
+    project = is_task(text) and (everyone or len(direct) > 1 or not direct)
+    if direct and not project:
         for speaker in direct[:MAX_SPEAKERS]:
             if stopped():
                 break
@@ -369,7 +379,7 @@ def run_group(group: dict[str, Any], text: str, history: list[Any], emit: Callab
                 break
         return done
 
-    if is_chitchat(text):   # small talk: the leader just answers, naturally and briefly
+    if not project and is_chitchat(text):   # small talk: the leader just answers, naturally and briefly
         say(group["coordinator"], _room_prompt(group, group["coordinator"], transcript, False)
             + "\n(This is small talk. Reply in one or two friendly sentences, no directives, don't assign anyone.)",
             f"{display(group['coordinator'])['name']} is replying")
@@ -379,6 +389,9 @@ def run_group(group: dict[str, Any], text: str, history: list[Any], emit: Callab
     max_turns, deadline = int(lim.get("max_turns") or 40), now() + float(lim.get("max_minutes") or 30) * 60
     leader = group["coordinator"]
     turns = 0
+    nudged = False
+    rejected = 0
+    worked = False
     while True:
         if stopped():
             _notice(emit, store, session, "Stopped. Say 'continue' to pick up where we left off.")
@@ -390,6 +403,11 @@ def run_group(group: dict[str, Any], text: str, history: list[Any], emit: Callab
         lead = say(leader, _leader_prompt(group, leader, transcript), f"{display(leader)['name']} is reviewing and planning")
         turns += 1
         if DONE_RE.search(lead):
+            problem = _done_problem(lead, worked)
+            if problem and rejected < 2:   # verification: send the leader back (at most twice)
+                rejected += 1
+                transcript.append("System: PROJECT DONE rejected: " + problem + " Keep directing until it is really finished.")
+                continue
             emit({"event": "group_status", "who": display(leader)["name"], "doing": "Project complete"})
             break
         ask = ASK_RE.search(lead)
@@ -404,19 +422,36 @@ def run_group(group: dict[str, Any], text: str, history: list[Any], emit: Callab
             task = m.group(2).strip()
         else:
             named = [x for x in mentions(lead, group) if x != leader]
-            if not named:   # a plain answer (no directive, nobody handed work): the turn is over
+            if not named:   # no directive
+                if project and not nudged:   # a real job: insist on a directive instead of chatting
+                    nudged = True
+                    transcript.append("System: this is a real task. Reply with exactly one 'ASSIGN @member: ...' "
+                                      "or 'PROJECT DONE: ...' line; don't discuss.")
+                    continue
                 break
             who, task = named[0], lead.strip()
         if not who:
             transcript.append(f"System: @{m.group(1)} is not in this group. Members: {_roster(group)}.")
             continue
-        say(who, _worker_prompt(group, who, task, transcript), f"{display(who)['name']} is working on: {task[:80]}")
+        reply = say(who, _worker_prompt(group, who, task, transcript), f"{display(who)['name']} is working on: {task[:80]}")
+        worked = worked or bool(re.search(r"\bDONE\s*:", reply))
         turns += 1
         waiting = _pending_confirmation()
         if waiting:
             _notice(emit, store, session, f"Waiting for your yes to {waiting}. Reply 'yes' to continue.")
             break
     return done
+
+
+_PATH_RE = re.compile(r"([A-Za-z]:\\[^\n\r\t\"'<>|*?`]+?\.[A-Za-z0-9]{1,6})\b")
+
+
+def _done_problem(lead: str, worked: bool) -> str:
+    """Why a PROJECT DONE isn't believable yet ('' = fine): nobody finished work, or cited files don't exist."""
+    if not worked:
+        return "no member has reported DONE with real results yet."
+    missing = [p for p in _PATH_RE.findall(lead) if not Path(p.strip()).exists()]
+    return ("these files don't exist: " + ", ".join(missing[:3]) + ".") if missing else ""
 
 
 def _notice(emit: Callable[[dict], Any], store: Any, session: str, text: str) -> None:

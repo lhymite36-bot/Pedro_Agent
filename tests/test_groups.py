@@ -191,3 +191,63 @@ class PictureTests(GroupTests):
         for bad in ("javascript:alert(1)", "data:image/svg+xml;base64,PHN2Zz4=", "data:image/png;base64," + "A" * 300000):
             with self.assertRaises(ValueError):
                 groups.save_group({"name": "Q", "picture": bad})
+
+
+class ProjectIntentTests(GroupTests):
+    def test_at_all_with_a_real_job_runs_the_project_loop(self):
+        g = groups.save_group({"name": "T", "members": ["writer", "editor"]})
+        lead = iter(["ASSIGN @writer: build the shorts app", "Verified.\nPROJECT DONE: saved"])
+        seen = []
+        def eng(prompt, history, model, **kw):
+            seen.append(prompt)
+            if "LEADER" in prompt:
+                return next(lead)
+            return "Built it with build_local_program.\nDONE: C:\\Users\\x\\Desktop\\Shorts\\main.py"
+        bots.engine = eng; groups.main_engine = eng
+        said = groups.run_group(g, "@all make an app that makes nice youtube shorts", [], lambda e: None)
+        self.assertEqual([s for s, _ in said], ["pedro", "writer", "pedro"])
+        self.assertIn("don't discuss", seen[1]); self.assertIn("build_local_program", seen[1])
+        self.assertIn("build_local_program", groups.GROUP_TOOLS)
+
+    def test_two_mentions_with_a_task_also_orchestrate(self):
+        g = groups.save_group({"name": "T", "members": ["writer", "editor"]})
+        groups.main_engine = lambda p, h, m, **k: "PROJECT DONE: ok" if "LEADER" in p else self.fail("not direct")
+        bots.engine = lambda p, h, m, **k: self.fail("no worker yet")
+        said = groups.run_group(g, "@writer @editor create a PDF about owls", [], lambda e: None)
+        self.assertEqual(said[0][0], "pedro")
+
+    def test_intent_helpers(self):
+        self.assertTrue(groups.is_task("@all make an app that makes nice youtube shorts"))
+        self.assertTrue(groups.is_task("code a script"))
+        self.assertFalse(groups.is_task("@all hi"))
+        self.assertFalse(groups.is_task("hello everyone"))
+        self.assertTrue(groups.is_chitchat("hey guys"))
+
+    def test_leader_that_only_chats_is_nudged_to_assign(self):
+        g = groups.save_group({"name": "T", "members": ["writer"]})
+        lead = iter(["Sounds like a fun project!", "ASSIGN @writer: build it", "PROJECT DONE: done"])
+        groups.main_engine = lambda p, h, m, **k: next(lead)
+        bots.engine = lambda p, h, m, **k: "DONE: built"
+        said = groups.run_group(g, "@all build a todo app", [], lambda e: None)
+        self.assertEqual([s for s, _ in said], ["pedro", "pedro", "writer", "pedro"])
+
+    def test_project_done_without_work_or_with_missing_files_is_rejected_once(self):
+        g = groups.save_group({"name": "T", "members": ["writer"]})
+        logs = []
+        lead = iter(["PROJECT DONE: all good", "ASSIGN @writer: build it", "PROJECT DONE: at C:\\nope\\missing.py", "PROJECT DONE: fine"])
+        def leader(p, h, m, **k):
+            logs.append(p); return next(lead)
+        groups.main_engine = leader
+        bots.engine = lambda p, h, m, **k: "DONE: built"
+        said = groups.run_group(g, "make an app", [], lambda e: None)
+        self.assertEqual([s for s, _ in said], ["pedro", "pedro", "writer", "pedro", "pedro"])
+        self.assertIn("no member has reported DONE", logs[1])
+        self.assertIn("these files don't exist: C:\\nope\\missing.py", logs[3])
+        self.assertEqual(groups._done_problem("PROJECT DONE: C:\\nope\\x.py", True), "these files don't exist: C:\\nope\\x.py.")
+        self.assertEqual(groups._done_problem("PROJECT DONE: summary", True), "")
+
+    def test_at_all_greeting_stays_a_quick_round(self):
+        g = groups.save_group({"name": "T", "members": ["writer"]})
+        groups.main_engine = lambda p, h, m, **k: "hi" if "LEADER" not in p else self.fail("no loop for hi")
+        bots.engine = lambda p, h, m, **k: "hey"
+        self.assertEqual(len(groups.run_group(g, "@all hi", [], lambda e: None)), 2)
