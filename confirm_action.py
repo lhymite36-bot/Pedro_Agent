@@ -7,7 +7,10 @@ rules.yaml (confirm section).
 
 from __future__ import annotations
 
-from typing import Any
+import contextlib
+import os
+import threading
+from typing import Any, Callable, Iterator
 
 POSITIVE = {
     "yes",
@@ -30,14 +33,66 @@ _NETWORK = {
     "disconnect",
 }
 
+NEGATIVE = {"no", "nope", "nah", "cancel", "stop", "don't", "dont", "n"}
+
 _pending: dict[str, Any] | None = None
 _granted: dict[str, Any] | None = None
+_done: list[dict[str, Any]] = []      # actions already run after a yes (this conversation turn)
+_turn = threading.local()              # set while the chat layer has already read the user's message
 
 
 def reset() -> None:
     global _pending, _granted
     _pending = None
     _granted = None
+    _done.clear()
+
+
+@contextlib.contextmanager
+def user_turn(text: str) -> Iterator[None]:
+    """The chat layer saw the user's real words. Nested agent calls (bot/group prompts wrap the
+    text in instructions) must not re-read the wrapped prompt and cancel the yes."""
+    note_user_text(text)
+    _turn.noted = True
+    try:
+        yield
+    finally:
+        _turn.noted = False
+
+
+def turn_already_noted() -> bool:
+    return bool(getattr(_turn, "noted", False))
+
+
+def _category(name: str, arguments: dict[str, Any]) -> str:
+    try:
+        import rules
+
+        return str(rules.category_for(name, arguments) or name)
+    except Exception:
+        return name
+
+
+def _key(name: str, arguments: dict[str, Any]) -> tuple[str, str]:
+    """What the yes was about: the category plus the real target (free-text descriptions ignored)."""
+    target = ""
+    for k in ("path", "to", "recipient", "contact", "process_name", "target", "profile", "name", "id"):
+        if arguments.get(k):
+            target = str(arguments[k])
+            break
+    if target and ("path" in arguments):
+        target = os.path.normcase(os.path.normpath(os.path.expandvars(os.path.expanduser(target.strip().strip('"')))))
+    return _category(name, arguments), target.strip().replace("\\", "/").rstrip("/").casefold()
+
+
+def _same(a: dict[str, Any], name: str, arguments: dict[str, Any]) -> bool:
+    if a.get("name") == name and a.get("arguments") == dict(arguments):
+        return True
+    ka, kb = _key(a["name"], a["arguments"]), _key(name, arguments)
+    if ka[0] != kb[0]:
+        return False
+    # confirm_before(kind=delete, description=...) approves the delete the model then makes
+    return ka[1] == kb[1] or a["name"] == "confirm_before" or name == "confirm_before"
 
 
 def _agent() -> Any:
@@ -94,8 +149,11 @@ def pending() -> dict[str, Any] | None:
 
 
 def note_user_text(text: str) -> None:
-    """A short yes grants the one action that is waiting. Anything else cancels it."""
+    """A short yes grants the one action that is waiting. Anything else cancels it.
+    Ignored while the chat layer already handled this message (nested bot/group prompts)."""
     global _pending, _granted
+    if turn_already_noted():
+        return
     folded = " ".join((text or "").casefold().split()).strip(" .!?")
     if not folded:
         return
@@ -105,16 +163,53 @@ def note_user_text(text: str) -> None:
         return
     _pending = None
     _granted = None
+    _done.clear()
 
 
 def consume_grant(name: str, arguments: dict[str, Any]) -> bool:
+    """True once for the approved action (or the real action a confirm_before yes was about)."""
     global _granted
-    if _granted is None:
+    if _granted is None or not _same(_granted, name, arguments):
         return False
-    if _granted.get("name") != name or _granted.get("arguments") != dict(arguments):
-        return False
+    if name == "confirm_before" and _granted.get("name") == "confirm_before":
+        return True   # the model re-checking; keep the grant for the delete/send that follows
     _granted = None
     return True
+
+
+def already_done(name: str, arguments: dict[str, Any]) -> dict[str, Any] | None:
+    """The result of this action if it already ran after a yes (so it is never asked or run twice)."""
+    if _category(name, arguments) not in {"delete", "send_message"}:   # repeating those is never wanted
+        return None
+    for d in _done:
+        if _same(d, name, arguments) and name != "confirm_before":
+            return d["result"]
+    return None
+
+
+def note_done(name: str, arguments: dict[str, Any], result: dict[str, Any]) -> None:
+    _done.append({"name": name, "arguments": dict(arguments), "result": dict(result)})
+    del _done[:-10]
+
+
+def answer_pending(text: str, invoke: Callable[[str, dict[str, Any]], dict[str, Any]]) -> str | None:
+    """Chat layer: a yes/no to the waiting action. 'yes' runs it once right away (no model round,
+    so it can't be re-asked); 'no' cancels. Returns the reply, or None to carry on normally
+    (also for confirm_before, whose yes is granted and the model then does the clicking)."""
+    waiting = pending()
+    if waiting is None:
+        return None
+    folded = " ".join((text or "").casefold().split()).strip(" .!?")
+    label = waiting.get("label") or waiting["name"]
+    if folded in NEGATIVE:
+        note_user_text(text)
+        return f"Cancelled: {label}."
+    if folded not in POSITIVE or waiting["name"] == "confirm_before":
+        return None
+    note_user_text(text)            # pending -> granted
+    result = invoke(waiting["name"], waiting["arguments"])
+    detail = str(result.get("message") or result.get("error") or "")
+    return ("Done: " if result.get("ok") else "That failed: ") + detail
 
 
 def _positive(text: str) -> bool:

@@ -453,7 +453,7 @@ Multi-step tasks (read a task, work in apps, make a document, send it):
 - If it suggests a routine, call get_task_routine and follow it. Then create_task_plan with the steps and keep it updated with complete_plan_step / revise_task_plan.
 - Act with the normal tools (launch_any_app also opens Store apps, open_website, click/type tools). After every important step call verify_screen with what should now be visible; on NO, look (take_screenshot), fix and retry up to 3 times, then report the blocker honestly.
 - Documents: capture_screenshot_file after each finished part (crop out notifications), then make_document. Never fake or reuse screenshots.
-- Sending on WhatsApp: whatsapp_prepare (checks the contact name), show the user what will be sent, and only after their yes call whatsapp_send_now. Before clicking anything that sends, deletes, buys or submits a form, call confirm_before.
+- Sending on WhatsApp: whatsapp_prepare (checks the contact name), show the user what will be sent, and only after their yes call whatsapp_send_now. Before clicking anything that sends, deletes, buys or submits a form, call confirm_before. Tools like delete_path, delete_app_item and gmail_send_message ask the user themselves: don't also call confirm_before for them, and after the user's yes don't ask again.
 - When a new kind of task worked, offer to save it with save_task_routine.
 
 Gmail:
@@ -3543,7 +3543,7 @@ def begin_task_turn(user_text: str) -> None:
     _task_plan = None
     _turn_is_local = False
     emotion.note_user(_turn_request)
-    confirm_action.note_user_text(_turn_request)
+    confirm_action.note_user_text(_turn_request)   # no-op when the chat layer already read the user's words
     if voice_mode_active:
         voice_checkin.note_activity()
 
@@ -3883,6 +3883,7 @@ TOOLS: dict[str, Callable[..., dict[str, Any]]] = {
     "click_screen_target": screen_vision.click_screen_target,
     "write_text_file": file_tools.write_text_file,
     "delete_path": file_tools.delete_path,
+    "delete_app_item": __import__("app_items").delete_app_item,
 }
 
 TOOL_DECLARATIONS = [
@@ -5091,6 +5092,7 @@ TOOL_DECLARATIONS.extend([
             "path": {"type": "string"}, "content": {"type": "string"},
             "overwrite": {"type": "boolean"}}, "required": ["path", "content"]},
     },
+    __import__("app_items").DECLARATION,
     {
         "name": "delete_path",
         "description": "Delete a file or folder (Recycle Bin when available). The user's rules may require a yes first.",
@@ -5168,7 +5170,11 @@ def invoke_tool(name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
     rule_block = rules.tool_block_reason(name)
     if rule_block is not None:
         return _err(rule_block, blocked_by_rules=True)
-    if confirm_action.is_sensitive(name, arguments):
+    sensitive = confirm_action.is_sensitive(name, arguments)
+    if sensitive:
+        earlier = confirm_action.already_done(name, arguments)
+        if earlier is not None:   # already ran after the user's yes: never ask or run it twice
+            return {**earlier, "already_done": True}
         if not confirm_action.consume_grant(name, arguments):
             label = confirm_action.label_for(name, arguments)
             if _unattended():
@@ -5198,6 +5204,8 @@ def invoke_tool(name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
     )
     if not isinstance(result, dict) or "ok" not in result:
         return _err(f"{name} returned an unexpected result.")
+    if sensitive and name != "confirm_before" and result.get("ok"):
+        confirm_action.note_done(name, arguments, result)
     if result.get("ok"):
         _autosave_tool_memory(name, result)
     return result

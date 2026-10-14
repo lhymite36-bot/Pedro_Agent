@@ -136,7 +136,7 @@ DEFAULT_RULES: dict[str, Any] = {
 
 # Which tools belong to each confirm category.
 CATEGORY_TOOLS: dict[str, set[str]] = {
-    "delete": {"delete_path", "delete_task_routine"},
+    "delete": {"delete_path", "delete_task_routine", "delete_app_item"},
     "payment": set(),  # no payment tools ship; listed so custom tools can join
     "send_message": {"gmail_send_message", "send_remote_update", "whatsapp_send_now"},
     "power": {"shutdown_computer"},

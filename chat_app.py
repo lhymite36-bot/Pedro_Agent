@@ -370,7 +370,15 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
                     pass
                 bot = bots.bot_for_session(session)
                 group = groups.group_for_session(session)
-                if group is not None:
+                import confirm_action
+                quick = confirm_action.answer_pending(text, agent.invoke_tool)   # one yes runs it once
+                if quick is not None:
+                    reply = quick
+                    if group is not None:
+                        emit({"event": "speaker", **groups.display(groups.MAIN)})
+                        emit({"event": "done", "text": reply, "speaker": groups.MAIN})
+                        chat_store.add(session, "assistant", f"[[@{groups.MAIN}]] {reply}")
+                elif group is not None:
                     def group_emit(e: dict) -> None:   # speak each member's finished reply in turn
                         emit(e)
                         if pipeline is not None and e.get("event") == "done" and e.get("text") and not state.cancel.is_set():
@@ -380,15 +388,17 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
                             except Exception as exc:
                                 emit({"event": "error", "text": f"Voice: {exc}"})
 
-                    said = groups.run_group(group, text, history, group_emit, model=state.model,
-                                            store=chat_store.add,
-                                            cancel_event=state.cancel, on_event=group_emit)
+                    with confirm_action.user_turn(text):
+                        said = groups.run_group(group, text, history, group_emit, model=state.model,
+                                                store=chat_store.add,
+                                                cancel_event=state.cancel, on_event=group_emit)
                     reply = said[-1][1] if said else ""
                 elif bot is not None:
-                    reply = bots.run_bot(
-                        bot, text, history, model=state.model,
-                        cancel_event=state.cancel, on_text=on_text, on_event=emit,
-                    )
+                    with confirm_action.user_turn(text):
+                        reply = bots.run_bot(
+                            bot, text, history, model=state.model,
+                            cancel_event=state.cancel, on_text=on_text, on_event=emit,
+                        )
                 else:
                     reply = agent.run_agent(
                         text, history, state.model,
