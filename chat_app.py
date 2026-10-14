@@ -39,6 +39,7 @@ STATIC_FILES = {
     "handsfree.js": "application/javascript; charset=utf-8",
     "bots_ui.js": "application/javascript; charset=utf-8",
     "groups_ui.js": "application/javascript; charset=utf-8",
+    "phone_ui.js": "application/javascript; charset=utf-8",
     "favicon.ico": "image/x-icon",
     "live_ui.js": "application/javascript; charset=utf-8",
     "sw.js": "application/javascript; charset=utf-8",
@@ -554,6 +555,9 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 self._json(level_payload())
             elif url.path == "/api/setup":
                 self._json(setup_status())
+            elif url.path == "/api/phone":
+                import remote_access
+                self._json(remote_access.phone_status() if not self.remote else {"error": "PC only"}, 200 if not self.remote else 403)
             elif url.path == "/api/groups":
                 self._json({"groups": groups.list_groups(), "main": groups.display(groups.MAIN)})
             elif url.path == "/api/status":
@@ -602,7 +606,23 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 return
             url = urlparse(self.path)
             data = self._body()
-            if url.path == "/api/setup":
+            if url.path.startswith("/api/phone/"):
+                import remote_access
+                if self.remote:
+                    self._json({"ok": False, "error": "Pairing is only available on the PC."}, 403)
+                else:
+                    act = url.path.rsplit("/", 1)[-1]
+                    if act == "enable":
+                        self._json(remote_access.phone_enable(state, bool(data.get("consent"))))
+                    elif act == "disable":
+                        self._json(remote_access.phone_disable())
+                    elif act == "pair":
+                        self._json(remote_access.phone_pair())
+                    elif act == "unpair" and data.get("confirm"):
+                        self._json(remote_access.unpair_all())
+                    else:
+                        self._json({"ok": False, "error": "Unknown or unconfirmed action."}, 400)
+            elif url.path == "/api/setup":
                 if self.remote:
                     self._json({"ok": False, "error": "Run setup on the PC itself."}, 403)
                 else:

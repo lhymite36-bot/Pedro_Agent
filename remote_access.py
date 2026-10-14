@@ -60,8 +60,29 @@ _control_until = 0.0
 _lock = threading.Lock()
 
 
+def _overlay_path() -> Path:
+    return _storage() / "remote_settings.json"
+
+
 def settings() -> dict[str, Any]:
-    return rules.section("remote", DEFAULTS)
+    """rules.yaml remote section, then the Settings > Connect phone switch (if used)."""
+    cfg = rules.section("remote", DEFAULTS)
+    try:
+        cfg.update(json.loads(_overlay_path().read_text(encoding="utf-8")))
+    except Exception:
+        pass
+    return cfg
+
+
+def save_overlay(**values: Any) -> None:
+    path = _overlay_path()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        data = {}
+    data.update(values)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
 def _storage() -> Path:
@@ -100,6 +121,131 @@ def rotate_token() -> str:
     with _lock:
         _sessions.clear()
     return access_token()
+
+
+# ---- one-time pairing codes (QR) ----
+PAIR_TTL = 600
+APK_URL = "https://github.com/lhymite36-bot/Pedro_Agent/releases/download/android-v1.3.0/PedroAgent-1.3.0.apk"
+_pair_codes: dict[str, float] = {}
+_PAIR_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+
+
+def new_pairing_code(now: float | None = None) -> str:
+    now = time.time() if now is None else now
+    raw = "".join(secrets.choice(_PAIR_ALPHABET) for _ in range(8))
+    code = raw[:4] + "-" + raw[4:]
+    with _lock:
+        for c, exp in list(_pair_codes.items()):
+            if exp < now:
+                _pair_codes.pop(c, None)
+        _pair_codes[code] = now + PAIR_TTL
+    return code
+
+
+def redeem_pairing_code(code: str, ip: str, now: float | None = None) -> tuple[str, str]:
+    """(token, error). Single use, 10 minutes, shares the login lockout."""
+    global _global_fails
+    now = time.time() if now is None else now
+    code = (code or "").strip().upper().replace(" ", "")
+    if len(code) == 8:
+        code = code[:4] + "-" + code[4:]
+    with _lock:
+        if _global_fails >= GLOBAL_FAIL_LIMIT:
+            return "", "Too many failed attempts. Restart the app on your PC."
+        recent = [t for t in _fails.get(ip, []) if now - t < LOCKOUT_SECONDS]
+        _fails[ip] = recent
+        if len(recent) >= MAX_FAILS_PER_IP:
+            return "", "Too many attempts. Wait 5 minutes."
+        exp = _pair_codes.pop(code, None)
+        if exp is None or exp < now:
+            _fails.setdefault(ip, []).append(now)
+            _global_fails += 1
+            return "", "That pairing code is wrong or expired. Make a new one on your PC."
+    _note("Phone paired")
+    return access_token(), ""
+
+
+def pair_uri(url: str, code: str) -> str:
+    from urllib.parse import quote
+
+    return f"pedroagent://pair?u={quote(url.rstrip('/'), safe='')}&c={code}"
+
+
+def qr_svg(text: str) -> str:
+    import qrcode
+    import qrcode.image.svg
+
+    img = qrcode.make(text, image_factory=qrcode.image.svg.SvgPathImage, box_size=10, border=2)
+    return img.to_string(encoding="unicode")
+
+
+def cloudflared_download(dest_dir: Path | None = None, fetch: Any = None) -> str:
+    """Download the free cloudflared.exe into storage/bin (user consented in Settings)."""
+    import urllib.request
+
+    dest_dir = dest_dir or (_storage() / "bin")
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / ("cloudflared.exe" if os.name == "nt" else "cloudflared")
+    url = ("https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+           if os.name == "nt" else
+           "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64")
+    data = (fetch or (lambda u: urllib.request.urlopen(u, timeout=120).read()))(url)
+    if len(data) < 1_000_000:
+        raise RuntimeError("The cloudflared download looks incomplete.")
+    tmp = dest.with_suffix(".part"); tmp.write_bytes(data); os.replace(tmp, dest)
+    if os.name != "nt":
+        os.chmod(dest, 0o755)
+    save_overlay(cloudflared_path=str(dest))
+    return str(dest)
+
+
+def phone_status() -> dict[str, Any]:
+    cfg = settings()
+    return {"enabled": bool(cfg["enabled"]), "running": _server is not None, "url": public_url,
+            "tunnel": cfg["tunnel"], "cloudflared": bool(cloudflared_exe()),
+            "apk": APK_URL}
+
+
+def phone_enable(state: Any, consent: bool = False) -> dict[str, Any]:
+    if not cloudflared_exe():
+        if not consent:
+            return {"ok": False, "needs_consent": True,
+                    "error": "Phone access needs Cloudflare's free cloudflared tool (about 60 MB). Allow the download?"}
+        try:
+            cloudflared_download()
+        except Exception as exc:
+            return {"ok": False, "error": f"Couldn't download cloudflared: {exc}"}
+    save_overlay(enabled=True, tunnel="cloudflared")
+    access_token()
+    r = start(state)
+    return {**r, **phone_status()}
+
+
+def phone_disable() -> dict[str, Any]:
+    global public_url
+    save_overlay(enabled=False)
+    stop()
+    public_url = ""
+    return {"ok": True, **phone_status()}
+
+
+def phone_pair() -> dict[str, Any]:
+    if not public_url:
+        return {"ok": False, "error": "Phone access is still starting. Wait a few seconds and try again."}
+    code = new_pairing_code()
+    uri = pair_uri(public_url, code)
+    return {"ok": True, "code": code, "url": public_url, "uri": uri, "qr_svg": qr_svg(uri),
+            "expires_in": PAIR_TTL, **phone_status()}
+
+
+def unpair_all() -> dict[str, Any]:
+    token = rotate_token()
+    with _lock:
+        _pair_codes.clear()
+    if public_url:
+        threading.Thread(target=_republish_loop, args=(public_url, token), daemon=True).start()
+    _note("All phones unpaired")
+    return {"ok": True, "message": "All phones are signed out. Pair again with a new QR code."}
 
 
 def _pin() -> str:
@@ -324,6 +470,10 @@ def make_remote_handler(state: Any) -> type:
 
         def do_POST(self) -> None:
             path = urlparse(self.path).path
+            if path == "/pair":   # QR pairing: one-time code -> token (rate-limited)
+                token, error = redeem_pairing_code(str(self._body().get("code") or ""), self._client_ip())
+                self._json({"ok": True, "token": token} if token else {"ok": False, "error": error}, 200 if token else 401)
+                return
             if path == "/login":
                 if not self._same_origin():
                     self._send(403, b'{"error":"cross-origin"}')
@@ -505,7 +655,7 @@ def publish_url(url: str, token: str) -> bool:
 
 def _republish_loop(url: str, token: str) -> None:
     hours = max(1.0, float(settings()["publish_every_hours"] or 6))
-    while public_url == url:
+    while public_url == url and access_token(create=False) == token:
         if publish_url(url, token):
             print("Remote: phone app auto-connect link published.", flush=True)
         time.sleep(hours * 3600)

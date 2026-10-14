@@ -82,6 +82,16 @@
   <div class="set-head"><b>Settings</b><button class="ib" id="close-set" type="button" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
   <div class="tabs"><button class="tab active" data-pane="p-general" type="button">General</button><button class="tab" data-pane="p-voice" type="button">Voice</button><button class="tab" data-pane="p-rules" type="button">Rules</button></div>
   <div class="pane active" id="p-general">
+    <div id="phone-sec" class="phone-sec">
+      <div class="field"><div>Connect phone<small>Use Pedro Agent from your Android phone, anywhere. Uses a free Cloudflare tunnel; sign-in protected.</small></div><label class="switch"><input type="checkbox" id="phone-on"><span></span></label></div>
+      <div id="phone-consent" hidden><small>Phone access needs Cloudflare's free <b>cloudflared</b> tool (about 60 MB, from github.com/cloudflare). Download it now?</small> <button class="btn" id="phone-allow" type="button">Allow download</button></div>
+      <div id="phone-body" hidden>
+        <p id="phone-msg" class="phone-msg"></p>
+        <div class="phone-pair"><div id="phone-qr"></div><div><ol class="phone-steps"><li>Install the Android app: <span id="phone-apk"></span></li><li>Open it and tap <b>Scan QR</b>.</li><li>Scan this code (valid 10 minutes, one use). No camera? Type the link and code shown below.</li></ol>
+        <div class="phone-manual">Link: <code id="phone-url"></code><br>Code: <code id="phone-code"></code></div>
+        <button class="btn" id="phone-newqr" type="button">New QR code</button> <button class="btn ghost danger" id="phone-unpair" type="button">Unpair all devices</button></div></div>
+      </div>
+    </div>
     <div class="field"><div>Chats<small>Deletes every normal chat. Bots, groups and their rooms stay.</small></div><button class="btn ghost danger" id="clear-chats" type="button">Clear all chats</button></div>
     <div class="field"><div>Model<small>Free Gemini models, tried in order on quota errors.</small></div><select id="model2"></select></div>
     <div class="field"><div>Telegram<small>Answers your bot from this window.</small></div><span id="tg-line">-</span></div>
@@ -144,6 +154,7 @@
 <script src="/app.js"></script>
 <script src="/bots_ui.js"></script>
 <script src="/groups_ui.js"></script>
+<script src="/phone_ui.js"></script>
 <script src="/live_ui.js"></script>
 <div id="firstrun" class="firstrun" hidden><form id="fr-form"><h2>Welcome to Pedro_Agent</h2>
 <p>Paste your own free Gemini API key to start. Get one free at aistudio.google.com/apikey. It is saved only in the .env file on this PC.</p>

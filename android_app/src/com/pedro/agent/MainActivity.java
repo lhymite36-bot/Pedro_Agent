@@ -60,9 +60,11 @@ public class MainActivity extends Activity {
         ImageView logo = new ImageView(this); logo.setImageResource(R.drawable.splash_icon);
         l.addView(logo, new LinearLayout.LayoutParams(dp(96), dp(96)));
         l.addView(text("Pedro Agent", 26, "#ECECF1"));
-        l.addView(text("Paste the link your PC sent to Telegram. The full link with #t= works, so you don't need to type the token.", 14, "#8E8EA0"));
+        l.addView(text("On your PC open Pedro Agent › Settings › Connect phone, then scan the QR code.", 14, "#8E8EA0"));
+        Button scan = button("Scan QR"); scan.setOnClickListener(v -> startScan()); l.addView(scan);
+        l.addView(text("No camera? Type the link and the pairing code (or your token) shown on the PC:", 14, "#8E8EA0"));
         linkIn = input("https://xxxx.trycloudflare.com/login#t=…", false); l.addView(linkIn);
-        secretIn = input("Token or PIN (leave empty if the link has #t=)", true); l.addView(secretIn);
+        secretIn = input("Pairing code (ABCD-1234), token or PIN", true); l.addView(secretIn);
         Button paste = button("Paste from clipboard"); paste.setOnClickListener(v -> {
             ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
             if (cm.hasPrimaryClip() && cm.getPrimaryClip().getItemCount() > 0) {
@@ -97,6 +99,7 @@ public class MainActivity extends Activity {
         String base = baseFrom(raw), secret = secretIn.getText().toString().trim();
         if (secret.isEmpty()) secret = tokenFrom(raw);
         if (base.isEmpty()) { toast("That link doesn't look right"); return; }
+        if (secret.toUpperCase().replace(" ", "").matches("[A-Z0-9]{4}-?[A-Z0-9]{4}")) { pairWith(base, secret); return; }
         if (secret.isEmpty() && prefs.getString("secret", "").isEmpty()) { toast("Add your token or PIN"); return; }
         SharedPreferences.Editor e = prefs.edit().putString("base", base);
         if (!secret.isEmpty()) e.putString("secret", secret);
@@ -129,7 +132,7 @@ public class MainActivity extends Activity {
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true); s.setDomStorageEnabled(true); s.setDatabaseEnabled(true);
         s.setMediaPlaybackRequiresUserGesture(false); s.setAllowFileAccess(false);
-        s.setUserAgentString(s.getUserAgentString() + " PedroAgentApp/1.2");
+        s.setUserAgentString(s.getUserAgentString() + " PedroAgentApp/1.3");
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, false);
         web.setBackgroundColor(Color.parseColor("#0B0B0F"));
@@ -156,8 +159,11 @@ public class MainActivity extends Activity {
         web.setWebChromeClient(new WebChromeClient() {
             @Override public void onPermissionRequest(PermissionRequest req) {
                 runOnUiThread(() -> {
-                    if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) req.grant(req.getResources());
-                    else { pendingWebPerm = req; requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 1); }
+                    boolean cam = java.util.Arrays.asList(req.getResources()).contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE);
+                    String perm = cam ? Manifest.permission.CAMERA : Manifest.permission.RECORD_AUDIO;
+                    if (cam && !web.getUrl().startsWith("file:///android_asset/")) { req.deny(); return; }
+                    if (checkSelfPermission(perm) == PackageManager.PERMISSION_GRANTED) req.grant(req.getResources());
+                    else { pendingWebPerm = req; requestPermissions(new String[]{perm}, 1); }
                 });
             }
             @Override public boolean onShowFileChooser(WebView v, ValueCallback<Uri[]> cb, FileChooserParams p) {
@@ -174,6 +180,44 @@ public class MainActivity extends Activity {
         setup.setVisibility(View.GONE); errorView.setVisibility(View.GONE);
         // Sign in through the server's own /login page; the secret rides in the #fragment, never in logs.
         web.loadUrl(viaLogin && !secret.isEmpty() ? base + "/login#t=" + Uri.encode(secret) : base + "/");
+    }
+
+    // ---------- QR pairing ----------
+    void startScan() {
+        setup.setVisibility(View.GONE); errorView.setVisibility(View.GONE);
+        web.loadUrl("file:///android_asset/scan.html");
+    }
+
+    void handlePairUri(String data) {
+        Uri u = Uri.parse(data == null ? "" : data.trim());
+        if (!"pedroagent".equals(u.getScheme()) || !"pair".equals(u.getHost())) { toast("That isn't a Pedro Agent QR code"); showSetup(); return; }
+        String base = baseFrom(u.getQueryParameter("u") == null ? "" : u.getQueryParameter("u")), code = u.getQueryParameter("c");
+        if (base.isEmpty() || !base.startsWith("https://") || code == null) { toast("That QR code is incomplete"); showSetup(); return; }
+        linkIn.setText(base); pairWith(base, code);
+    }
+
+    /** Exchange a one-time pairing code for the access token, then connect. */
+    void pairWith(String base, String code) {
+        toast("Pairing with your PC…");
+        new Thread(() -> {
+            String token = "", err = "Pairing failed";
+            try {
+                java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(base + "/pair").openConnection();
+                c.setConnectTimeout(10000); c.setReadTimeout(10000); c.setRequestMethod("POST"); c.setDoOutput(true);
+                c.setRequestProperty("Content-Type", "application/json");
+                c.getOutputStream().write(new org.json.JSONObject().put("code", code.trim().toUpperCase()).toString().getBytes("UTF-8"));
+                java.io.InputStream in = c.getResponseCode() < 400 ? c.getInputStream() : c.getErrorStream();
+                java.util.Scanner sc = new java.util.Scanner(in, "UTF-8").useDelimiter("\\A");
+                org.json.JSONObject r = new org.json.JSONObject(sc.hasNext() ? sc.next() : "{}");
+                token = r.optString("token", ""); err = r.optString("error", err);
+            } catch (Exception e) { err = "Can't reach your PC: " + e.getMessage(); }
+            final String t = token, e2 = err;
+            runOnUiThread(() -> {
+                if (t.isEmpty()) { toast(e2); showSetup(); return; }
+                prefs.edit().putString("base", base).putString("secret", t).apply();
+                CookieManager.getInstance().removeAllCookies(null); toast("Paired! Connecting…"); openServer(true);
+            });
+        }).start();
     }
 
     // ---------- auto-connect: read the PC's signed current link ----------
@@ -252,6 +296,8 @@ public class MainActivity extends Activity {
         + "})();";
 
     class Bridge {
+        @JavascriptInterface public void scanned(String data) { runOnUiThread(() -> { if (web.getUrl() != null && web.getUrl().startsWith("file:///android_asset/scan.html")) handlePairUri(data); }); }
+        @JavascriptInterface public void scanCancel() { runOnUiThread(() -> { if (web.getUrl() != null && web.getUrl().startsWith("file:///android_asset/")) { web.loadUrl("about:blank"); showSetup(); } }); }
         @JavascriptInterface public void reauth() { runOnUiThread(() -> { CookieManager.getInstance().removeAllCookies(null); toast("Reconnecting to your PC…"); autoConnect(true); }); }
         @JavascriptInterface public void listen() { runOnUiThread(MainActivity.this::startListening); }
         @JavascriptInterface public void newLink() { runOnUiThread(() -> { linkIn.setText(""); secretIn.setText(""); showSetup(); }); }
