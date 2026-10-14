@@ -4328,6 +4328,7 @@ class AgentToolTests(unittest.TestCase):
                 agent_core, "listen_to_microphone", side_effect=fake_listen
             ),
             mock.patch("builtins.input", side_effect=lines),
+            mock.patch.dict(os.environ, {"GEMINI_API_KEY": os.environ.get("GEMINI_API_KEY") or "test-key"}),
         ):
             code = agent_core.main(argv)
         return code, prompts, spoken
