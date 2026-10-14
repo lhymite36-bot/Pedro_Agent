@@ -68,7 +68,7 @@ class GroupTests(unittest.TestCase):
         bots.engine = eng; groups.main_engine = eng
         with mock.patch.object(groups, "limits", return_value={"max_turns": 6, "max_minutes": 30}):
             ev = []
-            said = groups.run_group(g, "endless project", [], ev.append)
+            said = groups.run_group(g, "build an endless project", [], ev.append)
         self.assertEqual(len(said), 6)
         self.assertIn("Paused after 6 turns", [e for e in ev if e["event"] == "done"][-1]["text"])
         import threading

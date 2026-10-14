@@ -165,7 +165,11 @@ def for_display(text: str, group: dict[str, Any] | None = None) -> tuple[str, li
     Returns (natural text, chips)."""
     chips: list[dict[str, str]] = []
     out: list[str] = []
-    for line in str(text or "").splitlines():
+    text = re.sub(r"(?<!\[)\[@[A-Za-z0-9_\-]+\]\]\s*", "", str(text or ""))       # stray "[@pedro]]"
+    text = re.sub(r"(?<!\[)\[react:[^\]]*\]\]\s*", "", text)
+    text = re.sub(r"\s*(?<![\n\w])((?:ASSIGN\s+@[A-Za-z0-9_\-]+\s*:)|PROJECT\s+(?:DONE|COMPLETE)\s*:|ASK\s+USER\s*:)", r"\n\1", text)
+    text = re.sub(r"(?<=[.!?\]])\s*((?:ASSIGN\s+@[A-Za-z0-9_\-]+\s*:)|PROJECT\s+(?:DONE|COMPLETE)\s*:|ASK\s+USER\s*:)", r"\n\1", text)
+    for line in text.splitlines():
         raw = line.strip().strip("*").strip()
         m = re.match(r"(?i)^ASSIGN\s+@?([A-Za-z0-9_\-]+)\s*\**\s*[:\-]\s*(.+)$", raw)
         if m:
@@ -195,7 +199,8 @@ def for_display(text: str, group: dict[str, Any] | None = None) -> tuple[str, li
         if m and not re.search(r"(?i)project\s*$", line[:m.start()]):
             ok = m.group(1) == "DONE"
             chips.append({"kind": "done" if ok else "blocked", "text": "✓ done" if ok else "⚠ blocked"})
-            line = (line[:m.start()].rstrip(" .…") + (". " if line[:m.start()].strip() else "") + line[m.end():]).strip()
+            pre = line[:m.start()].rstrip(" .…")
+            line = (pre + ("" if not pre else " " if pre[-1] in "!?" else ". ") + line[m.end():]).strip()
         out.append(line)
     clean = re.sub(r"\[\[@[^\]]*\]\]\s*", "", "\n".join(out)).strip()
     return re.sub(r"\n{3,}", "\n\n", clean), chips
@@ -380,7 +385,7 @@ def run_group(group: dict[str, Any], text: str, history: list[Any], emit: Callab
                 break
         return done
 
-    if not project and is_chitchat(text):   # small talk: the leader just answers, naturally and briefly
+    if not project:   # small talk or a vague message: the leader just answers, no invented project
         say(group["coordinator"], _room_prompt(group, group["coordinator"], transcript, False)
             + "\n(This is small talk. Reply in one or two friendly sentences, no directives, don't assign anyone.)",
             f"{display(group['coordinator'])['name']} is replying")

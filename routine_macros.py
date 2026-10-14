@@ -38,15 +38,29 @@ def _path() -> Any:
     return agent.WORKSPACE / "routines.json"
 
 
+BUILTIN: dict[str, list[dict[str, Any]]] = {
+    "Wingz assignments": [
+        {"tool": "open_website", "arguments": {"url": "https://wingz.itvedant.com/"}},
+        {"tool": "verify_screen", "arguments": {"expectation": (
+            "The Itvedant Wingz portal is open and signed in (a dashboard or course list, not the Login page). "
+            "If the Login page shows, say LOGIN and whether a 'Login with Google' button is visible; "
+            "if a password box shows, say PASSWORD WALL.")}},
+    ],
+}
+
+
 def _load() -> dict[str, Any]:
     path = _path()
-    if not path.is_file():
-        return {}
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    return raw if isinstance(raw, dict) else {}
+    raw: Any = {}
+    if path.is_file():
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            raw = {}
+    raw = raw if isinstance(raw, dict) else {}
+    for name, steps in BUILTIN.items():
+        raw.setdefault(name, steps)
+    return raw
 
 
 def _save_file(data: dict[str, Any]) -> None:
