@@ -163,7 +163,7 @@ def bot_for_session(session: str) -> dict[str, Any] | None:
 def _prompt(bot: dict[str, Any], text: str) -> str:
     role = bot["role"].strip() or f"You are {bot['name']}, a helpful assistant."
     tools = ", ".join(bot["tools"]) if bot["tools"] else "any allowed tool"
-    return f"[You are the bot '{bot['name']}'. Role: {role} Tools you may use: {tools}.]\n\n{text}"
+    return f"[You are the bot '{bot['name']}'. Role: {role} Tools you may use: {tools}. You may react to the user's message by adding one [[react:EMOJI]] tag, e.g. [[react:👍]] to acknowledge or [[react:✅]] when a task is finished.]\n\n{text}"
 
 
 def run_bot(bot: dict[str, Any], text: str, history: list[Any] | None = None, *,

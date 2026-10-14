@@ -35,6 +35,7 @@ STATIC = Path(__file__).resolve().parent / "app_static"
 STATIC_FILES = {
     "app.css": "text/css; charset=utf-8",
     "app.js": "application/javascript; charset=utf-8",
+    "reactions.js": "application/javascript; charset=utf-8",
     "markdown.js": "application/javascript; charset=utf-8",
     "avatar.js": "application/javascript; charset=utf-8",
     "handsfree.js": "application/javascript; charset=utf-8",
@@ -344,7 +345,16 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
     reply = ""
     spoke = {"any": False}
     try:
-        chat_store.add(session, "user", text)
+        user_id = chat_store.add(session, "user", text)
+        emit({"event": "saved", "role": "user", "id": user_id})
+
+        def save_reply(sess: str, role: str, said: str) -> int:   # store + tell the window the id and reactions
+            mid = chat_store.add(sess, role, said)
+            emit({"event": "saved", "role": role, "id": mid})
+            emit({"event": "reactions", "id": user_id,
+                  "reactions": chat_store.reactions_for([user_id]).get(user_id, [])})
+            return mid
+
         history = state.history_for(session)
         want = should_speak(state.speak_mode, from_voice) if speak is None else bool(speak)
         # PC window: play on the PC speakers. Phone/remote: send an mp3 to the client.
@@ -377,7 +387,7 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
                     if group is not None:
                         emit({"event": "speaker", **groups.display(groups.MAIN)})
                         emit({"event": "done", "text": reply, "speaker": groups.MAIN})
-                        chat_store.add(session, "assistant", f"[[@{groups.MAIN}]] {reply}")
+                        save_reply(session, "assistant", f"[[@{groups.MAIN}]] {reply}")
                 elif group is not None:
                     def group_emit(e: dict) -> None:   # speak each member's finished reply in turn
                         emit(e)
@@ -390,7 +400,10 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
 
                     with confirm_action.user_turn(text):
                         said = groups.run_group(group, text, history, group_emit, model=state.model,
-                                                store=chat_store.add,
+                                                store=save_reply, react=lambda sess, e, who: (
+                                                    chat_store.react_last_user(sess, e, who),
+                                                    emit({"event": "reactions", "id": user_id,
+                                                          "reactions": chat_store.reactions_for([user_id]).get(user_id, [])})),
                                                 cancel_event=state.cancel, on_event=group_emit)
                     reply = said[-1][1] if said else ""
                 elif bot is not None:
@@ -408,7 +421,8 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
                 emit({"event": "error", "text": agent._scrub(str(exc))})
                 reply = ""
         if reply and not session.startswith(groups.SESSION_PREFIX):
-            chat_store.add(session, "assistant", reply)
+            save_reply(session, "assistant", reply)
+            reply = chat_store.extract_reactions(reply)[0]
         emit({"event": "group_done"} if session.startswith(groups.SESSION_PREFIX) else {"event": "done", "text": reply})
         if pipeline is not None:
             _finish_speech(state, pipeline, reply, spoke["any"], emit)
@@ -727,6 +741,12 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 threading.Thread(target=bots.run_task, args=(bot_id, task_id),
                                  kwargs={"unattended": False}, daemon=True).start()
                 self._json({"ok": True, "started": True})
+            elif url.path == "/api/react":   # tap an emoji on a message; tapping yours again removes it
+                try:
+                    found = chat_store.toggle_reaction(int(data.get("id") or 0), str(data.get("emoji") or ""), "you")
+                    self._json({"ok": True, "id": int(data.get("id") or 0), "reactions": found})
+                except (ValueError, KeyError) as exc:
+                    self._json({"ok": False, "error": str(exc)}, 400)
             elif url.path == "/api/delete_session":
                 if not data.get("confirm"):
                     self._json({"ok": False, "error": "Confirm the delete."}, 400)

@@ -330,6 +330,7 @@ def _pending_confirmation() -> str:
 
 def run_group(group: dict[str, Any], text: str, history: list[Any], emit: Callable[[dict], Any], *,
               model: str = "", store: Callable[[str, str, str], Any] | None = None,
+              react: Callable[[str, str, str], Any] | None = None,
               cancel_event: Any = None, now: Callable[[], float] = time.time, **kw: Any) -> list[tuple[str, str]]:
     """@mentions -> those members answer once. Otherwise the leader runs the project:
     plan -> ASSIGN -> member works -> leader reviews -> ... -> PROJECT DONE (+ summary)."""
@@ -409,6 +410,11 @@ def run_group(group: dict[str, Any], text: str, history: list[Any], emit: Callab
                 transcript.append("System: PROJECT DONE rejected: " + problem + " Keep directing until it is really finished.")
                 continue
             emit({"event": "group_status", "who": display(leader)["name"], "doing": "Project complete"})
+            if react:   # the leader marks your request finished
+                try:
+                    react(session, "✅", leader)
+                except Exception:
+                    pass
             break
         ask = ASK_RE.search(lead)
         waiting = _pending_confirmation()

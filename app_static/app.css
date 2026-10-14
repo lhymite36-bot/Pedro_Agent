@@ -330,3 +330,23 @@ header{background:#1f1f1f;border-bottom:1px solid #2a2a2a;backdrop-filter:none}
 .desktop-app header{padding-right:26px}
 .desktop-app #settings,.desktop-app #boted,.desktop-app #grped,.desktop-app #overlay,.desktop-app #lightbox,.desktop-app .firstrun,.desktop-app #sidescrim{top:34px}
 .desktop-app .rz{z-index:1001}.desktop-app .rz-r,.desktop-app .rz-l{top:34px}
+
+/* emoji reactions */
+.row{position:relative;flex-wrap:wrap}
+.reacts{flex-basis:100%;display:flex;flex-wrap:wrap;gap:5px;margin-top:-6px}
+.reacts.hidden{display:none}
+.row.user .reacts{justify-content:flex-end}
+.row.bot .reacts{padding-left:62px}
+.react-pill{background:#2a2a2a;border:1px solid #3a3a3a;color:#ddd;border-radius:999px;padding:2px 9px;font-size:14px;cursor:pointer;line-height:1.5}
+.react-pill.mine{border-color:#8a8a8a;background:#363636}
+.react-pill:hover{background:#3a3a3a}
+.react-btn{position:absolute;top:-10px;opacity:0;transition:opacity .15s;background:#2a2a2a;border:1px solid #3a3a3a;color:#bbb;border-radius:999px;width:28px;height:28px;cursor:pointer;font-size:15px}
+.row.user .react-btn{right:24px}.row.bot .react-btn{left:62px}
+.row[data-mid]:hover .react-btn{opacity:1}
+.row:not([data-mid]) .react-btn{display:none}
+@media (hover:none){.react-btn{display:none}}
+.react-pop{position:fixed;z-index:1000;background:#232323;border:1px solid #3a3a3a;border-radius:14px;padding:6px;display:flex;flex-wrap:wrap;gap:2px;max-width:300px;box-shadow:0 6px 20px rgba(0,0,0,.5)}
+.react-pop button{background:none;border:0;font-size:22px;padding:4px 6px;border-radius:8px;cursor:pointer;color:#ddd}
+.react-pop button:hover{background:#333}
+.react-grid{flex-basis:100%;display:flex;flex-wrap:wrap;gap:2px;border-top:1px solid #333;margin-top:4px;padding-top:4px}
+.react-own{flex-basis:100%;background:#1a1a1a;border:1px solid #333;color:#ddd;border-radius:8px;padding:6px;margin-top:4px}

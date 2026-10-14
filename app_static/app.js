@@ -85,7 +85,7 @@ function botFace() {
 }
 // Stage directions like [chuckles] are for the voice only.
 const STAGE = /\s*[\[(](?:chuckles?|laughs?|laughing|giggles?|sighs?|smiles?|grins?|winks?|gasps?|whispers?|clears throat|pause|sarcastic(?:ally)?|excited(?:ly)?|cheerful(?:ly)?|softly|happily|sadly|snorts?|hums?|coughs?)[\])]\s*/gi;
-function stripStage(t) { return String(t || '').replace(STAGE, ' ').replace(/ {2,}/g, ' ').replace(/^ +/gm, ''); }
+function stripStage(t) { return String(t || '').replace(/\s*\[\[react:[^\]\s]{1,16}\]\]/g, '').replace(STAGE, ' ').replace(/ {2,}/g, ' ').replace(/^ +/gm, ''); }
 
 // ---------- rendering ----------
 function scrollDown() { const l = $('#log'); l.scrollTop = l.scrollHeight; }
@@ -94,6 +94,8 @@ function addUser(text) {
   const row = document.createElement('div'); row.className = 'row user';
   const b = document.createElement('div'); b.className = 'bubble'; b.textContent = text;
   row.appendChild(b); $('#log').appendChild(row); showEmpty(); scrollDown();
+  if (window.Reactions) Reactions.attach(row);
+  return row;
 }
 function addBot() {
   const row = document.createElement('div'); row.className = 'row bot';
@@ -102,6 +104,7 @@ function addBot() {
   const chips = document.createElement('div'); chips.className = 'chips';
   const body = document.createElement('div'); body.className = 'md';
   col.append(chips, body); row.appendChild(col); $('#log').appendChild(row); showEmpty(); scrollDown();
+  if (window.Reactions) Reactions.attach(row);
   return { row, chips, body, text: '' };
 }
 function renderMd(el, text, streaming) {
@@ -210,7 +213,7 @@ if ($('#clear-chats')) $('#clear-chats').onclick = clearAllChats;
 async function openSession(s) {
   session = s; localStorage.session = s; $('#log').innerHTML = '';
   const rows = await api('/api/history?session=' + encodeURIComponent(s));
-  rows.forEach((m) => { if (m.role === 'user') addUser(m.text); else { const t = /^\[\[@([a-z0-9-]+)\]\]\s?/.exec(m.text || ''); const b = addBot(); if (t && window.markSpeaker) window.markSpeaker(b, t[1]); renderMd(b.body, t ? m.text.slice(t[0].length) : m.text); groupChips(b, m.chips); } });
+  rows.forEach((m) => { if (m.role === 'user') { const u = addUser(m.text); if (window.Reactions) Reactions.attach(u, m.id, m.reactions); } else { const t = /^\[\[@([a-z0-9-]+)\]\]\s?/.exec(m.text || ''); const b = addBot(); if (window.Reactions) Reactions.attach(b.row, m.id, m.reactions); if (t && window.markSpeaker) window.markSpeaker(b, t[1]); renderMd(b.body, t ? m.text.slice(t[0].length) : m.text); groupChips(b, m.chips); } });
   showEmpty(); loadSessions(); if (window.applyBotHeader) window.applyBotHeader();
 }
 $('#new').onclick = () => { session = ''; localStorage.session = ''; $('#log').innerHTML = ''; showEmpty(); loadSessions(); if (window.applyBotHeader) window.applyBotHeader(); $('#t').focus(); };
@@ -258,7 +261,7 @@ function groupChips(b, chips) {
 }
 async function send(text, isVoice) {
   isVoice = !!isVoice || nextIsVoice; nextIsVoice = false; const talk = willSpeak(isVoice); let clip = null;
-  addUser(text); hands.turnStarted(); setRunning(true); setMood('thinking');
+  const userRow = addUser(text); hands.turnStarted(); setRunning(true); setMood('thinking');
   let bot = addBot(); rowFace = bot.row.querySelector('.face')._av; rowFace.setState('thinking');
   let act = activity(bot.body.parentNode); const labels = {};
   const chipsByName = {}; let barge = ''; let finalText = ''; let speaking = false;
@@ -277,6 +280,8 @@ async function send(text, isVoice) {
           continue;
         }
         if (ev.event === 'group_done') { continue; }
+        if (ev.event === 'saved') { if (window.Reactions) Reactions.attach(ev.role === 'user' ? userRow : bot.row, ev.id); continue; }
+        if (ev.event === 'reactions') { if (window.Reactions) Reactions.update(ev.id, ev.reactions); continue; }
         if (ev.event === 'done' && ev.speaker) { bot.text = ev.text || ''; renderMd(bot.body, bot.text, false); groupChips(bot, ev.chips); scrollDown(); continue; }
         if (ev.event === 'session') { session = ev.session; localStorage.session = session; }
         else if (ev.event === 'step') { act.set(ev.label || 'Working…'); if (ev.name) { labels[ev.name] = ev.label; setMood('working'); } }
