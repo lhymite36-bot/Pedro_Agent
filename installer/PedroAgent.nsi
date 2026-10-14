@@ -1,7 +1,7 @@
 ; Pedro_Agent Windows installer (per-user, no admin needed). Build: makensis installer/PedroAgent.nsi
 Unicode true
 !define APP "Pedro Agent"
-!define VER "1.4.0"
+!define VER "1.4.1"
 !include "MUI2.nsh"
 Name "${APP}"
 OutFile "..\dist\PedroAgent-Setup-${VER}.exe"

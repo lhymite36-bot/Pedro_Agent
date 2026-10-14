@@ -248,3 +248,85 @@ main{position:relative}
 .mention-item small{margin-left:auto;color:var(--dim)}
 .mention-item.sel,.mention-item:hover{background:var(--panel2)}
 @media (max-width:700px){#mention-pop{left:8px;right:8px;max-width:none}.mention-item{padding:12px}}
+
+/* ===== v1.4.1 theme: Grok-like proportions, soft gradients, frameless window ===== */
+:root{--bg:#0d0e14;--panel:#12131b;--panel2:#1b1c26;--line:#262836;--acc:#6fb6ff;--acc2:#6f6bff;--grad:linear-gradient(135deg,#7cc4ff 0%,#6a8dff 55%,#6f5cf0 100%);--r:20px}
+body{font-size:16px;line-height:1.6;background:radial-gradient(1200px 700px at 72% -10%,rgba(98,140,255,.13),transparent 60%),radial-gradient(900px 600px at -10% 110%,rgba(124,196,255,.07),transparent 60%),var(--bg)}
+main{background:transparent}
+#side{width:290px;background:linear-gradient(180deg,#161826 0%,#11121a 55%,#0e0f16 100%);border-right:1px solid rgba(255,255,255,.05)}
+.brand{padding:20px 18px 14px;gap:12px}.brand .mini{width:42px;height:42px}.brand b{font-size:18px}.brand small{font-size:13px}
+.side-btn{margin:5px 14px;padding:12px 14px;font-size:15.5px;border-radius:14px;background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.015));border:1px solid rgba(255,255,255,.07);box-shadow:0 2px 10px rgba(0,0,0,.25)}
+.side-btn:hover{background:linear-gradient(180deg,rgba(124,196,255,.12),rgba(111,107,255,.06))}
+.side-label{font-size:12px;padding:18px 20px 8px}
+#sessions{padding:0 10px}
+.sess{padding:11px 12px;font-size:15.5px;border-radius:12px;gap:10px}
+.sess:hover{background:rgba(255,255,255,.05)}.sess.active{background:linear-gradient(90deg,rgba(124,196,255,.16),rgba(111,107,255,.08));color:#fff}
+.sess .mini-face,.sess .face{width:26px!important;height:26px!important}
+#status-card{font-size:13px;margin:12px 14px 16px;padding:12px 14px;border-radius:14px;background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.01));border-color:rgba(255,255,255,.06)}
+header{padding:14px 26px;gap:14px;background:rgba(13,14,20,.55);border-bottom:1px solid rgba(255,255,255,.05)}
+#hdr-avatar{width:48px;height:48px;filter:drop-shadow(0 4px 14px rgba(111,140,255,.35))}
+header .who b{font-size:17px}header .who small{font-size:13px}
+#log{padding:30px 0 14px}
+.row{max-width:900px;padding:0 28px;margin-bottom:22px;gap:14px}
+.bubble{padding:14px 18px;border-radius:var(--r);max-width:80%;font-size:16px}
+.user .bubble{background:var(--grad);border:0;color:#fff;border-bottom-right-radius:6px;box-shadow:0 6px 22px rgba(90,110,255,.28)}
+.bot .bubble{background:linear-gradient(180deg,#1f2130,#1a1b26);border:1px solid rgba(255,255,255,.06);padding:14px 18px;max-width:85%;border-top-left-radius:6px;box-shadow:0 4px 18px rgba(0,0,0,.25)}
+.bot .bubble:empty{display:none}
+.bot .face{width:38px;height:38px;margin-top:4px;filter:drop-shadow(0 3px 10px rgba(111,140,255,.3))}
+.bubble code{font-size:14px}
+.chip{font-size:13px;padding:5px 12px}
+#empty .big{width:150px;height:150px;filter:drop-shadow(0 10px 30px rgba(111,160,255,.35))}#empty h2{font-size:28px}#empty p{font-size:16px}
+.hint{font-size:14.5px;padding:10px 14px;border-radius:14px;background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.015));box-shadow:0 2px 10px rgba(0,0,0,.25)}
+#composer{padding:12px 28px 20px}
+.box{max-width:900px;min-height:58px;border-radius:30px;padding:9px 10px 9px 20px;align-items:center;background:linear-gradient(180deg,#1e2030,#181924);border:1px solid rgba(255,255,255,.08);box-shadow:0 8px 30px rgba(0,0,0,.35)}
+.box:focus-within{border-color:rgba(124,170,255,.45);box-shadow:0 8px 30px rgba(0,0,0,.35),0 0 0 4px rgba(111,150,255,.10)}
+#t{font-size:16px;padding:9px 0}
+.ib{width:42px;height:42px}.ib svg{width:22px;height:22px}
+#send{background:var(--grad);color:#fff;box-shadow:0 4px 16px rgba(100,120,255,.45)}#send:hover{filter:brightness(1.1);background:var(--grad)}
+.sub{max-width:900px;font-size:13px}
+.primary,button.primary,.btn-primary{background:var(--grad)!important;color:#fff!important;border:0!important;box-shadow:0 4px 14px rgba(100,120,255,.35)}
+.avatar .av-svg{filter:drop-shadow(0 2px 6px rgba(0,0,0,.35))}
+#mention-pop{border-radius:14px;background:linear-gradient(180deg,#1f2130,#181924);box-shadow:0 14px 40px rgba(0,0,0,.5)}
+/* frameless desktop window */
+#dragstrip{position:fixed;top:0;left:0;right:150px;height:12px;z-index:30}
+#winctl{position:fixed;top:0;right:0;display:flex;z-index:40}
+#winctl button{width:46px;height:34px;border:0;background:transparent;color:#a9abb8;display:grid;place-items:center;cursor:default;transition:background .15s,color .15s}
+#winctl button:hover{background:rgba(255,255,255,.08);color:#fff}#winctl #wc-close:hover{background:#c42b1c;color:#fff}
+#winctl svg{width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:1.1}
+.desktop-app header{padding-right:160px}
+.rz{position:fixed;z-index:50}.rz-r{top:0;right:0;width:5px;height:100%;cursor:ew-resize}.rz-l{top:0;left:0;width:5px;height:100%;cursor:ew-resize}
+.rz-b{left:0;bottom:0;height:5px;width:100%;cursor:ns-resize}.rz-rb{right:0;bottom:0;width:14px;height:14px;cursor:nwse-resize;z-index:51}
+@media (max-width:1100px){#side{width:260px}.row{padding:0 18px}}
+@media (max-width:700px){body{font-size:16px}.bubble{max-width:88%;padding:12px 15px}.bot .face{width:32px;height:32px}#composer{padding:8px 10px 12px}.box{min-height:54px}header{padding:10px 14px}#hdr-avatar{width:40px;height:40px}.row{padding:0 12px}}
+
+/* ===== neutral Grok-like palette (overrides the gradient pass above) ===== */
+:root{--bg:#1f1f1f;--panel:#181818;--panel2:#2a2a2a;--line:#2e2e2e;--text:#ececec;--dim:#9a9a9a;--acc:#d0d0d0;--acc2:#a0a0a0}
+body{background:#1f1f1f}
+#side{background:#181818;border-right:1px solid #262626}
+header{background:#1f1f1f;border-bottom:1px solid #2a2a2a;backdrop-filter:none}
+#hdr-avatar,.bot .face,#empty .big,.avatar .av-svg{filter:none}
+.side-btn,.hint,#status-card{background:#232323;border:1px solid #2e2e2e;box-shadow:none}
+.side-btn:hover,.hint:hover{background:#2c2c2c}
+.sess:hover{background:#242424}.sess.active{background:#2c2c2c}
+.user .bubble{background:#3a3a3a;color:#fff;border:0;box-shadow:none;border-bottom-right-radius:20px}
+.bot .bubble{background:#2a2a2a;border:0;box-shadow:none;border-top-left-radius:20px}
+.box{background:#2a2a2a;border:1px solid #333;box-shadow:none}
+.box:focus-within{border-color:#4a4a4a;box-shadow:none}
+#send{background:#ececec;color:#1a1a1a;box-shadow:none}#send:hover{background:#fff;filter:none}
+.ib:hover{background:#353535}.ib.toggled{color:#fff;background:#3a3a3a}
+.primary,button.primary,.btn-primary{background:#ececec!important;color:#1a1a1a!important;box-shadow:none}
+#mention-pop{background:#2a2a2a;border-color:#363636;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.mention-item.sel,.mention-item:hover{background:#363636}
+.chip{background:#262626;border-color:#333}
+.bubble code{background:#1e1e1e;border-color:#333}.code{background:#191919;border-color:#333}.code-head{background:#222}
+#wave i{background:#cfcfcf}
+.chip.gchip{font:12px "Segoe UI",system-ui,sans-serif;background:transparent;border:1px solid #3a3a3a;color:#b5b5b5;padding:2px 10px}
+.chip.gchip .s{display:none}
+/* desktop window: reserved controls strip (nothing renders under the min/max/close buttons) */
+.desktop-app body{padding-top:34px;background:#181818}
+.desktop-app #dragstrip{right:140px;height:34px;background:#181818;border-bottom:1px solid #232323}
+.desktop-app #winctl{height:34px;background:#181818;z-index:1000;border-bottom:1px solid #232323}
+.desktop-app #winctl button{height:34px;width:46px}
+.desktop-app header{padding-right:26px}
+.desktop-app #settings,.desktop-app #boted,.desktop-app #grped,.desktop-app #overlay,.desktop-app #lightbox,.desktop-app .firstrun,.desktop-app #sidescrim{top:34px}
+.desktop-app .rz{z-index:1001}.desktop-app .rz-r,.desktop-app .rz-l{top:34px}

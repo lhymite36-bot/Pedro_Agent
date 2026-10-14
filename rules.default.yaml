@@ -146,8 +146,8 @@ remote:                        # phone app + Live PC view from anywhere. OFF by 
   cloudflared_path: ""         # if cloudflared.exe is not on PATH
   public_url: ""               # e.g. your Tailscale https://pc.tailnet.ts.net, sent by Telegram
   send_link_telegram: true     # send the sign-in link to your Telegram chat when it is ready
-  max_fps: 5                   # Live PC frame rate cap (phone can choose 0.5..max)
-  default_fps: 3
+  max_fps: 30                  # Live PC frame rate cap (phone can choose 0.5..max)
+  default_fps: 10
   max_width: 1280              # live frames are shrunk to this width
   jpeg_quality: 55
   allow_control: false         # true = phone may click/type on the PC (still asks yes: confirm remote_control)

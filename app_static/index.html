@@ -47,7 +47,7 @@
   <section id="livepane" aria-label="Live PC">
     <div class="live-head"><b>Live PC</b><span id="live-now">Idle</span><div class="spacer"></div>
       <select id="live-mode" title="View mode"><option value="stream">Stream</option><option value="frames">Frames</option></select>
-      <label class="fps"><input type="range" id="live-fps" min="1" max="5" step="0.5" value="3"><span id="live-fps-v">3 fps</span></label>
+      <label class="fps"><select id="live-fps" title="Frames per second"><option>1</option><option>5</option><option selected>10</option><option>15</option><option>30</option></select><span id="live-fps-v">10 fps</span></label>
       <button class="ib" id="live-close" type="button" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
     <div class="live-screen"><img id="live-img" alt="Your PC screen"></div>
     <div id="live-control" style="display:none">
@@ -153,6 +153,7 @@
 <script src="/handsfree.js"></script>
 <script src="/app.js"></script>
 <script src="/bots_ui.js"></script>
+<script src="/titlebar.js"></script>
 <script src="/mention_pick.js"></script>
 <script src="/groups_ui.js"></script>
 <script src="/phone_ui.js"></script>

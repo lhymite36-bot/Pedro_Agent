@@ -50,7 +50,7 @@ console.log('ui js: all tests passed');
   const assert = require('assert');
   const L = require('../app_static/live_ui.js');
   assert.strictEqual(L.clampFps(10, 5), 5);
-  assert.strictEqual(L.clampFps('x', 5), 3);
+  assert.strictEqual(L.clampFps("x", 5), 5);
   const p = L.normPoint(150, 100, { left: 100, top: 50, width: 200, height: 100 });
   assert.deepStrictEqual(p, { x: 0.25, y: 0.5 });
   assert.deepStrictEqual(L.normPoint(0, 0, { left: 100, top: 50, width: 200, height: 100 }), { x: 0, y: 0 });

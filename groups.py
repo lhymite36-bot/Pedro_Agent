@@ -140,6 +140,75 @@ def _names(group: dict[str, Any]) -> dict[str, str]:
     return out
 
 
+_CHAT_WORDS = re.compile(r"^(hi+|hey+|hello+|yo|sup|hola|good (morning|afternoon|evening|night)|thanks?( you)?|thank u|ty|ok(ay)?|cool|nice|great|lol|bye|see you|how are (you|u)( all| guys)?|what'?s up|wassup|gm|gn)\b", re.I)
+_TASK_WORDS = re.compile(r"\b(make|create|build|write|draft|research|find|search|send|open|install|fix|plan|design|code|analy[sz]e|summari[sz]e|translate|compare|list|save|download|edit|generate|prepare|schedule|check|calculate|report|pdf|docx?|excel|presentation|email|whatsapp)\b", re.I)
+
+
+def is_chitchat(text: str) -> bool:
+    """Greetings / small talk get a quick natural reply, not the project loop."""
+    t = re.sub(r"@[A-Za-z0-9_\-]+", "", text or "").strip(" !.?,")
+    if not t:
+        return True
+    if _TASK_WORDS.search(t):
+        return False
+    return bool(_CHAT_WORDS.match(t)) and len(t.split()) <= 8
+
+
+def for_display(text: str, group: dict[str, Any] | None = None) -> tuple[str, list[dict[str, str]]]:
+    """Strip protocol markers (ASSIGN/DONE/BLOCKED/PROJECT DONE/ASK USER) from what people see.
+    Returns (natural text, chips)."""
+    chips: list[dict[str, str]] = []
+    out: list[str] = []
+    for line in str(text or "").splitlines():
+        raw = line.strip().strip("*").strip()
+        m = re.match(r"(?i)^ASSIGN\s+@?([A-Za-z0-9_\-]+)\s*\**\s*[:\-]\s*(.+)$", raw)
+        if m:
+            who = display(_slug(m.group(1)))["name"] if group is None or _slug(m.group(1)) in (group.get("members") or []) + [MAIN] else m.group(1)
+            task = m.group(2).strip().rstrip(".")
+            chips.append({"kind": "assign", "text": f"→ assigned to {who}"})
+            out.append(f"{who}, could you {task[0].lower() + task[1:] if task else 'take this'}?")
+            continue
+        m = re.match(r"(?i)^PROJECT\s+(?:DONE|COMPLETE)\s*[:\-]?\s*(.*)$", raw)
+        if m:
+            chips.append({"kind": "done", "text": "✓ project complete"})
+            if m.group(1):
+                out.append(m.group(1))
+            continue
+        m = re.match(r"(?i)^(DONE|BLOCKED)\s*[:\-]\s*(.*)$", raw)
+        if m:
+            chips.append({"kind": "done" if m.group(1).upper() == "DONE" else "blocked",
+                          "text": "✓ done" if m.group(1).upper() == "DONE" else "⚠ blocked"})
+            if m.group(2):
+                out.append(m.group(2))
+            continue
+        m = re.match(r"(?i)^ASK\s+USER\s*[:\-]\s*(.+)$", raw)
+        if m:
+            out.append(m.group(1))
+            continue
+        m = re.search(r"\b(DONE|BLOCKED)\s*:\s*", line)   # inline "… DONE: result"
+        if m and not re.search(r"(?i)project\s*$", line[:m.start()]):
+            ok = m.group(1) == "DONE"
+            chips.append({"kind": "done" if ok else "blocked", "text": "✓ done" if ok else "⚠ blocked"})
+            line = (line[:m.start()].rstrip(" .…") + (". " if line[:m.start()].strip() else "") + line[m.end():]).strip()
+        out.append(line)
+    clean = re.sub(r"\[\[@[^\]]*\]\]\s*", "", "\n".join(out)).strip()
+    return re.sub(r"\n{3,}", "\n\n", clean), chips
+
+
+def clean_row(row: dict[str, Any]) -> dict[str, Any]:
+    """History row for the UI: speaker tag kept, protocol markers -> chips (old rows too)."""
+    if row.get("role") != "assistant":
+        return row
+    text = str(row.get("text") or "")
+    m = TAG.match(text)
+    body = text[m.end():] if m else text
+    chips = [{"kind": "done" if "✓" in c else "assign" if "→" in c else "blocked", "text": c}
+             for c in re.findall(r"\[\[chip:([^\]]+)\]\]", body)]
+    body = re.sub(r"\s*\[\[chip:[^\]]+\]\]", "", body)
+    shown, more = for_display(body)
+    return {**row, "text": (m.group(0) if m else "") + shown, "chips": chips + more}
+
+
 def mentions(text: str, group: dict[str, Any]) -> list[str]:
     names = _names(group); found: list[str] = []
     for raw in re.findall(r"@([A-Za-z0-9_\-]+)", text or ""):
@@ -275,9 +344,10 @@ def run_group(group: dict[str, Any], text: str, history: list[Any], emit: Callab
             reply = f"(couldn't answer: {exc})"
         done.append((speaker, reply))
         transcript.append(f"{display(speaker)['name']}: {reply}")
-        emit({"event": "done", "text": reply, "speaker": speaker})
+        shown, chips = for_display(reply, group)
+        emit({"event": "done", "text": shown, "speaker": speaker, "chips": chips})
         if store and reply:
-            store(session, "assistant", f"[[@{speaker}]] {reply}")
+            store(session, "assistant", f"[[@{speaker}]] {shown}" + "".join(f" [[chip:{c['text']}]]" for c in chips))
         return reply
 
     def stopped() -> bool:
@@ -297,6 +367,12 @@ def run_group(group: dict[str, Any], text: str, history: list[Any], emit: Callab
             if _pending_confirmation():
                 _notice(emit, store, session, f"Waiting for your yes to {_pending_confirmation()}. Reply 'yes' to continue.")
                 break
+        return done
+
+    if is_chitchat(text):   # small talk: the leader just answers, naturally and briefly
+        say(group["coordinator"], _room_prompt(group, group["coordinator"], transcript, False)
+            + "\n(This is small talk. Reply in one or two friendly sentences, no directives, don't assign anyone.)",
+            f"{display(group['coordinator'])['name']} is replying")
         return done
 
     lim = limits()

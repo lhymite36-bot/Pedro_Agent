@@ -2,7 +2,7 @@
 // mobile bottom nav, and PWA registration.
 (function (root) {
   'use strict';
-  function clampFps(v, max) { v = parseFloat(v); if (!(v > 0)) v = 3; return Math.max(0.5, Math.min(max || 5, v)); }
+  function clampFps(v, max) { v = parseFloat(v); if (!(v > 0)) v = 10; return Math.max(0.5, Math.min(max || 30, v)); }
   function normPoint(clientX, clientY, rect) {
     return { x: Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)), y: Math.max(0, Math.min(1, (clientY - rect.top) / rect.height)) };
   }
@@ -15,7 +15,7 @@
   const post = (p, b) => fetch(p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b || {}) }).then((r) => r.json());
 
   function startView() {
-    const img = $('#live-img'), fps = clampFps($('#live-fps').value, 5); $('#live-fps-v').textContent = fps + ' fps';
+    const img = $('#live-img'), fps = clampFps($('#live-fps').value, 30); $('#live-fps-v').textContent = fps + ' fps';
     clearInterval(frameTimer); img.onerror = null;
     if ($('#live-mode').value === 'stream') {
       img.src = '/live/stream.mjpg?fps=' + fps + '&r=' + Date.now();
@@ -49,7 +49,7 @@
     setNav(on ? 'live' : 'chats');
   }
   root.showLive = show;
-  $('#live-fps').oninput = () => { if (open) startView(); };
+  $('#live-fps').onchange = () => { if (open) startView(); };
   $('#live-mode').onchange = () => { if (open) startView(); };
   $('#live-close').onclick = () => show(false);
   $('#livebtn').onclick = () => show(true);

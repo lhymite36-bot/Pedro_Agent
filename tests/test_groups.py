@@ -113,6 +113,47 @@ class GroupTests(unittest.TestCase):
         self.assertEqual(groups.mentions("@nobody", g), [])
 
 
+class DisplayTests(GroupTests):
+    def test_markers_become_natural_text_and_chips(self):
+        g = groups.save_group({"name": "T", "members": ["writer"]})
+        text, chips = groups.for_display("Plan ready.\nASSIGN @writer: Write the intro.", g)
+        self.assertNotIn("ASSIGN", text); self.assertIn("Writer, could you write the intro?", text)
+        self.assertEqual(chips, [{"kind": "assign", "text": "→ assigned to Writer"}])
+        text, chips = groups.for_display("Wrote it.\nDONE: intro.txt on the Desktop")
+        self.assertNotIn("DONE:", text); self.assertIn("intro.txt", text); self.assertEqual(chips[0]["text"], "✓ done")
+        text, chips = groups.for_display("Working… DONE: finished my part")
+        self.assertEqual(text, "Working. finished my part"); self.assertEqual(chips[0]["text"], "✓ done")
+        text, chips = groups.for_display("PROJECT DONE: All saved.")
+        self.assertEqual(text, "All saved."); self.assertEqual(chips[0]["text"], "✓ project complete")
+
+    def test_emitted_and_stored_text_is_clean(self):
+        g = groups.save_group({"name": "T", "members": ["writer"]})
+        replies = iter(["ASSIGN @writer: write a line", "PROJECT DONE: finished"])
+        groups.main_engine = lambda p, h, m, **k: next(replies)
+        bots.engine = lambda p, h, m, **k: "Here it is.\nDONE: a line"
+        events, stored = [], []
+        groups.run_group(g, "Write a short poem file", [], events.append, store=lambda s, r, t: stored.append(t))
+        shown = [e["text"] for e in events if e.get("event") == "done"]
+        self.assertTrue(all("ASSIGN" not in t and "DONE:" not in t for t in shown), shown)
+        self.assertTrue(any(c["text"] == "✓ done" for e in events if e.get("event") == "done" for c in e["chips"]))
+        self.assertTrue(all("ASSIGN @" not in t for t in stored))
+        row = groups.clean_row({"role": "assistant", "text": "[[@pedro]] ASSIGN @writer: old raw row"})
+        self.assertNotIn("ASSIGN", row["text"]); self.assertTrue(row["text"].startswith("[[@pedro]]"))
+
+    def test_greeting_skips_project_loop(self):
+        g = groups.save_group({"name": "T", "members": ["writer", "editor"]})
+        seen = []
+        groups.main_engine = lambda p, h, m, **k: (seen.append(p), "ASSIGN @writer: say hi")[1]
+        bots.engine = lambda p, h, m, **k: self.fail("members must not be assigned for a greeting")
+        for hi in ("hi", "Hello everyone!", "how are you guys", "good morning", "thanks"):
+            said = groups.run_group(g, hi, [], lambda e: None)
+            self.assertEqual(len(said), 1, hi)
+        self.assertIn("small talk", seen[0])
+        self.assertTrue(groups.is_chitchat("hey"))
+        self.assertFalse(groups.is_chitchat("make a PDF about owls"))
+        self.assertFalse(groups.is_chitchat("research the best laptops under 500 dollars"))
+
+
 class DeleteTests(GroupTests):
     def test_deleting_bot_leaves_groups_with_coordinator_fallback(self):
         g = groups.save_group({"name": "T", "members": ["writer", "editor"], "coordinator": "writer"})

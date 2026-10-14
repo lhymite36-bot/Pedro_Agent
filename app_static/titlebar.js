@@ -1,0 +1,39 @@
+// Frameless desktop window (pywebview): drag strip, min/max/close glyphs, edge resize.
+(function () {
+  function init() {
+    const api = window.pywebview && window.pywebview.api;
+    if (!api || !api.toggle_maximize) return;
+    document.documentElement.classList.add('desktop-app');
+    const strip = document.createElement('div'); strip.id = 'dragstrip'; strip.className = 'pywebview-drag-region';
+    document.body.appendChild(strip);
+    const hdr = document.querySelector('header'); if (hdr) hdr.classList.add('pywebview-drag-region');
+    const box = document.createElement('div'); box.id = 'winctl';
+    const ico = {
+      min: '<svg viewBox="0 0 12 12"><path d="M1.5 6h9"/></svg>',
+      max: '<svg viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9" rx="1"/></svg>',
+      res: '<svg viewBox="0 0 12 12"><rect x="1.5" y="3.5" width="7" height="7" rx="1"/><path d="M3.5 3.5v-2h7v7h-2"/></svg>',
+      close: '<svg viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8"/></svg>' };
+    const mk = (id, title, svg, fn) => { const b = document.createElement('button'); b.type = 'button'; b.id = id; b.title = title; b.innerHTML = svg; b.onclick = fn; box.appendChild(b); return b; };
+    mk('wc-min', 'Minimise', ico.min, () => api.minimize());
+    const mx = mk('wc-max', 'Maximise', ico.max, async () => { const on = await api.toggle_maximize(); mx.innerHTML = on ? ico.res : ico.max; mx.title = on ? 'Restore' : 'Maximise'; });
+    mk('wc-close', 'Close', ico.close, () => api.close());
+    document.body.appendChild(box);
+    if (hdr) hdr.addEventListener('dblclick', (e) => { if (e.target === hdr || e.target.closest('.who')) mx.click(); });
+    // edge resize: right, bottom, corner
+    ['r', 'b', 'rb', 'l'].forEach((edge) => {
+      const h = document.createElement('div'); h.className = 'rz rz-' + edge; document.body.appendChild(h);
+      h.addEventListener('pointerdown', async (e) => {
+        e.preventDefault(); h.setPointerCapture(e.pointerId);
+        const g = await api.geometry(); const sx = e.screenX, sy = e.screenY; let busy = false, last = null;
+        const move = (ev) => { last = ev; if (busy) return; busy = true; requestAnimationFrame(async () => {
+          const dx = last.screenX - sx, dy = last.screenY - sy;
+          let { x, y, w, h: hh } = g;
+          if (edge.includes('r')) w += dx; if (edge.includes('b')) hh += dy; if (edge === 'l') { x += dx; w -= dx; }
+          await api.set_geometry(x, y, w, hh); busy = false; }); };
+        const up = () => { h.removeEventListener('pointermove', move); h.removeEventListener('pointerup', up); };
+        h.addEventListener('pointermove', move); h.addEventListener('pointerup', up);
+      });
+    });
+  }
+  if (window.pywebview) init(); else window.addEventListener('pywebviewready', init);
+})();

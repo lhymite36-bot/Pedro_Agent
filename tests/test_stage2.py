@@ -736,9 +736,9 @@ class RemoteAccessTests(_Tmp):
         sent = self.lp.mjpeg(parts.append, 99, max_frames=3, sleep=lambda s: None)
         self.assertEqual(sent, 3)
         self.assertTrue(parts[0].startswith(b"--frame\r\nContent-Type: image/jpeg"))
-        self.assertEqual(self.lp.clamp_fps(99), 5)
+        self.assertEqual(self.lp.clamp_fps(99), 30)
         self.assertEqual(self.lp.clamp_fps(0.1), 0.5)
-        self.assertEqual(self.lp.clamp_fps("x"), 3)
+        self.assertEqual(self.lp.clamp_fps("x"), 10)
 
 
 class FakeMouse:
@@ -873,3 +873,25 @@ class StepLabelTests(__import__("unittest").TestCase):
         step_labels.wrap_emit(out.append)({"event": "tool_start", "name": "open_website", "arguments": {"url": "x.com"}})
         self.assertEqual(out[0], {"event": "step", "label": "Opening x.com", "name": "open_website"})
         self.assertEqual(out[1]["label"], "Opening x.com")
+
+
+class LiveAdaptiveTests(unittest.TestCase):
+    def test_adaptive_quality_drops_on_slow_link_and_recovers(self):
+        import live_pc
+        a = live_pc.Adaptive(55, 1 / 30)
+        for _ in range(6):
+            a.update(0.2)
+        self.assertLess(a.q, 40); self.assertLess(a.scale, 1.0)
+        for _ in range(400):
+            a.update(0.001)
+        self.assertEqual((a.q, a.scale), (55, 1.0))
+
+    def test_stream_paces_to_30fps(self):
+        import live_pc
+        live_pc.grabber = lambda: b"jpg"
+        try:
+            got, st = [], {}
+            n = live_pc.mjpeg(got.append, 30, max_frames=5, sleep=lambda s: None, stats=st)
+            self.assertEqual(n, 5); self.assertEqual(st["frames"], 5)
+        finally:
+            live_pc.grabber = None

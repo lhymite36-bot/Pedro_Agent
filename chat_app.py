@@ -12,6 +12,7 @@ own desktop window; otherwise it opens in the default browser.
 from __future__ import annotations
 
 import os
+import sys
 import json
 import time
 import tempfile
@@ -40,6 +41,7 @@ STATIC_FILES = {
     "bots_ui.js": "application/javascript; charset=utf-8",
     "groups_ui.js": "application/javascript; charset=utf-8",
     "mention_pick.js": "application/javascript; charset=utf-8",
+    "titlebar.js": "application/javascript; charset=utf-8",
     "phone_ui.js": "application/javascript; charset=utf-8",
     "favicon.ico": "image/x-icon",
     "live_ui.js": "application/javascript; charset=utf-8",
@@ -369,9 +371,18 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
                 bot = bots.bot_for_session(session)
                 group = groups.group_for_session(session)
                 if group is not None:
-                    said = groups.run_group(group, text, history, emit, model=state.model,
+                    def group_emit(e: dict) -> None:   # speak each member's finished reply in turn
+                        emit(e)
+                        if pipeline is not None and e.get("event") == "done" and e.get("text") and not state.cancel.is_set():
+                            spoke["any"] = True
+                            try:
+                                pipeline.submit(str(e["text"]))
+                            except Exception as exc:
+                                emit({"event": "error", "text": f"Voice: {exc}"})
+
+                    said = groups.run_group(group, text, history, group_emit, model=state.model,
                                             store=chat_store.add,
-                                            cancel_event=state.cancel, on_event=emit)
+                                            cancel_event=state.cancel, on_event=group_emit)
                     reply = said[-1][1] if said else ""
                 elif bot is not None:
                     reply = bots.run_bot(
@@ -437,7 +448,7 @@ def _resume_wake() -> None:
         pass
 
 
-_SILENCE_MARKERS = ("no speech", "did not understand", "could not understand", "didn't catch", "timed out", "unknownvalue")
+_SILENCE_MARKERS = ("no speech", "timed out")
 
 
 def listen_once(state: AppState, timeout: float = 8.0) -> dict[str, Any]:
@@ -575,7 +586,11 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             elif url.path == "/api/sessions":
                 self._json(chat_store.sessions())
             elif url.path == "/api/history":
-                self._json(chat_store.history(query.get("session", [""])[0]))
+                sid = query.get("session", [""])[0]
+                rows = chat_store.history(sid)
+                if sid.startswith(groups.SESSION_PREFIX):
+                    rows = [groups.clean_row(r) for r in rows]
+                self._json(rows)
             elif url.path == "/api/rules":
                 path = rules.rules_path() or (rules.APP_DIR / "rules.yaml")
                 text = path.read_text(encoding="utf-8") if path.is_file() else ""
@@ -844,6 +859,19 @@ def shutdown(server: Any) -> None:
 
 
 def run(model: str, port: int = 8765) -> int:
+    try:
+        import win_chrome
+
+        if not win_chrome.single_instance():
+            win_chrome.focus_existing()
+            print("Pedro_Agent is already running; switched to its window.", flush=True)
+            return 0
+    except Exception:
+        pass
+    if sys.stdout is None or sys.stderr is None:   # started with pythonw (no console): log to a file
+        log = open(Path(__file__).resolve().parent / "app_out.log", "a", encoding="utf-8", buffering=1)
+        sys.stdout = sys.stdout or log
+        sys.stderr = sys.stderr or log
     server, state = serve(model, port)
     url = f"http://127.0.0.1:{server.server_address[1]}/"
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -874,10 +902,10 @@ def run(model: str, port: int = 8765) -> int:
         except Exception as exc:
             print(f"Telegram bridge did not start: {exc}", flush=True)
         try:
-            import webview  # type: ignore  # pywebview, optional
+            import webview  # type: ignore  # pywebview, optional  # noqa: F401
+            import win_chrome
 
-            webview.create_window("Pedro_Agent", url, width=1100, height=780)
-            webview.start()  # returns when the window is closed
+            win_chrome.open_window(url)  # frameless dark window, our icon; returns when closed
             return 0
         except ImportError:
             webbrowser.open(url)

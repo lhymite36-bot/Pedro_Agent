@@ -6593,6 +6593,11 @@ def _pause_threshold() -> float:
     return min(max(value, 0.5), 5.0)
 
 
+_MIC_THRESHOLD: float | None = None
+MIC_MIN_THRESHOLD = 120.0
+MIC_MAX_THRESHOLD = 450.0
+
+
 def listen_to_microphone(
     timeout: float = 8,
     phrase_time_limit: float | None = None,
@@ -6636,7 +6641,16 @@ def listen_to_microphone(
         except OSError as exc:
             return _err(f"No microphone is available: {exc}")
         with microphone as source:
-            recognizer.adjust_for_ambient_noise(source, duration=0.3)
+            # Calibrate once and keep it: re-calibrating on every click measured the
+            # user's own voice when they started talking right away, which pushed the
+            # threshold above their speech ("Didn't hear anything"). Capped so a quiet
+            # laptop mic still triggers.
+            global _MIC_THRESHOLD
+            if _MIC_THRESHOLD is None:
+                recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                _MIC_THRESHOLD = float(getattr(recognizer, "energy_threshold", 300) or 300)
+            recognizer.energy_threshold = max(MIC_MIN_THRESHOLD, min(_MIC_THRESHOLD * 1.3, MIC_MAX_THRESHOLD))
+            recognizer.dynamic_energy_threshold = True
             if announce:
                 print("Listening...", flush=True)
             audio = recognizer.listen(

@@ -206,7 +206,7 @@ if ($('#clear-chats')) $('#clear-chats').onclick = clearAllChats;
 async function openSession(s) {
   session = s; localStorage.session = s; $('#log').innerHTML = '';
   const rows = await api('/api/history?session=' + encodeURIComponent(s));
-  rows.forEach((m) => { if (m.role === 'user') addUser(m.text); else { const t = /^\[\[@([a-z0-9-]+)\]\]\s?/.exec(m.text || ''); const b = addBot(); if (t && window.markSpeaker) window.markSpeaker(b, t[1]); renderMd(b.body, t ? m.text.slice(t[0].length) : m.text); } });
+  rows.forEach((m) => { if (m.role === 'user') addUser(m.text); else { const t = /^\[\[@([a-z0-9-]+)\]\]\s?/.exec(m.text || ''); const b = addBot(); if (t && window.markSpeaker) window.markSpeaker(b, t[1]); renderMd(b.body, t ? m.text.slice(t[0].length) : m.text); groupChips(b, m.chips); } });
   showEmpty(); loadSessions(); if (window.applyBotHeader) window.applyBotHeader();
 }
 $('#new').onclick = () => { session = ''; localStorage.session = ''; $('#log').innerHTML = ''; showEmpty(); loadSessions(); if (window.applyBotHeader) window.applyBotHeader(); $('#t').focus(); };
@@ -221,7 +221,7 @@ async function pollStatus() {
     $('#st-tg').className = 'dot ' + (st.telegram ? 'on' : ''); $('#st-tg-t').textContent = st.telegram ? 'connected' : 'off';
     $('#tg-line').textContent = st.telegram ? 'Connected' : 'Not running';
     $('#st-voice').className = 'dot ' + (st.speaking || st.listening ? 'busy' : (speakOn ? 'on' : ''));
-    $('#st-voice-t').textContent = st.speaking ? 'speaking' : st.listening ? 'listening' : (speakOn ? 'on' : 'off');
+    $('#st-voice-t').textContent = st.speaking ? 'speaking' : st.listening ? 'listening' : (speakMode === 'always' ? 'on' : speakMode === 'never' ? 'off' : 'replies to voice');
     $('#st-model').textContent = st.model || '-';
     if (typeof st.speech_level === 'number' && st.speaking) avatars.forEach((a) => a.setLevel(st.speech_level));
     if (typeof st.mic_level === 'number') level = st.mic_level;
@@ -249,6 +249,9 @@ function setRunning(on) {
   b.innerHTML = on ? '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>'
     : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
 }
+function groupChips(b, chips) {
+  (chips || []).forEach((c) => { const el = chip(b.chips, c.text); el.classList.add(c.kind === 'blocked' ? 'bad' : 'ok', 'gchip'); });
+}
 async function send(text, isVoice) {
   isVoice = !!isVoice || nextIsVoice; nextIsVoice = false; const talk = willSpeak(isVoice); let clip = null;
   addUser(text); hands.turnStarted(); setRunning(true); setMood('thinking');
@@ -270,7 +273,7 @@ async function send(text, isVoice) {
           continue;
         }
         if (ev.event === 'group_done') { continue; }
-        if (ev.event === 'done' && ev.speaker) { bot.text = ev.text || ''; renderMd(bot.body, bot.text, false); scrollDown(); continue; }
+        if (ev.event === 'done' && ev.speaker) { bot.text = ev.text || ''; renderMd(bot.body, bot.text, false); groupChips(bot, ev.chips); scrollDown(); continue; }
         if (ev.event === 'session') { session = ev.session; localStorage.session = session; }
         else if (ev.event === 'step') { act.set(ev.label || 'Working…'); if (ev.name) { labels[ev.name] = ev.label; setMood('working'); } }
         else if (ev.event === 'plan') { renderPlan(bot, ev); const next = (ev.steps || []).find((x) => x.status === 'pending'); act.set(next ? 'Step ' + next.number + ': ' + next.text : 'All steps done, checking…'); }
@@ -315,10 +318,10 @@ $$('.hint').forEach((h) => (h.onclick = () => send(h.textContent)));
 
 // ---------- voice ----------
 const hands = createHandsFree({
-  listenApi: async () => (await fetch('/api/listen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json(),
+  listenApi: async () => (await fetch('/api/listen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"timeout": 10}' })).json(),
   onText: (t) => send(t, true),
   onError: (m) => setStatus('🎤 ' + m, true),
-  onSilence: () => setStatus("Didn't hear anything."),
+  onSilence: () => setStatus("Didn't hear anything. Click the mic and speak (it listens for 10 seconds)."),
   onState: (st) => {
     const on = st === 'listening'; $('#mic').classList.toggle('on', on); waveOn(on);
     if (on) { setStatus('Listening…'); setMood('listening'); } else if (!running) setMood('idle');
