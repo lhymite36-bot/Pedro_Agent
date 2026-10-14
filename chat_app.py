@@ -155,7 +155,7 @@ def tts_file(clip: str) -> Path | None:
 
 
 
-SETUP_KEYS = ("GEMINI_API_KEY", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID")
+SETUP_KEYS = ("GEMINI_API_KEY", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "GROQ_API_KEY")
 
 
 def _env_path() -> Path:
@@ -164,7 +164,8 @@ def _env_path() -> Path:
 
 def setup_status() -> dict:
     return {"needs_setup": not os.environ.get("GEMINI_API_KEY", "").strip(),
-            "telegram": bool(os.environ.get("TELEGRAM_BOT_TOKEN", "").strip())}
+            "telegram": bool(os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()),
+            "backup_model": bool(os.environ.get("GROQ_API_KEY", "").strip())}
 
 
 def save_setup(data: dict) -> dict:
@@ -596,6 +597,10 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 self._json(remote_access.phone_status() if not self.remote else {"error": "PC only"}, 200 if not self.remote else 403)
             elif url.path == "/api/groups":
                 self._json({"groups": groups.list_groups(), "main": groups.display(groups.MAIN)})
+            elif url.path == "/api/pending":  # phone/PC Approve-Deny bar for a waiting send/delete
+                import confirm_action
+                p = confirm_action.pending()
+                self._json({"pending": {"label": str((p or {}).get("label") or "")} if p else None})
             elif url.path == "/api/status":
                 self._json(status_payload(state))
             elif url.path == "/api/image":
@@ -907,6 +912,7 @@ def run(model: str, port: int = 8765) -> int:
     threading.Thread(target=server.serve_forever, daemon=True).start()
     print(f"Pedro_Agent chat app: {url}  (Ctrl+C to quit)", flush=True)
     bots.Scheduler().start()  # scheduled bot tasks
+    import extras148; extras148.start_evening_job()  # 7 PM Wingz scan + report in the "daily-report" chat
     try:
         import live_pc
         import remote_access

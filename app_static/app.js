@@ -388,3 +388,25 @@ if (session) openSession(session); else { loadSessions(); showEmpty(); }
     };
   } catch (e) { /* setup check is best-effort */ }
 })();
+
+$('#backup-save') && ($('#backup-save').onclick = async () => { const v = $('#backup-key').value.trim(); if (!v) return; const r = await api('/api/setup', { groq_api_key: v }); $('#backup-key').value = ''; $('#backup-msg').textContent = r.ok ? (r.backup_model ? ' Saved.' : ' Not saved.') : (' ' + (r.error || 'Could not save.')); });
+
+
+// 1.4.8: Approve / Deny bar for a waiting send/delete (works in the phone app too; it never sends by itself)
+(function approvalBar() {
+  const bar = document.createElement('div');
+  bar.id = 'approve-bar';
+  bar.style.cssText = 'display:none;position:fixed;left:50%;bottom:96px;transform:translateX(-50%);z-index:50;background:#2a2a2a;color:#eee;border:1px solid #444;border-radius:12px;padding:10px 14px;gap:10px;align-items:center;font-size:14px;max-width:92vw';
+  bar.innerHTML = '<span id="approve-text"></span><button id="approve-yes" type="button">Approve</button><button id="approve-no" type="button">Deny</button>';
+  document.body.appendChild(bar);
+  const answer = (word) => { bar.style.display = 'none'; try { send(word); } catch (e) {} };
+  bar.querySelector('#approve-yes').onclick = () => answer('yes');
+  bar.querySelector('#approve-no').onclick = () => answer('no');
+  setInterval(async () => {
+    try {
+      const r = await (await fetch('/api/pending', { cache: 'no-store' })).json();
+      if (r.pending) { bar.querySelector('#approve-text').textContent = 'Waiting for you: ' + (r.pending.label || 'an action'); bar.style.display = 'flex'; }
+      else bar.style.display = 'none';
+    } catch (e) {}
+  }, 2500);
+})();

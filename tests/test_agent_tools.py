@@ -2011,7 +2011,7 @@ class AgentToolTests(unittest.TestCase):
     def test_multi_step_plan_gates_execution(self) -> None:
         import inspect
 
-        source = inspect.getsource(agent_core.run_agent)
+        source = inspect.getsource(agent_core._run_agent_core)
         self.assertLess(
             source.find("begin_task_turn(user_text)"),
             source.find("from google import genai"),
@@ -4177,7 +4177,8 @@ class AgentToolTests(unittest.TestCase):
                         "gemini-3.5-flash-lite",
                     )
             self.assertEqual(dropped, "Answered on this PC.")
-            self.assertEqual(slept, [2, 5, 12])
+            # Busy/dropped: every Gemini model gets the same backoff before the local fallback.
+            self.assertEqual(slept, [5, 15, 30] * len(agent_core.model_candidates("gemini-3.5-flash-lite")))
             self.assertEqual(len(sent), 1)
         finally:
             os.environ.pop("PRIVACY_MODE", None)

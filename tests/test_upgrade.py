@@ -341,6 +341,9 @@ class VisionTests(_RulesCase):
         self.assertFalse(screen_vision._parse("nope")["found"])
 
     def test_click_retries_until_found(self) -> None:
+        # Never match real controls on the live screen (Chrome showing 'Sign in' made this flaky).
+        agent_core.uia_finder_override = lambda name, win: None
+        self.addCleanup(lambda: setattr(agent_core, 'uia_finder_override', None))
         answers = [{"found": False}, {"found": True, "x": 510, "y": 220}]
         agent_core.vision_locator_override = lambda img, mime, desc: answers.pop(0)
         result = agent_core.invoke_tool("click_screen_target", {"description": "Sign in", "retries": 2})

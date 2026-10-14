@@ -448,6 +448,23 @@ Phone bridge:
 - Telegram answers only the chat in TELEGRAM_CHAT_ID. Discord webhooks receive alerts and cannot send commands back.
 - If the tool says the phone bridge is not set up, tell the user to set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID, or DISCORD_WEBHOOK_URL. Do not claim the message was sent.
 
+Screen tutor ("what is this?", "explain my screen", "how do I do this step", or a selected/pointed area):
+- Call take_screenshot (or capture_screenshot_file for a selected area) and look before answering. Say what the window/app is, what the pointed area or highlighted control does, and give the next steps as a short numbered list that names the exact buttons/menus you can see (e.g. Power BI: Model view > drag key to key > Edit relationship > Cardinality One to many).
+- Teach; do not click for the user unless they ask you to do it. Never answer graded tests or exams through the tutor.
+
+Brainstorm ("brainstorm", "debate", "ideas for"):
+- In a group: each bot gives its idea and one critique of another's, for at most 3 rounds; then the leader merges them into one best plan with numbered steps, risks, and the first action. Alone: play 3 viewpoints yourself, then give the merged plan. Nothing is sent or executed until the user approves the plan.
+
+How to work (reasoning and checking):
+- For multi-step jobs, call record_step_proof after each finished step (screenshot + what you checked); on resume, read get_task_progress first.
+- "Morning report" or a daily check calls daily_report. Deadlines: add_deadline. "What did you change": show_change_log. "How much Gemini did I use": gemini_usage.
+- Before acting on anything with more than one step, think it through: what the user really wants, what "done" looks like, and the shortest safe path. Write that as create_task_plan steps, each with a checkable result (a file exists, a page shows X, a field says Y).
+- After each step, check the real result, not your intention: take_screenshot or verify_screen with a specific expectation (exact title, file name, or text), or read the file back. A vague expectation ("page loaded") proves nothing.
+- Never claim something is done, saved, sent, complete or "none left" without evidence you saw in this run. If you could not check, say so plainly.
+- On a failed step: look at the screen, find out why, try a different approach (another control, keyboard shortcut, direct URL, or a different tool). After 3 different tries, report the exact blocker and what you already finished.
+- When continuing after an interruption, look at the screen and the plan first and resume from the first unfinished step. Do not redo finished steps.
+- Files: use full paths, save where the user said (Desktop by default), then confirm the file exists and is not empty. Chrome: prefer direct URLs, and scroll to see whole lists. Apps: focus the window first.
+- Finish with a short report: what was done (with evidence), what is left, what needs the user.
 Multi-step tasks (read a task, work in apps, make a document, send it):
 - Call start_task first. If it refuses (graded test, exam, quiz), stop and offer to help the user study instead.
 - If it suggests a routine, call get_task_routine and follow it. Then create_task_plan with the steps and keep it updated with complete_plan_step / revise_task_plan.
@@ -592,9 +609,14 @@ Itvedant Wingz assignments (when the user mentions Itvedant, Wingz, assignments,
 - Use the web portal in Chrome: https://wingz.itvedant.com/ . "Power BI" (or any course name) while Wingz is open means that course page in the portal, NOT a desktop app. Never call launch_application/launch_any_app for it.
 - Sign in only with "Login with Google" (https://wingz.itvedant.com/site/google-login) and the Google account already on this PC (p26635577@gmail.com if asked to choose). Never ask for, type, or store a password. If a password or 2-step screen appears, stop and tell the user.
 - Open the course/module, then its Module Syllabus (right side), Assignments, Self-learn or practice section. In the syllabus a green check means done; an item WITHOUT a green check (often the highlighted current one, e.g. "Assignment") is unfinished. An Assignment page with an empty answer editor (word count 0) is incomplete.
+- ALWAYS start a Wingz job with wingz_scan: it opens every course syllabus in Edge and returns the real list (UNGRADED unfinished items with URLs, GRADED list-only, not-open-yet). Trust that list over your own impression of the dashboard; then open each UNGRADED item URL with navigate_browser and do it. If the list has no UNGRADED items, report that with the list.
+- Then call get_task_progress('wingz') to see saved progress, and save_task_progress('wingz', done=..., left=...) after each item.
+- Use read_page_text (leave window_title empty; the tab title is the page name, not Wingz) to read the syllabus item titles, questions and saved answers; use take_screenshot to see green checks.
 - Call verify_screen to list every item that is pending, incomplete, not submitted or ungraded (no green check). Scroll the syllabus fully and check every module before saying none are left. Never claim "no incomplete assignments" without a verify_screen of the full syllabus.
 - For each unfinished ungraded/practice/self-learn item: open it, read the question, write the answer into the rich-text answer box, click the blue "Save Answer", then verify_screen that it saved. Then move to the next unfinished item.
+- If an ungraded/practice item needs a FILE upload instead of a typed answer: make the file with make_document (PDF unless another type is asked; no title, no headings, no intro or conclusion, just the answers) saved in C:/Users/POLASTOWER/Desktop/Wingz with a clear file name. Click the portal's upload/Choose File/Browse control; in the Windows Open dialog type the full file path into the File name box with type_text, press Enter, verify_screen that the file name shows on the page, then click Save Answer/Submit for that practice item and verify_screen it saved. Never upload to graded tests.
 - Never take or submit graded tests, quizzes, exams or assessments; list them and tell the user they must do those themselves.
+- A course whose Progress is below 100% still has unfinished items. Click its Continue Learning (or the course in My Batch), scroll the whole Module Syllabus with scroll + take_screenshot, and open every module. Never say a course is complete from the dashboard alone or from a verify_screen alone; name the exact unfinished item titles you saw. Courses scroll sideways on the dashboard (arrow on the right): check every one.
 - Do not stop after one screen to ask what to do. Keep going until every unfinished practice item is done, or you hit a password wall or a graded test.
 - If the user wants answers as a PDF: no title, no headings, no intro or conclusion, just the answers; save on the Desktop; send by WhatsApp only after the user says yes.
 - The saved routine "Wingz assignments" (routine_macro_engine run) opens the portal and checks the screen to start this workflow.
@@ -743,19 +765,29 @@ def _load_saved_game() -> dict[str, str] | None:
     return _game_cache
 
 
+WORK_DIR_OVERRIDE: Path | None = None
+
+
+def work_dir() -> Path:
+    """Default work folder for file tools: Documents/PedroAgent (created if missing)."""
+    base = WORK_DIR_OVERRIDE or (Path(os.environ.get("USERPROFILE") or Path.home()) / "Documents" / "PedroAgent")
+    base.mkdir(parents=True, exist_ok=True)
+    return base
+
+
 def _game_root() -> Path:
+    """The legit game folder if one is saved and valid; otherwise the work folder.
+
+    A saved path that looks like a cracked/repacked copy is never used.
+    """
     saved = _load_saved_game()
-    if not saved or not saved.get("path"):
-        raise RuntimeError(
-            "The game folder is not known yet. Call locate_gta5_directory first."
-        )
-    root = Path(saved["path"])
-    if not _is_gta5_exe(root / "GTA5.exe"):
-        raise RuntimeError(
-            f"The saved game folder is no longer valid: {root}. "
-            "Call locate_gta5_directory with rescan true."
-        )
-    return root
+    if saved and saved.get("path"):
+        root = Path(saved["path"])
+        if _is_gta5_exe(root / "GTA5.exe") and not re.search(
+            r"fitgirl|skidrow|dodi|empress|repack|crack", str(root), re.I
+        ):
+            return root
+    return work_dir()
 
 
 def _search_for_gta5(drive_root: Path) -> Path | None:
@@ -4919,6 +4951,21 @@ TOOL_DECLARATIONS.extend(diagnostics.DECLARATIONS)
 TOOL_DECLARATIONS.extend(local_search.RAG_DECLARATIONS)
 TOOL_DECLARATIONS.extend(task_schedule.JOB_DECLARATIONS)
 TOOL_DECLARATIONS.extend(routine_macros.DECLARATIONS)
+import page_text as _page_text
+import task_memory as _task_memory
+TOOL_DECLARATIONS.append(_page_text.DECLARATION)
+TOOL_DECLARATIONS.extend(_task_memory.DECLARATIONS)
+TOOLS['read_page_text'] = _page_text.read_page_text
+import wingz_scan as _wingz_scan
+TOOL_DECLARATIONS.append(_wingz_scan.DECLARATION)
+TOOLS['wingz_scan'] = _wingz_scan.wingz_scan
+import extras148 as _extras
+TOOL_DECLARATIONS.extend(_extras.DECLARATIONS)
+TOOLS.update(_extras.TOOLS)
+_PLAN_FREE_TOOLS.update(_extras.TOOLS)
+TOOLS['save_task_progress'] = _task_memory.save_task_progress
+TOOLS['get_task_progress'] = _task_memory.get_task_progress
+_PLAN_FREE_TOOLS.update({'wingz_scan', 'read_page_text', 'save_task_progress', 'get_task_progress'})
 # Stage 2 modules each bring DECLARATIONS and TOOLS.
 STAGE2_MODULES = [team_agent, bots, demo_skills, code_loop, autopilot, self_upgrade, remote_access, task_runner]
 for _stage2 in STAGE2_MODULES:
@@ -5177,6 +5224,10 @@ def invoke_tool(name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
     blocked = _plan_blocks(name)
     if blocked is not None:
         return blocked
+    if wingz_turn and name in WINGZ_BLOCKED_TOOLS:
+        return _err("Wingz work happens in the web portal in Chrome. Desktop apps are blocked for this task; "
+                    "use navigate_browser/open_website with https://wingz.itvedant.com/ instead.",
+                    blocked_by_rules=True)
     arguments = dict(arguments or {})
     rule_block = rules.tool_block_reason(name)
     if rule_block is not None:
@@ -5200,6 +5251,12 @@ def invoke_tool(name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
     started = time.monotonic()
     try:
         result = _call_with_timeout(name, function, arguments)
+        if isinstance(result, dict) and result.get("ok") and name in CHANGE_LOG_TOOLS:
+            try:
+                import extras148
+                extras148.note_change(name, str(result.get("path") or result.get("file") or ""))
+            except Exception:
+                pass
     except TypeError as exc:
         return _err(f"Bad arguments for {name}: {exc}")
     except AssertionError:
@@ -5358,6 +5415,9 @@ def _transient_network_error(exc: BaseException) -> bool:
                 "connection reset",
                 "connection was aborted",
                 "timed out",
+                "503 unavailable",
+                "high demand",
+                "overloaded",
             )
         ):
             return True
@@ -5685,7 +5745,104 @@ def _request_voice_model(
     return _finish_voice_stream(stream, emit, cancel_event)
 
 
-def run_agent(
+EVIDENCE_TOOLS = frozenset({"take_screenshot", "scroll", "capture_screenshot_file", "find_on_screen", "read_page_text"})
+EVIDENCE_NUDGE = (
+    "[self-check] You are about to report this task as done/complete, but in this turn you have not "
+    "looked at the screen (take_screenshot or scroll) to confirm it. Check the real result now, "
+    "fix anything that is not done, then report only what you saw."
+)
+RESUME_TEXT = (
+    "[resume] The model service failed in the middle of the task. Look at the screen and your plan, "
+    "then continue from the first unfinished step. Do not redo finished steps. Same rules as before."
+)
+_SCAN_EVIDENCE = {"wingz_scan"}
+_TASK_WORDS = re.compile(r"\b(wingz|assignment|syllabus|upload|fill|save answer|portal|task|document|pdf)\b", re.I)
+_DONE_CLAIM = re.compile(
+    r"FINAL:|\ball\b[^.\n]{0,60}\b(complete|completed|done|checked)\b|\bnone left\b|"
+    r"\bno (unfinished|incomplete|pending)\b|\b(saved|uploaded|submitted) (it|them|all|the)\b",
+    re.I,
+)
+AUTO_RESUMES = 2
+RESUME_WAIT_SECONDS = 60
+
+
+CHANGE_LOG_TOOLS = frozenset({"make_document", "write_text_file", "create_directory", "capture_screenshot_file", "build_local_program"})
+WINGZ_BLOCKED_TOOLS = frozenset({"launch_application", "launch_any_app"})
+wingz_turn = False
+
+
+def _note_usage(model: str, ok: bool, error: str = "") -> None:
+    if genai_client_override is not None:  # tests use fake clients; never pollute real usage
+        return
+    try:
+        import extras148
+        extras148.note_model_call(model, ok, error)
+    except Exception:
+        pass
+
+
+def could_not_verify(user_text: str, used_tools: set[str]) -> str:
+    missing = []
+    if "scroll" not in used_tools and "read_page_text" not in used_tools:
+        missing.append("I never scrolled or read the page list, so I did not see every item")
+    if not used_tools & EVIDENCE_TOOLS:
+        missing.append("I took no screenshot of the result")
+    missing = missing or ["I could not confirm the result on screen"]
+    return ("Could not verify. I am not reporting this as done because: " + "; ".join(missing) +
+            ". Nothing is claimed as finished. Ask me to continue and I will check each item on screen.")
+
+
+def needs_evidence(user_text: str, reply: str, used_tools: set[str]) -> bool:
+    """True when a task reply claims completion but no screen check ran this turn."""
+    if (wingz_turn or re.search(r"\bwingz|syllabus\b", user_text or "", re.I)) and _DONE_CLAIM.search(reply or "") \
+            and not used_tools & {"scroll", "read_page_text", "wingz_scan"}:
+        return True  # a syllabus can only be judged after scrolling it in this turn
+    if used_tools & EVIDENCE_TOOLS:
+        return False
+    tasky = bool(_TASK_WORDS.search(user_text or "")) or bool(used_tools & {"start_task", "create_task_plan"})
+    return tasky and bool(_DONE_CLAIM.search(reply or ""))
+
+
+def _busy_error(exc: BaseException) -> bool:
+    text = str(exc).casefold()
+    return any(k in text for k in ("all gemini models are busy", "503", "high demand", "overloaded",
+                                   "did not return a response"))
+
+
+def run_agent(user_text: str, history: list[Any], model: str, **kwargs: Any) -> str:
+    """Run a turn; if the model service drops mid-task, wait and resume from the screen.
+
+    Voice turns are never resumed. The history (with all finished steps) is kept.
+    """
+    voice = bool(kwargs.get("voice"))
+    cancel_event = kwargs.get("cancel_event")
+    on_event = kwargs.get("on_event")
+    global wingz_turn
+    text = user_text
+    if not str(user_text).startswith("[resume]"):
+        wingz_turn = bool(re.search(r"\bwingz|itvedant\b", user_text or "", re.I))
+    for attempt in range(AUTO_RESUMES + 1):
+        try:
+            return _run_agent_core(text, history, model, **kwargs)
+        except RuntimeError as exc:
+            if voice or attempt >= AUTO_RESUMES or not _busy_error(exc):
+                raise
+            print(f"[resume] {exc}. Resuming in {RESUME_WAIT_SECONDS}s.", flush=True)
+            if on_event is not None:
+                try:
+                    on_event({"event": "resume", "text": f"Model busy. Resuming in {RESUME_WAIT_SECONDS}s."})
+                except Exception:
+                    pass
+            if cancel_event is not None:
+                if cancel_event.wait(RESUME_WAIT_SECONDS):
+                    raise
+            else:
+                time.sleep(RESUME_WAIT_SECONDS)
+            text = RESUME_TEXT
+    raise RuntimeError("unreachable")
+
+
+def _run_agent_core(
     user_text: str,
     history: list[Any],
     model: str,
@@ -5744,8 +5901,10 @@ def run_agent(
             except Exception:
                 pass
 
+    used_tools: set[str] = set()
+    evidence_nudges = 0
     for _round in range(rounds):
-        delays = (2, 5, 12)
+        delays = (5, 15, 30)
         response = None
         quota_error: BaseException | None = None
         for index, active_model in enumerate(model_order):
@@ -5786,8 +5945,10 @@ def run_agent(
                             contents=history,
                             config=active_config,
                         )
+                    _note_usage(active_model, True)
                     break
                 except Exception as exc:
+                    _note_usage(active_model, False, str(exc))
                     if (
                         voice
                         and voice_plain is not None
@@ -5815,6 +5976,20 @@ def run_agent(
                         )
                         time.sleep(delay)
                         continue
+                    if _transient_network_error(exc) and not spoke["yes"] and not voice:
+                        if index < len(model_order) - 1:
+                            response = None
+                            break
+                        import cloud_fallback
+                        if cloud_fallback.available():
+                            print("[busy] All Gemini models are busy. Using the backup model.", flush=True)
+                            reply = cloud_fallback.run(user_text, on_event=on_event)
+                            history.append(
+                                types.Content(role="model", parts=[types.Part.from_text(text=reply)])
+                            )
+                            return reply
+                        if not local_llm.ollama_reachable():
+                            raise RuntimeError(cloud_fallback.NO_BACKUP_MESSAGE) from exc
                     if (
                         _transient_network_error(exc)
                         and not spoke["yes"]
@@ -5865,6 +6040,16 @@ def run_agent(
             if voice:
                 return "\n".join(voice_lines) or "Gemini returned no text."
             text = _text_from(response)
+            if evidence_nudges >= 2 and needs_evidence(user_text, text, used_tools):
+                text = could_not_verify(user_text, used_tools)
+                _emit("final", text=text)
+                return text
+            if evidence_nudges < 2 and needs_evidence(user_text, text, used_tools):
+                evidence_nudges += 1
+                print("[check] Done-claim without looking at the screen. Asking to verify.", flush=True)
+                _emit("self_check", text="Checking the result on screen before answering.")
+                history.append(types.Content(role="user", parts=[types.Part.from_text(text=EVIDENCE_NUDGE)]))
+                continue
             _emit("final", text=text)
             return text or "Gemini returned no text."
 
@@ -5875,6 +6060,7 @@ def run_agent(
         for call in calls:
             name = call.name or ""
             arguments = dict(call.args or {})
+            used_tools.add(name)
             _emit("tool_start", name=name, arguments=_redacted_tool_arguments(name, arguments))
             result = _execute_logged_tool(name, arguments)
             _emit(

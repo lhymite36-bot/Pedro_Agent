@@ -122,7 +122,7 @@ def _ask_vision(question: str, png: bytes) -> str:
 
     import rules
 
-    models = (rules.load().get("agent") or {}).get("models") or [os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")]
+    models = (rules.load().get("agent") or {}).get("models") or [os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")]
     client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY", ""))
     last = None
     for model in models:
