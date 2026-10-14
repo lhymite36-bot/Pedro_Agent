@@ -94,6 +94,7 @@
     </div>
     <div class="field"><div>Chats<small>Deletes every normal chat. Bots, groups and their rooms stay.</small></div><button class="btn ghost danger" id="clear-chats" type="button">Clear all chats</button></div>
     <div class="field"><div>Model<small>Free Gemini models, tried in order on quota errors.</small></div><select id="model2"></select></div><div class="field"><div>Backup model key<small>Used only when every Gemini model is busy. Free Groq key from console.groq.com/keys. Stays on this PC.</small></div><input id="backup-key" type="password" placeholder="Paste Groq key" autocomplete="off"><button type="button" id="backup-save">Save</button><span id="backup-msg"></span></div>
+    <div class="field"><div>Setup check<small>What is ready and what still needs you. Shows no keys.</small></div><button type="button" class="btn" id="setup-check">Check</button></div><pre id="setup-out" hidden></pre>
     <div class="field"><div>Telegram<small>Answers your bot from this window.</small></div><span id="tg-line">-</span></div>
   </div>
   <div class="pane" id="p-voice">

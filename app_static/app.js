@@ -336,10 +336,28 @@ const hands = createHandsFree({
     if (on) { setStatus('Listening…'); setMood('listening'); } else if (!running) setMood('idle');
   },
 });
-$('#mic').onclick = () => { stopClip(); if (running) stop(); hands.listen(true); };
+// 1.4.8: phone voice. On the phone/remote page the PC microphone is useless, so listen on the
+// phone itself (browser speech recognition over the https tunnel); replies already play here.
+const ON_PC = /^(127\.0\.0\.1|localhost)$/.test(location.hostname);
+const PhoneSR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let phoneRec = null;
+function phoneListen() {
+  if (!PhoneSR) { setStatus('Voice typing is not available in this browser. Use the keyboard mic, or the Pedro Agent app.', true); return; }
+  if (phoneRec) { try { phoneRec.stop(); } catch (e) {} return; }
+  const r = new PhoneSR(); phoneRec = r;
+  r.lang = navigator.language || 'en-IN'; r.interimResults = false; r.maxAlternatives = 1;
+  r.onstart = () => { $('#mic').classList.add('on'); waveOn(true); setStatus('Listening…'); setMood('listening'); };
+  r.onresult = (e) => { const t = ((e.results[0] || [])[0] || {}).transcript || ''; if (t.trim()) send(t.trim(), true); };
+  r.onerror = (e) => setStatus(e.error === 'not-allowed' ? 'Allow the microphone for this page, then tap the mic again.' : (e.error === 'no-speech' ? "Didn't hear anything. Tap the mic and speak." : 'Voice error: ' + e.error), true);
+  r.onend = () => { phoneRec = null; $('#mic').classList.remove('on'); waveOn(false); if (!running) setMood('idle'); };
+  try { r.start(); } catch (e) { phoneRec = null; setStatus('Could not start voice: ' + e.message, true); }
+}
+$('#mic').onclick = () => { stopClip(); if (running) stop(); if (ON_PC) hands.listen(true); else phoneListen(); };
+const setupBtn = $('#setup-check');
+if (setupBtn) setupBtn.onclick = async () => { const o = $('#setup-out'); o.hidden = false; o.textContent = 'Checking…'; try { o.textContent = (await (await fetch('/api/checklist')).json()).message; } catch (e) { o.textContent = 'Could not check: ' + e.message; } };
 document.addEventListener('keydown', (e) => {
   const tag = document.activeElement.tagName;
-  if (e.code === 'Space' && tag !== 'TEXTAREA' && tag !== 'INPUT' && tag !== 'SELECT' && !e.repeat) { e.preventDefault(); if (running) stop(); hands.listen(true); }
+  if (e.code === 'Space' && tag !== 'TEXTAREA' && tag !== 'INPUT' && tag !== 'SELECT' && !e.repeat) { e.preventDefault(); if (running) stop(); if (ON_PC) hands.listen(true); else phoneListen(); }
   if (e.key === 'Escape') closeSettings();
 });
 function setHands(on) { $('#hands').classList.toggle('toggled', on); $('#hands2').checked = on; hands.setEnabled(on); }

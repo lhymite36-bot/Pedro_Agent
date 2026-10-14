@@ -601,6 +601,9 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 import confirm_action
                 p = confirm_action.pending()
                 self._json({"pending": {"label": str((p or {}).get("label") or "")} if p else None})
+            elif url.path == "/api/checklist":
+                import extras149
+                self._json(extras149.setup_checklist())
             elif url.path == "/api/status":
                 self._json(status_payload(state))
             elif url.path == "/api/image":

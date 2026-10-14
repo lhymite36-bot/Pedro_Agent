@@ -37,29 +37,34 @@ def _slug(s: str) -> str:
 
 
 # ---- Phase 2: proof of work ----
-def record_step_proof(task: str, step: str, check: str = "") -> dict[str, Any]:
+def record_step_proof(task: str, step: str, check: str = "", window: str = "") -> dict[str, Any]:
     """Screenshot + note for one finished step; saved under workspace/proof/<task>/."""
     folder = _p("proof") / _slug(task)
     folder.mkdir(parents=True, exist_ok=True)
     n = len(list(folder.glob("*.jpg"))) + 1
     shot = folder / f"{n:02d}.jpg"
+    shot_window = ""
     try:
         if shot_override is not None:
             shot_override(str(shot))
         else:
-            from PIL import ImageGrab  # type: ignore
-            ImageGrab.grab().convert("RGB").save(shot, quality=70)
+            import extras149  # shoots the step's window, never this app's own window
+            got = extras149.capture_proof(str(shot), window)
+            shot_window = got["window"]
+            if got["note"]:
+                check = f"{check} ({got['note']})".strip()
     except Exception as exc:
         shot = None
         check = f"{check} (no screenshot: {exc})".strip()
     with _lock:
         log = _load("proof_log.json", [])
         log.append({"t": time.strftime("%Y-%m-%d %H:%M"), "task": task, "step": step,
-                    "check": check, "screenshot": str(shot) if shot else ""})
+                    "check": check, "window": shot_window, "screenshot": str(shot) if shot else ""})
         _save("proof_log.json", log[-500:])
     import task_memory
     task_memory.save_task_progress(task, done=step, note=check)
-    return {"ok": True, "message": f"Proof saved for step {n}.", "screenshot": str(shot) if shot else ""}
+    return {"ok": True, "message": f"Proof saved for step {n}" + (f" (window: {shot_window})." if shot_window else "."),
+            "screenshot": str(shot) if shot else "", "window": shot_window}
 
 
 # ---- Phase 6: Gemini usage, change log, deadlines ----
@@ -145,7 +150,8 @@ DECLARATIONS = [
      "description": "After finishing a step of a task, save proof: a screenshot plus what you checked. Also saves progress for resume.",
      "parameters": {"type": "object", "properties": {
          "task": {"type": "string"}, "step": {"type": "string"},
-         "check": {"type": "string", "description": "What you verified, e.g. 'Saved banner shown'."}},
+         "check": {"type": "string", "description": "What you verified, e.g. 'Saved banner shown'."},
+         "window": {"type": "string", "description": "Part of the title of the window that shows the result, e.g. 'Power_BI_Tips.pdf' or 'Wingz'. Never this app."}},
          "required": ["task", "step"]}},
     {"name": "gemini_usage", "description": "Show today's Gemini calls, errors and busy/quota hits per model.",
      "parameters": {"type": "object", "properties": {"days": {"type": "integer"}}}},

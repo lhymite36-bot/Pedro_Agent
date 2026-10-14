@@ -435,7 +435,31 @@ def make_remote_handler(state: Any) -> type:
                 self._send(401, b'{"error":"sign in first"}')
             return False
 
+        def _body(self) -> dict[str, Any]:
+            self._body_read = True
+            return super()._body()
+
+        def _drain(self) -> None:
+            # A refused POST (401/403) must still read its small body, or Windows resets
+            # the socket before the answer arrives. Big bodies are not read; we just close.
+            if self.command != "POST" or getattr(self, "_body_read", False):
+                return
+            self._body_read = True
+            try:
+                left = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                left = 0
+            if 0 < left <= 65536:
+                try:
+                    self.rfile.read(left)
+                except Exception:
+                    pass
+            elif left:
+                self.close_connection = True
+
         def _send(self, code: int, body: bytes, kind: str = "application/json") -> None:
+            if code >= 400:
+                self._drain()
             self.send_response(code)
             self.send_header("Content-Type", kind)
             self.send_header("Content-Length", str(len(body)))

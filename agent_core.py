@@ -456,13 +456,17 @@ Brainstorm ("brainstorm", "debate", "ideas for"):
 - In a group: each bot gives its idea and one critique of another's, for at most 3 rounds; then the leader merges them into one best plan with numbered steps, risks, and the first action. Alone: play 3 viewpoints yourself, then give the merged plan. Nothing is sent or executed until the user approves the plan.
 
 How to work (reasoning and checking):
-- For multi-step jobs, call record_step_proof after each finished step (screenshot + what you checked); on resume, read get_task_progress first.
+- For multi-step jobs, call record_step_proof after each finished step (screenshot + what you checked); pass window= part of the title of the window showing the result (the PDF, the Wingz tab), never this app. On resume, read get_task_progress first.
+- Checker step: before the final report of a multi-step task, call review_work with your claims and the files you made. Report every 'Could not verify' line; never hide a problem it found.
+- Saved task skills: if Pedro says "like last time" or a task matches one, call list_task_skills / use_task_skill and follow it. After a task worked well and Pedro may repeat it, offer save_task_skill (no passwords, no graded tests). Recorded mouse demos are separate: list_skills / replay_skill.
+- "Is everything set up" / setup help: setup_checklist.
 - "Morning report" or a daily check calls daily_report. Deadlines: add_deadline. "What did you change": show_change_log. "How much Gemini did I use": gemini_usage.
 - Before acting on anything with more than one step, think it through: what the user really wants, what "done" looks like, and the shortest safe path. Write that as create_task_plan steps, each with a checkable result (a file exists, a page shows X, a field says Y).
 - After each step, check the real result, not your intention: take_screenshot or verify_screen with a specific expectation (exact title, file name, or text), or read the file back. A vague expectation ("page loaded") proves nothing.
 - Never claim something is done, saved, sent, complete or "none left" without evidence you saw in this run. If you could not check, say so plainly.
 - On a failed step: look at the screen, find out why, try a different approach (another control, keyboard shortcut, direct URL, or a different tool). After 3 different tries, report the exact blocker and what you already finished.
 - When continuing after an interruption, look at the screen and the plan first and resume from the first unfinished step. Do not redo finished steps.
+- To show a local PDF/Word/Excel/picture, use open_local_file (browsers refuse file:// links); do not search the web for a file path.
 - Files: use full paths, save where the user said (Desktop by default), then confirm the file exists and is not empty. Chrome: prefer direct URLs, and scroll to see whole lists. Apps: focus the window first.
 - Finish with a short report: what was done (with evidence), what is left, what needs the user.
 Multi-step tasks (read a task, work in apps, make a document, send it):
@@ -3302,12 +3306,24 @@ def _type_windows_unicode(text: str) -> None:
         raise OSError("Windows did not accept the keyboard input.")
 
 
+def _caps_lock_on() -> bool:
+    if os.name != "nt" or pointer_override is not None or windows_input_override is not None:
+        return False
+    try:
+        return bool(ctypes.windll.user32.GetKeyState(0x14) & 1)
+    except Exception:
+        return False
+
+
 def _type_into_focused_window(text: str) -> None:
     if pointer_override is not None:
         pointer_override("type", {"text": text})
         return
-    if text.isascii():
+    if text.isascii() and not _caps_lock_on():
         _desktop().write(text, interval=0)
+        return
+    if os.name == "nt" and _caps_lock_on():
+        _type_windows_unicode(text)  # Unicode input ignores Caps Lock, so case stays right
         return
     try:
         from pynput.keyboard import Controller
@@ -4963,6 +4979,10 @@ import extras148 as _extras
 TOOL_DECLARATIONS.extend(_extras.DECLARATIONS)
 TOOLS.update(_extras.TOOLS)
 _PLAN_FREE_TOOLS.update(_extras.TOOLS)
+import extras149 as _extras149
+TOOL_DECLARATIONS.extend(_extras149.DECLARATIONS)
+TOOLS.update(_extras149.TOOLS)
+_PLAN_FREE_TOOLS.update(_extras149.TOOLS)
 TOOLS['save_task_progress'] = _task_memory.save_task_progress
 TOOLS['get_task_progress'] = _task_memory.get_task_progress
 _PLAN_FREE_TOOLS.update({'wingz_scan', 'read_page_text', 'save_task_progress', 'get_task_progress'})
