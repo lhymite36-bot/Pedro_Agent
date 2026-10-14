@@ -1,17 +1,17 @@
 @echo off
 rem Pedro Agent portable setup / repair. Plain batch file you can read: it finds
-rem Python 3.10-3.12, creates .venv, installs requirements.txt, and makes a launcher.
+rem Python 3.10-3.14, creates .venv, installs requirements.txt, and makes a launcher.
 rem It downloads nothing except Python packages from pypi.org via pip.
 setlocal
 cd /d "%~dp0"
 title Pedro Agent setup
 echo Pedro Agent setup in %CD%
 set "PY="
-for %%V in (3.12 3.11 3.10) do (
+for %%V in (3.12 3.13 3.14 3.11 3.10) do (
   if not defined PY ( py -%%V -c "import sys" >nul 2>&1 && set "PY=py -%%V" )
 )
 if not defined PY (
-  python -c "import sys; assert (3,10) <= sys.version_info[:2] <= (3,12)" >nul 2>&1 && set "PY=python"
+  python -c "import sys; assert (3,10) <= sys.version_info[:2] <= (3,14)" >nul 2>&1 && set "PY=python"
 )
 if not defined PY (
   echo.

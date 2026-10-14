@@ -11,7 +11,7 @@ function Find-Python {
         try {
             $v = & $exe $arg -c "import sys;print('%d.%d'%sys.version_info[:2]);print(sys.executable)" 2>$null
             # 3.10-3.12 only: some packages have no wheels for newer Pythons yet
-            if ($LASTEXITCODE -eq 0 -and $v -and [version]$v[0] -ge [version]'3.10' -and [version]$v[0] -le [version]'3.12') { return $v[1] }
+            if ($LASTEXITCODE -eq 0 -and $v -and [version]$v[0] -ge [version]'3.10' -and [version]$v[0] -le [version]'3.14') { return $v[1] }
         } catch {}
     }
     $local = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\python.exe'
