@@ -24,13 +24,15 @@ if (-not $py) {
     Write-Host "Python not found. Installing Python 3.12 for this user (free, from python.org)..." -ForegroundColor Yellow
     $ok = $false
     if (Get-Command winget -ErrorAction SilentlyContinue) {
-        winget install -e --id Python.Python.3.12 --scope user --silent --accept-package-agreements --accept-source-agreements
+        # winget is Microsoft's own installer; shown, not silent
+        winget install -e --id Python.Python.3.12 --scope user --accept-package-agreements --accept-source-agreements
         $ok = $LASTEXITCODE -eq 0
     }
     if (-not $ok) {
-        $inst = Join-Path $env:TEMP 'python-3.12.7-amd64.exe'
-        Invoke-WebRequest 'https://www.python.org/ftp/python/3.12.7/python-3.12.7-amd64.exe' -OutFile $inst -UseBasicParsing
-        Start-Process $inst -ArgumentList '/quiet', 'InstallAllUsers=0', 'PrependPath=1', 'Include_launcher=1', 'Include_test=0' -Wait
+        # never download and run an .exe silently: open python.org and let the user install it
+        Write-Host "Please install Python 3.12 from the page that just opened (tick 'Add python.exe to PATH'), then run 'Repair Pedro Agent'." -ForegroundColor Yellow
+        Start-Process 'https://www.python.org/downloads/release/python-3127/'
+        Read-Host 'Press Enter after Python is installed'
     }
     $py = Find-Python
     if (-not $py) { throw "Python install failed. Install Python 3.12 from python.org, then run 'Repair Pedro Agent' from the Start menu." }
@@ -43,7 +45,7 @@ $vpy = Join-Path $AppDir '.venv\Scripts\python.exe'
 Write-Host "Installing packages (a few minutes the first time)..."
 & $vpy -m pip install -r requirements.txt --disable-pip-version-check
 if ($LASTEXITCODE) { throw 'pip install failed. Check your internet connection and run Repair.' }
-try { & $vpy -m playwright install chromium } catch { Write-Host "Browser automation download skipped (you can run it later)." }
+Write-Host "Optional: browser automation needs Chromium. Run '.venv\Scripts\python -m playwright install chromium' later if you use it."
 
 if (-not (Test-Path '.env')) { Copy-Item '.env.example' '.env' }
 foreach ($d in 'storage', 'logs', 'data', 'temp') { New-Item -ItemType Directory -Force $d | Out-Null }

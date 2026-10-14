@@ -1,9 +1,18 @@
 ; Pedro_Agent Windows installer (per-user, no admin needed). Build: makensis installer/PedroAgent.nsi
 Unicode true
 !define APP "Pedro Agent"
-!define VER "1.4.1"
+!define VER "1.4.2"
 !include "MUI2.nsh"
 Name "${APP}"
+BrandingText "${APP} ${VER} - open source, github.com/lhymite36-bot/Pedro_Agent"
+VIProductVersion "${VER}.0"
+VIAddVersionKey "ProductName" "${APP}"
+VIAddVersionKey "ProductVersion" "${VER}"
+VIAddVersionKey "FileVersion" "${VER}"
+VIAddVersionKey "FileDescription" "${APP} installer (per-user, open source)"
+VIAddVersionKey "CompanyName" "Pedro Agent open-source project"
+VIAddVersionKey "LegalCopyright" "Pedro Agent project - github.com/lhymite36-bot/Pedro_Agent"
+VIAddVersionKey "OriginalFilename" "PedroAgent-Setup-${VER}.exe"
 OutFile "..\dist\PedroAgent-Setup-${VER}.exe"
 InstallDir "$LOCALAPPDATA\PedroAgent"
 RequestExecutionLevel user
@@ -32,14 +41,16 @@ Section "Install"
   ; keep the user's own settings on upgrade
   IfFileExists "$INSTDIR\rules.yaml" +2 0
   CopyFiles /SILENT "$INSTDIR\rules.default.yaml" "$INSTDIR\rules.yaml"
-  DetailPrint "Setting up Python and packages (this can take a few minutes)..."
-  nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\installer\setup.ps1" -AppDir "$INSTDIR"'
+  DetailPrint "Setting up Python and packages in a visible window (this can take a few minutes)..."
+  ; visible console, no hidden window; RemoteSigned (process only) instead of Bypass
+  ExecWait 'powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File "$INSTDIR\installer\setup.ps1" -AppDir "$INSTDIR"' $0
+  Push $0
   Pop $0
   StrCmp $0 "0" +2 0
   MessageBox MB_ICONEXCLAMATION "Setup hit a problem (code $0). Check your internet, then use Start menu > Pedro Agent > Repair."
   CreateDirectory "$SMPROGRAMS\${APP}"
   CreateShortCut "$SMPROGRAMS\${APP}\${APP}.lnk" "$INSTDIR\.venv\Scripts\pythonw.exe" '"$INSTDIR\main.py" --app' "$INSTDIR\installer\pedro.ico" 0 SW_SHOWNORMAL "" "Your PC assistant"
-  CreateShortCut "$SMPROGRAMS\${APP}\Repair ${APP}.lnk" "powershell.exe" '-NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\installer\setup.ps1" -AppDir "$INSTDIR"'
+  CreateShortCut "$SMPROGRAMS\${APP}\Repair ${APP}.lnk" "$INSTDIR\setup.bat"
   CreateShortCut "$SMPROGRAMS\${APP}\Uninstall ${APP}.lnk" "$INSTDIR\Uninstall.exe"
   CreateShortCut "$DESKTOP\${APP}.lnk" "$INSTDIR\.venv\Scripts\pythonw.exe" '"$INSTDIR\main.py" --app' "$INSTDIR\installer\pedro.ico" 0
   WriteUninstaller "$INSTDIR\Uninstall.exe"

@@ -5,7 +5,7 @@
 Your own AI assistant for Windows. Chat or talk to it, let it work on your PC, make custom bots and put them in group chats, and reach it from your phone. You only need a free Gemini API key.
 
 <p align="center">
-  <a href="https://github.com/lhymite36-bot/Pedro_Agent/releases/download/v1.4.1-windows/PedroAgent-Setup-1.4.1.exe"><img alt="Download for Windows" src="https://img.shields.io/badge/Download%20for%20Windows-PedroAgent--Setup--1.4.1.exe-5b6cff?style=for-the-badge&logo=windows"></a>
+  <a href="https://github.com/lhymite36-bot/Pedro_Agent/releases/download/v1.4.2-windows/PedroAgent-Setup-1.4.2.exe"><img alt="Download for Windows" src="https://img.shields.io/badge/Download%20for%20Windows-PedroAgent--Setup--1.4.2.exe-5b6cff?style=for-the-badge&logo=windows"></a>
   &nbsp;
   <a href="https://github.com/lhymite36-bot/Pedro_Agent/releases/download/android-v1.3.0/PedroAgent-1.3.0.apk"><img alt="Android app" src="https://img.shields.io/badge/Android%20app-APK%201.3.0-3ad29f?style=for-the-badge&logo=android"></a>
 </p>
@@ -14,7 +14,7 @@ Your own AI assistant for Windows. Chat or talk to it, let it work on your PC, m
 
 ## Set up in 3 steps
 
-1. **Download and run** `PedroAgent-Setup-1.4.1.exe` (button above). No admin rights needed. If Windows SmartScreen warns you, click *More info → Run anyway* (the installer is not code-signed).
+1. **Download and run** `PedroAgent-Setup-1.4.2.exe` (button above). No admin rights needed. If Windows SmartScreen warns you, click *More info → Run anyway* (the installer is not code-signed).
 2. **Wait for setup.** It installs Python 3.12 if you don't have it, then the packages (a few minutes, needs internet). It adds *Pedro Agent* to your Desktop and Start menu.
 3. **Open Pedro Agent and paste your free Gemini API key** (get one at https://aistudio.google.com/apikey). Telegram is optional. Keys are saved only in the `.env` file on your PC.
 
@@ -68,3 +68,15 @@ powershell -ExecutionPolicy Bypass -File installer\setup.ps1
 ```
 
 Build the installer with NSIS: `makensis installer/PedroAgent.nsi` (output in `dist/`). Full feature notes: [docs/DETAILS.md](docs/DETAILS.md).
+
+## If Windows or your antivirus warns
+
+Pedro Agent is free and open source, and the installer is **not code-signed** yet (signing certificates cost money). New unsigned installers have no "reputation", so Windows and some antivirus programs warn about them, especially because a PC assistant legitimately does things that look powerful (it runs PowerShell to set up Python, can control the mouse/keyboard when you ask, and can download Cloudflare's tunnel when you turn on phone access).
+
+- **SmartScreen "Windows protected your PC"**: click *More info* → *Run anyway*.
+- **Chrome/Edge "unverified/dangerous download"**: open Downloads, choose *Keep* / *Keep anyway*.
+- **Antivirus "virus found"**: this is a false positive on an unsigned installer. You can check the file yourself: compare its SHA-256 with the one on the release page, or upload it to [VirusTotal](https://www.virustotal.com).
+- **Prefer no .exe at all?** Download the **portable ZIP** (`PedroAgent-1.4.2-portable.zip`) from the release page instead. It's just the source code plus `setup.bat`, a short batch file you can read in Notepad. Unzip it, double-click `setup.bat` (it shows everything it does), then open `Start Pedro Agent.cmd`. It needs Python 3.10–3.12 from python.org.
+
+What the installer does: copies the app to `%LOCALAPPDATA%\PedroAgent` (no admin rights), runs `installer\setup.ps1` in a **visible** window to find/install Python (via Microsoft's `winget`, or it opens python.org for you, it never downloads and runs an .exe silently), installs the Python packages with pip, and creates Start menu/Desktop shortcuts. Nothing runs at Windows startup, and remote/phone access, autopilot and live voice are off until you turn them on.
+
