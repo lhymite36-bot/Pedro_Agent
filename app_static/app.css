@@ -350,3 +350,15 @@ header{background:#1f1f1f;border-bottom:1px solid #2a2a2a;backdrop-filter:none}
 .react-pop button:hover{background:#333}
 .react-grid{flex-basis:100%;display:flex;flex-wrap:wrap;gap:2px;border-top:1px solid #333;margin-top:4px;padding-top:4px}
 .react-own{flex-basis:100%;background:#1a1a1a;border:1px solid #333;color:#ddd;border-radius:8px;padding:6px;margin-top:4px}
+
+/* 1.4.9 attachments */
+#att-tray { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 4px; }
+.att { display: inline-flex; align-items: center; gap: 6px; max-width: 220px; padding: 4px 8px; border-radius: 10px; background: rgba(127,127,127,.15); font-size: 12px; }
+.att img { width: 40px; height: 40px; object-fit: cover; border-radius: 6px; }
+.att .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.att .x { cursor: pointer; border: 0; background: none; color: inherit; font-size: 14px; padding: 0 2px; }
+.att.busy { opacity: .6; } .att.bad { outline: 1px solid #e55; }
+.bubble .atts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.bubble .atts img { max-width: 220px; max-height: 220px; border-radius: 10px; display: block; cursor: zoom-in; }
+.bubble .atts a.att { color: inherit; text-decoration: none; }
+body.dropping #composer .box { outline: 2px dashed #5b6cff; }

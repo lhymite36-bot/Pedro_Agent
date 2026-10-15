@@ -90,9 +90,22 @@ function stripStage(t) { return String(t || '').replace(/\s*\[\[react:[^\]\s]{1,
 // ---------- rendering ----------
 function scrollDown() { const l = $('#log'); l.scrollTop = l.scrollHeight; }
 function showEmpty() { $('#empty').classList.toggle('hidden', $('#log').children.length > 0); }
-function addUser(text) {
+function fileChip(f) {
+  const a = document.createElement('a'); a.className = 'att'; a.href = f.url; a.target = '_blank'; a.rel = 'noopener';
+  if (f.kind !== 'image') a.download = f.name;
+  const n = document.createElement('span'); n.className = 'n'; n.textContent = '\u{1F4CE} ' + f.name; a.appendChild(n); return a;
+}
+function addUser(text, files) {
   const row = document.createElement('div'); row.className = 'row user';
-  const b = document.createElement('div'); b.className = 'bubble'; b.textContent = text;
+  const b = document.createElement('div'); b.className = 'bubble'; b.textContent = text === '(sent attachments)' && files && files.length ? '' : text;
+  if (files && files.length) {
+    const box = document.createElement('div'); box.className = 'atts';
+    files.forEach((f) => {
+      if (f.kind === 'image') { const im = document.createElement('img'); im.src = f.url; im.alt = f.name; im.title = f.name; im.loading = 'lazy'; im.onclick = () => window.open(f.url, '_blank'); box.appendChild(im); }
+      else box.appendChild(fileChip(f));
+    });
+    b.appendChild(box);
+  }
   row.appendChild(b); $('#log').appendChild(row); showEmpty(); scrollDown();
   if (window.Reactions) Reactions.attach(row);
   return row;
@@ -213,7 +226,7 @@ if ($('#clear-chats')) $('#clear-chats').onclick = clearAllChats;
 async function openSession(s) {
   session = s; localStorage.session = s; $('#log').innerHTML = '';
   const rows = await api('/api/history?session=' + encodeURIComponent(s));
-  rows.forEach((m) => { if (m.role === 'user') { const u = addUser(m.text); if (window.Reactions) Reactions.attach(u, m.id, m.reactions); } else { const t = /^\[\[@([a-z0-9-]+)\]\]\s?/.exec(m.text || ''); const b = addBot(); if (window.Reactions) Reactions.attach(b.row, m.id, m.reactions); if (t && window.markSpeaker) window.markSpeaker(b, t[1]); renderMd(b.body, t ? m.text.slice(t[0].length) : m.text); groupChips(b, m.chips); } });
+  rows.forEach((m) => { if (m.role === 'user') { const u = addUser(m.text, m.files); if (window.Reactions) Reactions.attach(u, m.id, m.reactions); } else { const t = /^\[\[@([a-z0-9-]+)\]\]\s?/.exec(m.text || ''); const b = addBot(); if (window.Reactions) Reactions.attach(b.row, m.id, m.reactions); if (t && window.markSpeaker) window.markSpeaker(b, t[1]); renderMd(b.body, t ? m.text.slice(t[0].length) : m.text); groupChips(b, m.chips); } });
   showEmpty(); loadSessions(); if (window.applyBotHeader) window.applyBotHeader();
 }
 $('#new').onclick = () => { session = ''; localStorage.session = ''; $('#log').innerHTML = ''; showEmpty(); loadSessions(); if (window.applyBotHeader) window.applyBotHeader(); $('#t').focus(); };
@@ -259,14 +272,15 @@ function setRunning(on) {
 function groupChips(b, chips) {
   (chips || []).forEach((c) => { const el = chip(b.chips, c.text); el.classList.add(c.kind === 'blocked' ? 'bad' : 'ok', 'gchip'); });
 }
-async function send(text, isVoice) {
+async function send(text, isVoice, files) {
   isVoice = !!isVoice || nextIsVoice; nextIsVoice = false; const talk = willSpeak(isVoice); let clip = null;
-  const userRow = addUser(text); hands.turnStarted(); setRunning(true); setMood('thinking');
+  files = files || []; if (!text && files.length) text = '(sent attachments)';
+  const userRow = addUser(text, files); hands.turnStarted(); setRunning(true); setMood('thinking');
   let bot = addBot(); rowFace = bot.row.querySelector('.face')._av; rowFace.setState('thinking');
   let act = activity(bot.body.parentNode); const labels = {};
   const chipsByName = {}; let barge = ''; let finalText = ''; let speaking = false;
   try {
-    const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, session, voice: isVoice }) });
+    const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, session, voice: isVoice, files: files.map((f) => f.id) }) });
     const rd = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
     while (true) {
       const { value, done } = await rd.read(); if (done) break;
@@ -318,8 +332,51 @@ async function send(text, isVoice) {
 }
 $('#composer').onsubmit = (e) => {
   e.preventDefault(); if (running) { stop(); return; }
-  const text = $('#t').value.trim(); if (!text) return; $('#t').value = ''; autosize(); send(text);
+  const text = $('#t').value.trim(); const ready = Attach.ready();
+  if (Attach.busy()) { setStatus('Wait for the files to finish uploading.', true); return; }
+  if (!text && !ready.length) return; $('#t').value = ''; autosize(); Attach.clear(); send(text, false, ready);
 };
+// 1.4.9: attach pictures/files: button (PC + phone app file chooser), paste, drag and drop.
+const Attach = (() => {
+  const items = []; const tray = $('#att-tray');
+  function draw() {
+    tray.innerHTML = ''; tray.hidden = !items.length;
+    items.forEach((it, i) => {
+      const c = document.createElement('span'); c.className = 'att' + (it.state === 'busy' ? ' busy' : '') + (it.state === 'bad' ? ' bad' : '');
+      if (it.preview) { const im = document.createElement('img'); im.src = it.preview; c.appendChild(im); }
+      const n = document.createElement('span'); n.className = 'n'; n.textContent = it.state === 'bad' ? it.error : (it.state === 'busy' ? 'Uploading ' : '') + it.name; c.appendChild(n);
+      const x = document.createElement('button'); x.type = 'button'; x.className = 'x'; x.textContent = '\u00d7'; x.title = 'Remove';
+      x.onclick = () => { if (it.preview) URL.revokeObjectURL(it.preview); items.splice(i, 1); draw(); }; c.appendChild(x);
+      tray.appendChild(c);
+    });
+  }
+  async function add(fileList) {
+    for (const f of Array.from(fileList || [])) {
+      if (items.length >= 10) { setStatus('Up to 10 files per message.', true); break; }
+      const name = f.name || ('pasted-' + Date.now() + '.' + ((f.type || 'image/png').split('/')[1] || 'png'));
+      const it = { name, state: 'busy', preview: /^image\//.test(f.type) ? URL.createObjectURL(f) : '' }; items.push(it); draw();
+      if (f.size > 15 * 1024 * 1024) { it.state = 'bad'; it.error = name + ' is over 15 MB'; draw(); continue; }
+      try {
+        const r = await (await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', 'X-File-Name': encodeURIComponent(name) }, body: f })).json();
+        if (r.ok) Object.assign(it, { state: 'ok', id: r.id, kind: r.kind, url: r.url, name: r.name }); else Object.assign(it, { state: 'bad', error: r.error || 'Upload failed' });
+      } catch (e) { Object.assign(it, { state: 'bad', error: 'Upload failed: ' + (e.message || e) }); }
+      draw();
+    }
+  }
+  return {
+    add, busy: () => items.some((i) => i.state === 'busy'),
+    ready: () => items.filter((i) => i.state === 'ok').map((i) => ({ id: i.id, name: i.name, kind: i.kind, url: i.url })),
+    clear: () => { items.forEach((i) => i.preview && URL.revokeObjectURL(i.preview)); items.length = 0; draw(); },
+  };
+})();
+$('#attach').onclick = () => $('#att-file').click();
+$('#att-file').onchange = (e) => { Attach.add(e.target.files); e.target.value = ''; };
+$('#t').addEventListener('paste', (e) => { const fs = e.clipboardData && e.clipboardData.files; if (fs && fs.length) { e.preventDefault(); Attach.add(fs); } });
+let dragDepth = 0;
+document.addEventListener('dragenter', (e) => { if (e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files')) { dragDepth++; document.body.classList.add('dropping'); } });
+document.addEventListener('dragleave', () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) document.body.classList.remove('dropping'); });
+document.addEventListener('dragover', (e) => { if (e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files')) e.preventDefault(); });
+document.addEventListener('drop', (e) => { if (!e.dataTransfer || !e.dataTransfer.files.length) return; e.preventDefault(); dragDepth = 0; document.body.classList.remove('dropping'); Attach.add(e.dataTransfer.files); });
 function autosize() { const t = $('#t'); t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 200) + 'px'; }
 $('#t').addEventListener('input', autosize);
 $('#t').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#composer').requestSubmit(); } });

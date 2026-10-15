@@ -326,7 +326,7 @@ def _finish_speech(state: AppState, pipeline: Any, reply: str, spoke_any: bool, 
 
 
 def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool | None = None,
-                from_voice: bool = False, client_audio: bool = False) -> str:
+                from_voice: bool = False, client_audio: bool = False, files: list[str] | None = None) -> str:
     """Run one turn and push events through emit(dict). Returns the reply.
 
     With speech on, each streamed sentence is synthesized and played while
@@ -346,8 +346,14 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
     reply = ""
     spoke = {"any": False}
     try:
-        user_id = chat_store.add(session, "user", text)
+        import attachments
+        files = [f for f in (files or []) if attachments.get(f)][:10]
+        user_id = chat_store.add(session, "user", attachments.message_with_marker(text, files))
         emit({"event": "saved", "role": "user", "id": user_id})
+        turn_parts: list = []
+        if files:   # pictures/PDFs go to the model as parts; other files as their text
+            text, turn_parts = attachments.build_turn(text, files)
+            emit({"event": "step", "label": f"Reading {len(files)} attachment(s)", "name": ""})
 
         def save_reply(sess: str, role: str, said: str) -> int:   # store + tell the window the id and reactions
             mid = chat_store.add(sess, role, said)
@@ -374,6 +380,10 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
         if pipeline is not None:
             _pause_wake()
         with state.busy:
+            try:
+                agent.turn_parts = turn_parts
+            except Exception:
+                pass
             try:
                 try:
                     agent.plan_listener = emit
@@ -448,6 +458,7 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
             import team_agent
             team_agent.LIVE_EMIT = None
             agent.plan_listener = None
+            agent.turn_parts = []
         except Exception:
             pass
         state.pipeline = None
@@ -616,13 +627,44 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             elif url.path == "/api/bots":
                 self._json({"bots": bots.list_bots(), "tools": sorted(_agent().TOOLS)})
             elif url.path == "/api/sessions":
-                self._json(chat_store.sessions())
+                import attachments
+                rows = chat_store.sessions()
+                for r in rows:
+                    t, ids = attachments.split_marker(str(r.get("title") or ""))
+                    if ids:
+                        r["title"] = (t if t and t != "(sent attachments)" else "\U0001F4CE " + ", ".join(
+                            f["name"] for f in attachments.info(ids)) or "Attachment")
+                self._json(rows)
             elif url.path == "/api/history":
                 sid = query.get("session", [""])[0]
                 rows = chat_store.history(sid)
                 if sid.startswith(groups.SESSION_PREFIX):
                     rows = [groups.clean_row(r) for r in rows]
+                import attachments
+                for r in rows:
+                    if r.get("role") == "user" and "[[files:" in str(r.get("text") or ""):
+                        r["text"], ids = attachments.split_marker(str(r["text"]))
+                        r["files"] = attachments.info(ids)
                 self._json(rows)
+            elif url.path == "/api/upload":
+                import attachments
+                item = attachments.get(query.get("id", [""])[0])
+                if item is None:
+                    self._send(404, b"{}")
+                else:
+                    blob = Path(item["path"]).read_bytes()
+                    kind = attachments.mime_for(item["name"])
+                    self.send_response(200)
+                    self.send_header("Content-Type", kind if item["kind"] == "image" else "application/octet-stream")
+                    self.send_header("Content-Length", str(len(blob)))
+                    self.send_header("X-Content-Type-Options", "nosniff")
+                    self.send_header("Content-Security-Policy", "sandbox")
+                    self.send_header("Cache-Control", "private, max-age=86400")
+                    if item["kind"] != "image":
+                        from urllib.parse import quote
+                        self.send_header("Content-Disposition", "attachment; filename*=UTF-8''" + quote(item["name"]))
+                    self.end_headers()
+                    self.wfile.write(blob)
             elif url.path == "/api/rules":
                 path = rules.rules_path() or (rules.APP_DIR / "rules.yaml")
                 text = path.read_text(encoding="utf-8") if path.is_file() else ""
@@ -653,6 +695,21 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 self._send(403, b'{"error":"cross-origin"}')
                 return
             url = urlparse(self.path)
+            if url.path == "/api/upload":   # raw file bytes; name in X-File-Name (URL-encoded)
+                import attachments
+                from urllib.parse import unquote
+                self._body_read = True
+                try:
+                    size = int(self.headers.get("Content-Length") or 0)
+                except ValueError:
+                    size = 0
+                if size <= 0 or size > attachments.MAX_BYTES:
+                    self.close_connection = True
+                    self._json({"ok": False, "error": "Files can be up to 15 MB."}, 413)
+                    return
+                blob = self.rfile.read(size)
+                self._json(attachments.save_upload(unquote(self.headers.get("X-File-Name") or "file"), blob))
+                return
             data = self._body()
             if url.path.startswith("/api/phone/"):
                 import remote_access
@@ -772,6 +829,9 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
 
         def _chat(self, data: dict[str, Any]) -> None:
             text = " ".join(str(data.get("text") or "").split())
+            files = [str(f) for f in (data.get("files") or []) if isinstance(f, str)][:10]
+            if not text and files:
+                text = "(sent attachments)"
             session = str(data.get("session") or uuid.uuid4().hex[:12])
             from_voice = bool(data.get("voice"))
             # Remote (phone) always plays on the client; the PC window may ask for it too.
@@ -786,7 +846,7 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             events: queue.Queue = queue.Queue()
             worker = threading.Thread(
                 target=lambda: (stream_turn(state, session, text, events.put, from_voice=from_voice,
-                                           client_audio=client_audio), events.put(None)),
+                                           client_audio=client_audio, files=files), events.put(None)),
                 daemon=True,
             )
             worker.start()

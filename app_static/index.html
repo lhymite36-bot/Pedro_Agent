@@ -60,7 +60,10 @@
     <div id="live-feed"></div>
   </section>
   <form id="composer">
+    <div id="att-tray" hidden></div>
     <div class="box">
+      <button type="button" class="ib" id="attach" title="Attach pictures or files (or paste / drop them)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5l-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9"/></svg></button>
+      <input type="file" id="att-file" multiple hidden accept="image/*,.pdf,.docx,.xlsx,.xlsm,.csv,.txt,.md,.json,.log,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain,text/csv">
       <textarea id="t" rows="1" placeholder="Message Pedro_Agent…"></textarea>
       <div id="wave"></div>
       <button type="button" class="ib" id="hands" title="Hands-free: keep listening after each reply"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h2l3-7 4 14 3-9 2 4h4"/></svg></button>

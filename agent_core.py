@@ -467,6 +467,7 @@ How to work (reasoning and checking):
 - On a failed step: look at the screen, find out why, try a different approach (another control, keyboard shortcut, direct URL, or a different tool). After 3 different tries, report the exact blocker and what you already finished.
 - When continuing after an interruption, look at the screen and the plan first and resume from the first unfinished step. Do not redo finished steps.
 - To show a local PDF/Word/Excel/picture, use open_local_file (browsers refuse file:// links); do not search the web for a file path.
+- Attachments: when a message says "[Attached by the user in this message]", the pictures and PDFs are right there in the message: look at them and answer from what you see. Word/Excel/text content is pasted in. Each file is also saved at the listed path, so file tools can use it. Never claim to see an attachment that is not listed.
 - Files: use full paths, save where the user said (Desktop by default), then confirm the file exists and is not empty. Chrome: prefer direct URLs, and scroll to see whole lists. Apps: focus the window first.
 - Finish with a short report: what was done (with evidence), what is left, what needs the user.
 Multi-step tasks (read a task, work in apps, make a document, send it):
@@ -5829,6 +5830,18 @@ def _busy_error(exc: BaseException) -> bool:
                                    "did not return a response"))
 
 
+# 1.4.9: pictures / PDFs the user attached to this chat message, as (bytes, mime).
+# The chat app sets this for one turn and clears it afterwards.
+turn_parts: list[tuple[bytes, str]] = []
+
+
+def _user_parts(types: Any, user_text: str) -> list[Any]:
+    parts = [types.Part.from_text(text=user_text)]
+    if turn_parts and not str(user_text).startswith("[resume]"):
+        parts += [types.Part.from_bytes(data=data, mime_type=mime) for data, mime in turn_parts]
+    return parts
+
+
 def run_agent(user_text: str, history: list[Any], model: str, **kwargs: Any) -> str:
     """Run a turn; if the model service drops mid-task, wait and resume from the screen.
 
@@ -5908,7 +5921,7 @@ def _run_agent_core(
         client = genai.Client(api_key=api_key)
     config, voice_plain = _model_configs(voice)
     active_config = config
-    history.append(types.Content(role="user", parts=[types.Part.from_text(text=user_text)]))
+    history.append(types.Content(role="user", parts=_user_parts(types, user_text)))
     model_order = model_candidates(model)
     voice_lines: list[str] = []
     stream_text = on_text is not None and not voice

@@ -168,7 +168,7 @@ public class MainActivity extends Activity {
             }
             @Override public boolean onShowFileChooser(WebView v, ValueCallback<Uri[]> cb, FileChooserParams p) {
                 if (fileCb != null) fileCb.onReceiveValue(null); fileCb = cb;
-                try { startActivityForResult(p.createIntent(), 9); } catch (Exception e) { fileCb = null; return false; }
+                try { startActivityForResult(chooserIntent(p), 9); } catch (Exception e) { fileCb = null; return false; }
                 return true;
             }
         });
@@ -337,8 +337,36 @@ public class MainActivity extends Activity {
         if (code == 1 && pendingWebPerm != null) { if (ok) pendingWebPerm.grant(pendingWebPerm.getResources()); else pendingWebPerm.deny(); pendingWebPerm = null; }
         if (code == 2) { if (ok) startListening(); else { toast("Mic permission is needed for voice"); heard(""); } }
     }
+    // 1.3.1: the page asks for pictures AND documents, several at once. WebView's own createIntent()
+    // only uses the first type (so PDFs were greyed out) and never allows multiple picks.
+    Intent chooserIntent(WebChromeClient.FileChooserParams p) {
+        Intent i = new Intent(Intent.ACTION_GET_CONTENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("*/*");
+        ArrayList<String> mimes = new ArrayList<>();
+        for (String a : p.getAcceptTypes()) {
+            for (String t : a.split(",")) {
+                t = t.trim().toLowerCase();
+                if (t.isEmpty()) continue;
+                if (t.startsWith(".")) { String m = MimeTypeMap.getSingleton().getMimeTypeFromExtension(t.substring(1)); if (m != null) t = m; else continue; }
+                if (!mimes.contains(t)) mimes.add(t);
+            }
+        }
+        if (!mimes.isEmpty()) i.putExtra(Intent.EXTRA_MIME_TYPES, mimes.toArray(new String[0]));
+        if (p.getMode() == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE) i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        return Intent.createChooser(i, "Attach to Pedro Agent");
+    }
     @Override protected void onActivityResult(int req, int res, Intent data) {
-        if (req == 9 && fileCb != null) { fileCb.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(res, data)); fileCb = null; }
+        if (req != 9 || fileCb == null) return;
+        Uri[] out = null;
+        if (res == RESULT_OK && data != null) {
+            ClipData clip = data.getClipData();
+            if (clip != null && clip.getItemCount() > 0) {
+                out = new Uri[clip.getItemCount()];
+                for (int k = 0; k < out.length; k++) out[k] = clip.getItemAt(k).getUri();
+            } else if (data.getData() != null) out = new Uri[]{data.getData()};
+        }
+        fileCb.onReceiveValue(out); fileCb = null;
     }
     @Override protected void onResume() { super.onResume(); resumed = true; web.onResume(); }
     @Override protected void onPause() { super.onPause(); resumed = false; web.onPause(); CookieManager.getInstance().flush(); }
