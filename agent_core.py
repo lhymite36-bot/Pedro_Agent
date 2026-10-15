@@ -467,6 +467,9 @@ How to work (reasoning and checking):
 - On a failed step: look at the screen, find out why, try a different approach (another control, keyboard shortcut, direct URL, or a different tool). After 3 different tries, report the exact blocker and what you already finished.
 - When continuing after an interruption, look at the screen and the plan first and resume from the first unfinished step. Do not redo finished steps.
 - To show a local PDF/Word/Excel/picture, use open_local_file (browsers refuse file:// links); do not search the web for a file path.
+- Decisions: when you need Pedro to choose (which product, size, time, option), call ask_user with 2-6 short options (multi_select / allow_other when it fits), then STOP and end your turn. His tapped answer arrives as his next message, starting with (Answer to "..."); continue the task from there. Approvals for send/delete/order/pay show Approve/Deny cards by themselves; just say what is waiting.
+- Routines: when Pedro asks for something on a schedule ("every day at 8 AM ...", "tomorrow 6 PM remind me ...", "in 10 minutes ..."), call create_routine (IST times; bot = the bot/group he names, else empty) and confirm the name, schedule and next run. Use update/pause/resume/list_routines to manage them; delete_routine needs his Approve. During a routine run (message starts with [Routine: ...]) all safety rules still apply: no sending, deleting, ordering or paying without his approval.
+- Orders ("order X on Amazon/Flipkart/Swiggy/Zomato/Blinkit/..."): call start_order, then in Edge search and compare 2-3 matches with read_page_text (price, seller/restaurant, delivery fee, rating, delivery time), pick the closest to what Pedro asked (ask him if it's unclear), add to cart with the right quantity, go to checkout and keep the saved address and saved payment method the site already shows. At the final review page call order_summary with exactly what the page shows, then STOP and end your turn: Pedro taps Approve or Deny. Never click Place Order / Pay / Buy Now yourself; only place_order may, and only after his Approve. Never type passwords, card numbers, CVV, UPI PIN or OTPs, never add a new card or address; if the site asks, stop and tell Pedro to finish that step himself. If not signed in, ask Pedro to sign in himself (Google/Microsoft sign-in only).
 - Attachments: when a message says "[Attached by the user in this message]", the pictures and PDFs are right there in the message: look at them and answer from what you see. Word/Excel/text content is pasted in. Each file is also saved at the listed path, so file tools can use it. Never claim to see an attachment that is not listed.
 - Files: use full paths, save where the user said (Desktop by default), then confirm the file exists and is not empty. Chrome: prefer direct URLs, and scroll to see whole lists. Apps: focus the window first.
 - Finish with a short report: what was done (with evidence), what is left, what needs the user.
@@ -3349,6 +3352,10 @@ def type_text(text: str) -> dict[str, Any]:
             return _err(f"type_text is limited to {type_cap} characters (limits.type_text_max_chars).")
         if rules.limit("refuse_secret_text") and _memory_is_secret(text):
             return _err("Refusing to type a password, API key, or token.")
+        import order_flow
+        blocked = order_flow.blocked_typing(text)
+        if blocked:
+            return _err(blocked, hand_over=True)
         if any(ord(char) < 32 or ord(char) == 127 for char in text):
             return _err("type_text accepts visible characters only.")
         _type_into_focused_window(text)
@@ -4984,6 +4991,18 @@ import extras149 as _extras149
 TOOL_DECLARATIONS.extend(_extras149.DECLARATIONS)
 TOOLS.update(_extras149.TOOLS)
 _PLAN_FREE_TOOLS.update(_extras149.TOOLS)
+import polls as _polls
+TOOL_DECLARATIONS.extend(_polls.DECLARATIONS)
+TOOLS.update(_polls.TOOLS)
+_PLAN_FREE_TOOLS.update(_polls.TOOLS)
+import routines as _routines
+TOOL_DECLARATIONS.extend(_routines.DECLARATIONS)
+TOOLS.update(_routines.TOOLS)
+_PLAN_FREE_TOOLS.update(_routines.TOOLS)
+import order_flow as _order_flow
+TOOL_DECLARATIONS.extend(_order_flow.DECLARATIONS)
+TOOLS.update(_order_flow.TOOLS)
+_PLAN_FREE_TOOLS.update(_order_flow.TOOLS)
 TOOLS['save_task_progress'] = _task_memory.save_task_progress
 TOOLS['get_task_progress'] = _task_memory.get_task_progress
 _PLAN_FREE_TOOLS.update({'wingz_scan', 'read_page_text', 'save_task_progress', 'get_task_progress'})

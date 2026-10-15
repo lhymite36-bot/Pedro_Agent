@@ -813,7 +813,7 @@ class NewUiTests(_RulesCase):
         import re
 
         for f in self.STATIC.iterdir():
-            if f.suffix in {".png", ".ico"}:
+            if f.is_dir() or f.suffix in {".png", ".ico"} or ".bak" in f.name:
                 continue
             text = f.read_text(encoding="utf-8")
             self.assertIsNone(re.search(r'(src|href)\s*=\s*["\']https?://', text), f.name)

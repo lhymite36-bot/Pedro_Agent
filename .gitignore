@@ -70,3 +70,4 @@ dist/
 bak-*/
 
 !docs/*.png
+!app_static/avatars/*.png

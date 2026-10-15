@@ -105,4 +105,6 @@ class ApprovalBarTests(unittest.TestCase):
         self.assertIn("send(word)", js)  # it answers in chat; the normal confirm flow does the rest
 
     def test_evening_job_started_by_app(self):
-        self.assertIn("extras148.start_evening_job()", (ROOT / "chat_app.py").read_text(encoding="utf-8"))
+        src = (ROOT / "chat_app.py").read_text(encoding="utf-8")
+        self.assertIn("start_routines(state)", src)   # 1.4.10: the 7 PM job is the built-in routine
+        self.assertIn("routines.start()", src)

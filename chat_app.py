@@ -35,6 +35,14 @@ STATIC = Path(__file__).resolve().parent / "app_static"
 STATIC_FILES = {
     "app.css": "text/css; charset=utf-8",
     "app.js": "application/javascript; charset=utf-8",
+    "routines_ui.js": "application/javascript; charset=utf-8",
+    "avatars/round.png": "image/png",
+    "avatars/robot.png": "image/png",
+    "avatars/cat.png": "image/png",
+    "avatars/ghost.png": "image/png",
+    "avatars/square.png": "image/png",
+    "avatars/bunny.png": "image/png",
+    "avatars/spark.png": "image/png",
     "reactions.js": "application/javascript; charset=utf-8",
     "markdown.js": "application/javascript; charset=utf-8",
     "avatar.js": "application/javascript; charset=utf-8",
@@ -346,6 +354,10 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
     reply = ""
     spoke = {"any": False}
     try:
+        import polls
+        import confirm_action as _ca
+        polls.begin_turn()
+        waiting_before = (_ca.pending() or {}).get("label")
         import attachments
         files = [f for f in (files or []) if attachments.get(f)][:10]
         user_id = chat_store.add(session, "user", attachments.message_with_marker(text, files))
@@ -392,7 +404,13 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
                 bot = bots.bot_for_session(session)
                 group = groups.group_for_session(session)
                 import confirm_action
+                waiting = confirm_action.pending()
                 quick = confirm_action.answer_pending(text, agent.invoke_tool)   # one yes runs it once
+                if quick is not None and waiting and waiting.get("name") == "place_order" and quick.startswith("Cancelled"):
+                    import order_flow
+                    order_flow.deny_order(str((waiting.get("arguments") or {}).get("order_id") or ""))
+                    quick = "Order cancelled. Nothing was placed (the cart is left as it is)."
+
                 if quick is not None:
                     reply = quick
                     if group is not None:
@@ -434,6 +452,7 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
         if reply and not session.startswith(groups.SESSION_PREFIX):
             save_reply(session, "assistant", reply)
             reply = chat_store.extract_reactions(reply)[0]
+        _post_cards(session, emit, waiting_before)
         emit({"event": "group_done"} if session.startswith(groups.SESSION_PREFIX) else {"event": "done", "text": reply})
         if pipeline is not None:
             _finish_speech(state, pipeline, reply, spoke["any"], emit)
@@ -464,6 +483,28 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
         state.pipeline = None
         if pipeline is not None:
             _resume_wake()
+
+
+def _post_cards(session: str, emit: Any, waiting_before: str | None) -> None:
+    """1.4.10: question cards from ask_user, and an Approve/Deny card for a new waiting action."""
+    try:
+        import confirm_action
+        import polls
+        cards = polls.take_turn_cards()
+        p = confirm_action.pending()
+        if p is None:
+            polls.expire_open_approvals()
+        elif p.get("label") != waiting_before:
+            order = None
+            if p.get("name") == "place_order":
+                import order_flow
+                order = order_flow.pending_card()
+            cards.append(polls.approval_card(str(p.get("label") or p.get("name")), str(p.get("name")), order))
+        for c in cards:
+            mid = chat_store.add(session, "assistant", f"[[card:{c['id']}]]")
+            emit({"event": "card", "id": mid, "card": polls.view(c["id"], confirm_action.pending())})
+    except Exception as exc:
+        emit({"event": "error", "text": f"Card: {exc}"})
 
 
 def _pause_wake() -> None:
@@ -611,7 +652,11 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             elif url.path == "/api/pending":  # phone/PC Approve-Deny bar for a waiting send/delete
                 import confirm_action
                 p = confirm_action.pending()
-                self._json({"pending": {"label": str((p or {}).get("label") or "")} if p else None})
+                card = None
+                if p and p.get("name") == "place_order":
+                    import order_flow
+                    card = order_flow.pending_card()
+                self._json({"pending": {"label": str((p or {}).get("label") or ""), "order": card} if p else None})
             elif url.path == "/api/checklist":
                 import extras149
                 self._json(extras149.setup_checklist())
@@ -641,11 +686,32 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 if sid.startswith(groups.SESSION_PREFIX):
                     rows = [groups.clean_row(r) for r in rows]
                 import attachments
+                import confirm_action
+                import polls
+                waiting = confirm_action.pending()
                 for r in rows:
+                    m = polls.MARK.match(str(r.get("text") or ""))
+                    if m:
+                        r["card"] = polls.view(m.group(1), waiting)
                     if r.get("role") == "user" and "[[files:" in str(r.get("text") or ""):
                         r["text"], ids = attachments.split_marker(str(r["text"]))
                         r["files"] = attachments.info(ids)
                 self._json(rows)
+            elif url.path == "/api/routines":
+                import routines
+                self._json(routines.list_routines())
+            elif url.path == "/api/routines/feed":
+                import routines
+                try:
+                    since = float(query.get("since", ["0"])[0])
+                except ValueError:
+                    since = 0.0
+                self._json({"feed": routines.feed(since)})
+            elif url.path == "/api/card":
+                import confirm_action
+                import polls
+                card = polls.view(query.get("id", [""])[0], confirm_action.pending())
+                self._json({"card": card} if card else {"error": "not found"}, 200 if card else 404)
             elif url.path == "/api/upload":
                 import attachments
                 item = attachments.get(query.get("id", [""])[0])
@@ -734,6 +800,13 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     self._json(save_setup(data))
             elif url.path == "/api/chat":
                 self._chat(data)
+            elif url.path == "/api/routines/update":   # Routines page buttons
+                self._json(routine_action(data))
+            elif url.path == "/api/card/answer":   # tap on a question / approval card; the page then sends r.text
+                import polls
+                choices = data.get("choices") if isinstance(data.get("choices"), list) else []
+                self._json(polls.answer(str(data.get("id") or ""), [str(c) for c in choices],
+                                        str(data.get("other") or ""), str(data.get("decision") or "")))
             elif url.path == "/api/listen":
                 self._json(listen_once(state, float(data.get("timeout") or 8)))
             elif url.path == "/api/wake":
@@ -928,6 +1001,48 @@ def _wake_phrase() -> str:
         return "hey agent"
 
 
+def routine_action(data: dict) -> dict:
+    import routines
+    r = routines.find(str(data.get("id") or ""))
+    if not r:
+        return {"ok": False, "error": "No such routine."}
+    a = str(data.get("action") or "")
+    if a == "pause":
+        return routines.pause_routine(r["id"])
+    if a == "resume":
+        return routines.resume_routine(r["id"])
+    if a == "edit":
+        return routines.update_routine(r["id"], name=str(data.get("name") or ""), prompt=str(data.get("prompt") or ""),
+                                       when=str(data.get("when") or ""))
+    if a == "delete":   # the page asks "Delete ...?" first and only then sends confirm: true
+        if data.get("confirm") is not True:
+            return {"ok": False, "error": "Confirm first."}
+        return routines._remove(r["id"])
+    if a == "run":
+        threading.Thread(target=routines.run_routine, args=(r, True), daemon=True).start()
+        return {"ok": True, "message": f"Running '{r['name']}' now; the result will appear in its chat."}
+    return {"ok": False, "error": "Unknown action."}
+
+
+def start_routines(state: "AppState") -> None:
+    import routines
+
+    def run(r: dict) -> str:
+        out: list[str] = []
+
+        def emit(ev: dict) -> None:
+            if ev.get("type") in ("done", "final") and ev.get("text"):
+                out.append(str(ev["text"]))
+
+        reply = stream_turn(state, routines.session_for(r), f"[Routine: {r['name']}] {r['prompt']}", emit, speak=False)
+        if isinstance(reply, str) and reply:
+            return reply
+        return out[-1] if out else ""
+
+    routines.runner = run
+    routines.start()
+
+
 def serve(model: str, port: int = 8765) -> tuple[ThreadingHTTPServer, AppState]:
     state = AppState(model)
     server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(state))
@@ -975,7 +1090,7 @@ def run(model: str, port: int = 8765) -> int:
     threading.Thread(target=server.serve_forever, daemon=True).start()
     print(f"Pedro_Agent chat app: {url}  (Ctrl+C to quit)", flush=True)
     bots.Scheduler().start()  # scheduled bot tasks
-    import extras148; extras148.start_evening_job()  # 7 PM Wingz scan + report in the "daily-report" chat
+    start_routines(state)  # Routines scheduler (includes the 7 PM Wingz scan + report in the "daily-report" chat)
     try:
         import live_pc
         import remote_access

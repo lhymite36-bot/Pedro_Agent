@@ -226,7 +226,7 @@ if ($('#clear-chats')) $('#clear-chats').onclick = clearAllChats;
 async function openSession(s) {
   session = s; localStorage.session = s; $('#log').innerHTML = '';
   const rows = await api('/api/history?session=' + encodeURIComponent(s));
-  rows.forEach((m) => { if (m.role === 'user') { const u = addUser(m.text, m.files); if (window.Reactions) Reactions.attach(u, m.id, m.reactions); } else { const t = /^\[\[@([a-z0-9-]+)\]\]\s?/.exec(m.text || ''); const b = addBot(); if (window.Reactions) Reactions.attach(b.row, m.id, m.reactions); if (t && window.markSpeaker) window.markSpeaker(b, t[1]); renderMd(b.body, t ? m.text.slice(t[0].length) : m.text); groupChips(b, m.chips); } });
+  rows.forEach((m) => { if (m.card) { renderCard(m.card); return; } if (/^\[\[card:[0-9a-f]{12}\]\]$/.test(m.text || '')) return; if (m.role === 'user') { const u = addUser(m.text, m.files); if (window.Reactions) Reactions.attach(u, m.id, m.reactions); } else { const t = /^\[\[@([a-z0-9-]+)\]\]\s?/.exec(m.text || ''); const b = addBot(); if (window.Reactions) Reactions.attach(b.row, m.id, m.reactions); if (t && window.markSpeaker) window.markSpeaker(b, t[1]); renderMd(b.body, t ? m.text.slice(t[0].length) : m.text); groupChips(b, m.chips); } });
   showEmpty(); loadSessions(); if (window.applyBotHeader) window.applyBotHeader();
 }
 $('#new').onclick = () => { session = ''; localStorage.session = ''; $('#log').innerHTML = ''; showEmpty(); loadSessions(); if (window.applyBotHeader) window.applyBotHeader(); $('#t').focus(); };
@@ -272,6 +272,56 @@ function setRunning(on) {
 function groupChips(b, chips) {
   (chips || []).forEach((c) => { const el = chip(b.chips, c.text); el.classList.add(c.kind === 'blocked' ? 'bad' : 'ok', 'gchip'); });
 }
+// 1.4.10: question cards (ask_user) and Approve / Deny cards. Saved in the chat, so they survive reloads.
+function renderCard(c) {
+  if (!c) return null;
+  const old = document.querySelector('.pa-card[data-id="' + c.id + '"]'); if (old) old.closest('.row').remove();
+  const row = document.createElement('div'); row.className = 'row bot'; row.appendChild(botFace());
+  const card = document.createElement('div'); card.className = 'bubble pa-card ' + c.status; card.dataset.id = c.id; card.dataset.kind = c.kind;
+  const q = document.createElement('div'); q.className = 'pa-q'; q.textContent = c.kind === 'approval' && !c.order ? 'Waiting for you: ' + c.question : (c.order ? 'Place this order on ' + c.order.platform + '?' : c.question); card.appendChild(q);
+  const done = c.status !== 'open'; const ans = c.answer || {};
+  const note = (t) => { const n = document.createElement('div'); n.className = 'pa-note'; n.textContent = t; card.appendChild(n); };
+  async function submit(body) {
+    card.querySelectorAll('button,input').forEach((b) => (b.disabled = true));
+    let r; try { r = await api('/api/card/answer', Object.assign({ id: c.id }, body)); } catch (e) { r = { ok: false, error: String(e) }; }
+    if (!r.ok) { setStatus(r.error || 'Could not answer', true); if (r.card) renderCard(Object.assign({}, c, r.card)); else card.querySelectorAll('button,input').forEach((b) => (b.disabled = false)); return; }
+    renderCard(r.card); if (running) { setStatus('Answer saved; sending when the current reply ends.'); const wait = setInterval(() => { if (!running) { clearInterval(wait); send(r.text); } }, 500); } else send(r.text);
+  }
+  if (c.kind === 'approval') {
+    const o = c.order;
+    if (o) {
+      [['Item', o.item], ['Seller', o.seller], ['Qty', o.quantity], ['Price', o.item_price], ['Delivery / fees', o.delivery_and_fees],
+       ['Total', o.total + (o.total_on_page === false ? '  (not found on page, check!)' : '')], ['Address', o.address], ['Payment', o.payment_method]]
+        .forEach(([k, v]) => { if (v === undefined || v === null || v === '') return; const d = document.createElement('div'); d.className = 'pa-kv'; d.textContent = k + ': ' + v; card.appendChild(d); });
+      if (o.screenshot_url) { const im = document.createElement('img'); im.className = 'pa-shot'; im.src = o.screenshot_url; im.onclick = () => window.open(o.screenshot_url, '_blank'); card.appendChild(im); }
+    }
+    const btns = document.createElement('div'); btns.className = 'pa-btns';
+    const yes = document.createElement('button'); yes.type = 'button'; yes.className = 'pa-btn primary'; yes.textContent = 'Approve';
+    const no = document.createElement('button'); no.type = 'button'; no.className = 'pa-btn danger'; no.textContent = 'Deny';
+    yes.onclick = () => submit({ decision: 'approve' }); no.onclick = () => submit({ decision: 'deny' });
+    if (done) { yes.disabled = no.disabled = true; if (ans.decision === 'approve') yes.classList.add('chosen'); if (ans.decision === 'deny') no.classList.add('chosen'); }
+    btns.append(yes, no); card.appendChild(btns);
+    if (c.status === 'expired') note('No longer waiting (answered or replaced).');
+  } else {
+    const opts = document.createElement('div'); opts.className = 'pa-opts'; const sel = new Set(ans.choices || []);
+    (c.options || []).forEach((o) => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'pa-opt' + (sel.has(o) ? ' sel' : ''); b.textContent = o; b.disabled = done;
+      b.onclick = () => { if (!c.multi) { submit({ choices: [o] }); return; } b.classList.toggle('sel'); if (sel.has(o)) sel.delete(o); else sel.add(o); };
+      opts.appendChild(b);
+    });
+    card.appendChild(opts);
+    let other = null;
+    if (c.other) { other = document.createElement('input'); other.className = 'pa-other'; other.placeholder = 'Other…'; other.maxLength = 300; other.value = ans.other || ''; other.disabled = done; card.appendChild(other);
+      other.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go.click(); } }); }
+    const go = document.createElement('button'); go.type = 'button'; go.className = 'pa-btn primary'; go.textContent = 'Send';
+    go.onclick = () => submit({ choices: Array.from(sel), other: other ? other.value : '' });
+    if ((c.multi || c.other) && !done) card.appendChild(go);
+    if (c.multi && !done) note('Pick one or more, then Send.');
+    if (c.status === 'expired') note('Expired.');
+  }
+  if (c.status === 'answered') note('Answered');
+  row.appendChild(card); $('#log').appendChild(row); showEmpty(); scrollDown(); return row;
+}
 async function send(text, isVoice, files) {
   isVoice = !!isVoice || nextIsVoice; nextIsVoice = false; const talk = willSpeak(isVoice); let clip = null;
   files = files || []; if (!text && files.length) text = '(sent attachments)';
@@ -308,6 +358,7 @@ async function send(text, isVoice, files) {
           if (!ev.ok) { const c = chip(bot.chips, labels[ev.name] || ev.name); c.classList.add('bad'); c.querySelector('.d').textContent = ev.detail || ''; }
           if (ev.image) addImage(bot.chips.parentNode.querySelector('.md').parentNode, ev.image);
         }
+        else if (ev.event === 'card') { renderCard(ev.card); }
         else if (ev.event === 'model_switch') { chip(bot.chips, 'switched to ' + ev.model).classList.add('ok'); }
         else if (ev.event === 'error') { addError(bot.body.parentNode, ev.text); setStatus(ev.text, true); }
         else if (ev.event === 'barge') { barge = ev.text; }
@@ -472,7 +523,7 @@ $('#backup-save') && ($('#backup-save').onclick = async () => { const v = $('#ba
   const bar = document.createElement('div');
   bar.id = 'approve-bar';
   bar.style.cssText = 'display:none;position:fixed;left:50%;bottom:96px;transform:translateX(-50%);z-index:50;background:#2a2a2a;color:#eee;border:1px solid #444;border-radius:12px;padding:10px 14px;gap:10px;align-items:center;font-size:14px;max-width:92vw';
-  bar.innerHTML = '<span id="approve-text"></span><button id="approve-yes" type="button">Approve</button><button id="approve-no" type="button">Deny</button>';
+  bar.innerHTML = '<span id="approve-text"></span><button id="approve-yes" type="button" class="pa-btn primary">Approve</button><button id="approve-no" type="button" class="pa-btn danger">Deny</button>';
   document.body.appendChild(bar);
   const answer = (word) => { bar.style.display = 'none'; try { send(word); } catch (e) {} };
   bar.querySelector('#approve-yes').onclick = () => answer('yes');
@@ -480,7 +531,22 @@ $('#backup-save') && ($('#backup-save').onclick = async () => { const v = $('#ba
   setInterval(async () => {
     try {
       const r = await (await fetch('/api/pending', { cache: 'no-store' })).json();
-      if (r.pending) { bar.querySelector('#approve-text').textContent = 'Waiting for you: ' + (r.pending.label || 'an action'); bar.style.display = 'flex'; }
+      if (r.pending && document.querySelector('.pa-card.open[data-kind="approval"]')) { bar.style.display = 'none'; return; }   // the card in the chat is enough
+      if (r.pending) {
+        const o = r.pending.order; const t = bar.querySelector('#approve-text');
+        if (o) {   // 1.4.10: order summary card; Approve is the only way an order is placed
+          const key = JSON.stringify(o); if (t.dataset.k !== key) {
+            t.dataset.k = key; t.innerHTML = '';
+            const h = document.createElement('b'); h.textContent = 'Place this order on ' + o.platform + '?'; t.appendChild(h);
+            const rows = [['Item', o.item], ['Seller', o.seller], ['Qty', o.quantity], ['Price', o.item_price], ['Delivery / fees', o.delivery_and_fees],
+                          ['Total', o.total + (o.total_on_page ? '' : '  (not found on page, check!)')], ['Address', o.address], ['Payment', o.payment_method]];
+            rows.forEach(([k, v]) => { if (v === undefined || v === null || v === '') return; const d = document.createElement('div'); d.textContent = k + ': ' + v; t.appendChild(d); });
+            if (o.screenshot_url) { const im = document.createElement('img'); im.src = o.screenshot_url; im.style.cssText = 'max-width:100%;max-height:180px;border-radius:8px;margin-top:6px;cursor:zoom-in'; im.onclick = () => window.open(o.screenshot_url, '_blank'); t.appendChild(im); }
+          }
+          bar.style.flexDirection = 'column'; bar.style.alignItems = 'stretch';
+        } else { t.dataset.k = ''; t.textContent = 'Waiting for you: ' + (r.pending.label || 'an action'); bar.style.flexDirection = 'row'; bar.style.alignItems = 'center'; }
+        bar.style.display = 'flex';
+      }
       else bar.style.display = 'none';
     } catch (e) {}
   }, 2500);

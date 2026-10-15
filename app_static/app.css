@@ -178,8 +178,8 @@ main{position:relative}
 
 /* avatar extras */
 .av-bulb{animation:pulse 1.6s infinite}.avatar.working .av-bulb{animation-duration:.5s}
-.av-sp{transform-box:fill-box;transform-origin:center;animation:twinkle 2.4s ease-in-out infinite}
-@keyframes twinkle{50%{transform:scale(.6) rotate(45deg);opacity:.6}}
+.av-sp{animation:avfloat 3s ease-in-out infinite}
+@keyframes avfloat{50%{transform:translateY(-3px)}}
 .avatar.working .av-ring{opacity:.7;animation:ring 1s ease-out infinite}
 /* live activity (Grok Bot style) */
 .activity{display:flex;align-items:center;gap:8px;min-height:24px;padding:4px 0;font-size:14px}
@@ -362,3 +362,36 @@ header{background:#1f1f1f;border-bottom:1px solid #2a2a2a;backdrop-filter:none}
 .bubble .atts img { max-width: 220px; max-height: 220px; border-radius: 10px; display: block; cursor: zoom-in; }
 .bubble .atts a.att { color: inherit; text-decoration: none; }
 body.dropping #composer .box { outline: 2px dashed #5b6cff; }
+
+/* 1.4.10 question + approval cards */
+.pa-card { min-width: 240px; max-width: 520px; }
+.pa-card .pa-q { font-weight: 600; margin-bottom: 8px; }
+.pa-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.pa-opt { border: 1px solid rgba(127,127,127,.45); background: transparent; color: inherit; border-radius: 999px; padding: 6px 12px; cursor: pointer; font: inherit; }
+.pa-opt:hover:not(:disabled) { border-color: #5b6cff; }
+.pa-opt.sel { background: #5b6cff; border-color: #5b6cff; color: #fff; }
+.pa-opt:disabled { opacity: .55; cursor: default; } .pa-opt.sel:disabled { opacity: 1; }
+.pa-other { width: 100%; margin-top: 8px; padding: 6px 10px; border-radius: 8px; border: 1px solid rgba(127,127,127,.45); background: transparent; color: inherit; font: inherit; box-sizing: border-box; }
+.pa-btns { display: flex; gap: 8px; margin-top: 10px; }
+.pa-btn { border: 0; border-radius: 8px; padding: 7px 16px; font: inherit; font-weight: 600; cursor: pointer; margin-top: 8px; }
+.pa-btn.primary { background: #5b6cff; color: #fff; } .pa-btn.danger { background: #d9434b; color: #fff; }
+.pa-btn:disabled { opacity: .45; cursor: default; } .pa-btn.chosen:disabled { opacity: 1; outline: 2px solid currentColor; }
+.pa-kv { font-size: 13px; margin: 2px 0; } .pa-shot { max-width: 100%; max-height: 200px; border-radius: 8px; margin-top: 6px; cursor: zoom-in; }
+.pa-note { font-size: 12px; opacity: .7; margin-top: 6px; }
+.pa-card.answered, .pa-card.expired { opacity: .85; }
+
+/* Routines */
+.rt-panel{position:fixed;inset:0 0 0 auto;width:min(440px,100%);background:var(--panel,#16181d);border-left:1px solid var(--line,#2a2d34);z-index:60;overflow:auto;padding:16px;box-sizing:border-box}
+.rt-head{display:flex;align-items:center;justify-content:space-between}.rt-head h2{margin:0;font-size:18px}
+.rt-x{background:none;border:0;color:inherit;font-size:24px;cursor:pointer}
+.rt-hint,.rt-empty,.rt-msg{opacity:.7;font-size:13px}
+.rt-item{border:1px solid var(--line,#2a2d34);border-radius:12px;padding:10px 12px;margin:10px 0}
+.rt-item.paused{opacity:.6}.rt-name{font-weight:600}.rt-bot{font-size:12px;opacity:.7;border:1px solid currentColor;border-radius:8px;padding:0 6px}
+.rt-sub{font-size:12.5px;opacity:.8;margin-top:2px}.rt-prompt{font-size:13px;margin-top:6px;white-space:pre-wrap}
+.rt-acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.rt-acts button{background:transparent;color:inherit;border:1px solid var(--line,#3a3d44);border-radius:8px;padding:4px 10px;cursor:pointer}
+.rt-acts button.danger{border-color:#c0504d;color:#ff8a80}
+.rt-toast{position:fixed;right:16px;bottom:80px;max-width:340px;background:#22252c;border:1px solid #3a3d44;border-radius:10px;padding:10px 12px;z-index:80;font-size:13px;cursor:pointer}
+@media (max-width:760px){.rt-panel{width:100%;bottom:56px}}
+
+.rt-ic{width:22px;height:22px;vertical-align:middle;margin-right:8px}
