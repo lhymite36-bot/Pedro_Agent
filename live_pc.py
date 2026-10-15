@@ -217,3 +217,99 @@ def activity(after: int = 0) -> list[dict[str, Any]]:
 def busy_text() -> str:
     items = activity()
     return items[-1]["label"] + " " + items[-1]["text"] if items else "Idle"
+
+
+# Tests set this to record local pointer actions without moving the real mouse.
+mouse_override: Callable[[str, dict[str, Any]], None] | None = None
+_CONTROL_KINDS = {"click", "move", "down", "up", "scroll", "type", "drag"}
+
+
+def _unit(value: Any) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = 0.0
+    return max(0.0, min(1.0, number))
+
+
+def _ascii_type(text: str) -> str:
+    return "".join(ch for ch in str(text or "")[:500] if 32 <= ord(ch) < 127)
+
+
+def _scroll_steps(delta: Any) -> int:
+    """Browser wheel deltaY is positive downward. pyautogui.scroll is positive upward."""
+    try:
+        amount = float(delta or 0)
+    except (TypeError, ValueError):
+        amount = 0.0
+    steps = int(round(-amount / 40))
+    if steps == 0 and amount:
+        steps = -1 if amount > 0 else 1
+    return max(-8, min(8, steps))
+
+
+def _apply_mouse(kind: str, fields: dict[str, Any]) -> None:
+    if mouse_override is not None:
+        mouse_override(kind, fields)
+        return
+    import pyautogui
+
+    pyautogui.FAILSAFE = True
+    width, height = pyautogui.size()
+
+    def px(x_norm: float, y_norm: float) -> tuple[int, int]:
+        return (
+            int(_unit(x_norm) * max(1, width - 1)),
+            int(_unit(y_norm) * max(1, height - 1)),
+        )
+
+    if kind == "type":
+        pyautogui.write(str(fields.get("text") or ""), interval=0.01)
+        return
+    if kind == "scroll":
+        x, y = px(fields["x"], fields["y"])
+        pyautogui.scroll(int(fields.get("steps") or 0), x=x, y=y)
+        return
+    x, y = px(fields["x"], fields["y"])
+    button = fields.get("button") or "left"
+    if kind == "click":
+        pyautogui.click(x, y, button=button)
+    elif kind == "move":
+        pyautogui.moveTo(x, y)
+    elif kind == "down":
+        pyautogui.moveTo(x, y)
+        pyautogui.mouseDown(button=button)
+    elif kind == "up":
+        pyautogui.moveTo(x, y)
+        pyautogui.mouseUp(button=button)
+    elif kind == "drag":
+        x2, y2 = px(fields.get("x2", fields["x"]), fields.get("y2", fields["y"]))
+        pyautogui.moveTo(x, y)
+        pyautogui.dragTo(x2, y2, duration=0.12, button=button)
+
+
+def local_control(data: dict[str, Any] | None) -> dict[str, Any]:
+    """Clicks, drags, scrolls, and typing from Live PC on this PC or a signed-in phone."""
+    data = data if isinstance(data, dict) else {}
+    kind = str(data.get("type") or "").casefold()
+    if kind not in _CONTROL_KINDS:
+        return {"ok": False, "error": "Unknown control."}
+    try:
+        if kind == "type":
+            value = _ascii_type(str(data.get("text") or ""))
+            _apply_mouse("type", {"text": value})
+            return {"ok": True, "message": f"Typed {len(value)} characters."}
+        x, y = _unit(data.get("x")), _unit(data.get("y"))
+        if kind == "scroll":
+            steps = _scroll_steps(data.get("delta"))
+            _apply_mouse("scroll", {"x": x, "y": y, "steps": steps})
+            return {"ok": True, "message": f"Scrolled {steps}."}
+        button = "right" if str(data.get("button") or "").casefold() == "right" else "left"
+        fields: dict[str, Any] = {"x": x, "y": y, "button": button}
+        if kind == "drag":
+            fields["x2"] = _unit(data.get("x2") if data.get("x2") is not None else x)
+            fields["y2"] = _unit(data.get("y2") if data.get("y2") is not None else y)
+        _apply_mouse(kind, fields)
+        return {"ok": True, "message": kind}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}

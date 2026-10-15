@@ -32,6 +32,9 @@ def _connect(path: Path | None = None) -> sqlite3.Connection:
         "CREATE TABLE IF NOT EXISTS reactions (msg_id INTEGER NOT NULL, emoji TEXT NOT NULL, who TEXT NOT NULL,"
         " ts REAL NOT NULL, PRIMARY KEY (msg_id, emoji, who))"
     )
+    con.execute("CREATE TABLE IF NOT EXISTS titles (session TEXT PRIMARY KEY, title TEXT NOT NULL)")
+    con.execute("CREATE TABLE IF NOT EXISTS writes (msg_id INTEGER NOT NULL, path TEXT NOT NULL)")
+    con.execute("CREATE TABLE IF NOT EXISTS pins (session TEXT PRIMARY KEY, ts REAL NOT NULL)")
     return con
 
 
@@ -150,6 +153,14 @@ def react_last_user(session: str, emoji: str, who: str, path: Path | None = None
         return int(row["id"])
 
 
+def _preview(text: str) -> str:
+    t = _re.sub(r"\[\[card:[0-9a-fA-F]{12}\]\]", "Waiting for an answer", text or "")
+    t = _re.sub(r"^\[\[@[a-z0-9-]+\]\]\s*", "", t)
+    t = _re.sub(r"\[\[files:[^\]]*\]\]", "", t)
+    t = " ".join(t.split())
+    return t[:140]
+
+
 def history(session: str, limit: int = 200, path: Path | None = None) -> list[dict[str, Any]]:
     with _lock, _session(path) as con:
         rows = con.execute(
@@ -158,22 +169,102 @@ def history(session: str, limit: int = 200, path: Path | None = None) -> list[di
         ).fetchall()
         out = [dict(r) for r in rows]
         found = reactions_for([r["id"] for r in out], con=con)
+        wrote = _writes_for([r["id"] for r in out], con)
     for r in out:
         r["reactions"] = found.get(r["id"], [])
+        r["writes"] = wrote.get(r["id"], [])
     return out
+
+
+def _writes_for(ids: list[int], con: Any) -> dict[int, list[str]]:
+    if not ids:
+        return {}
+    q = ",".join("?" * len(ids))
+    rows = con.execute(f"SELECT msg_id, path FROM writes WHERE msg_id IN ({q}) ORDER BY rowid", ids).fetchall()
+    out: dict[int, list[str]] = {}
+    for r in rows:
+        out.setdefault(int(r["msg_id"]), []).append(str(r["path"]))
+    return out
+
+
+def remember_writes(msg_id: int, paths: list[str], path: Path | None = None) -> None:
+    """Remember files a reply wrote, so Undo can be shown on that message later."""
+    clean = []
+    for raw in paths:
+        text = " ".join(str(raw or "").split())
+        if text and text not in clean:
+            clean.append(text[:500])
+    if not clean:
+        return
+    with _lock, _session(path) as con:
+        for item in clean[:40]:
+            con.execute("INSERT INTO writes(msg_id, path) VALUES (?,?)", (int(msg_id), item))
 
 
 def sessions(path: Path | None = None) -> list[dict[str, Any]]:
     with _lock, _session(path) as con:
         rows = con.execute(
             "SELECT session, MAX(ts) AS last, COUNT(*) AS n,"
-            " (SELECT text FROM messages m2 WHERE m2.session=m.session AND role='user' ORDER BY id LIMIT 1) AS title"
+            " (SELECT text FROM messages m2 WHERE m2.session=m.session AND role='user' ORDER BY id LIMIT 1) AS title,"
+            " (SELECT text FROM messages m3 WHERE m3.session=m.session ORDER BY id DESC LIMIT 1) AS preview"
             " FROM messages m GROUP BY session ORDER BY last DESC"
         ).fetchall()
-    return [dict(r) for r in rows]
+        named = {str(r["session"]): str(r["title"]) for r in con.execute("SELECT session, title FROM titles")}
+        pins = {str(r["session"]): float(r["ts"]) for r in con.execute("SELECT session, ts FROM pins")}
+    out = []
+    for r in rows:
+        item = dict(r)
+        custom = named.get(str(item["session"]))
+        if custom:
+            item["title"] = custom
+        item["preview"] = _preview(str(item.get("preview") or ""))
+        item["pinned"] = str(item["session"]) in pins
+        item["_pin"] = pins.get(str(item["session"]), 0.0)
+        out.append(item)
+    out.sort(key=lambda item: (0 if item["pinned"] else 1, -float(item["_pin"]), -float(item.get("last") or 0)))
+    for item in out:
+        item.pop("_pin", None)
+    return out
+
+
+def set_pin(session: str, on: bool, path: Path | None = None) -> bool:
+    """Pin a chat to the top of the list, or unpin it. Search still sees every chat."""
+    session = str(session or "").strip()
+    if not session:
+        raise ValueError("A chat is required.")
+    with _lock, _session(path) as con:
+        if con.execute("SELECT 1 FROM messages WHERE session=? LIMIT 1", (session,)).fetchone() is None:
+            raise KeyError("no such chat")
+        if on:
+            con.execute(
+                "INSERT INTO pins(session, ts) VALUES (?,?) ON CONFLICT(session) DO UPDATE SET ts=excluded.ts",
+                (session, time.time()),
+            )
+        else:
+            con.execute("DELETE FROM pins WHERE session=?", (session,))
+    return bool(on)
+
+
+def rename_session(session: str, title: str, path: Path | None = None) -> str:
+    """Save a display name. The messages stay as they were."""
+    session = str(session or "").strip()
+    title = " ".join(str(title or "").split())[:80]
+    if not session or not title:
+        raise ValueError("A chat name is required.")
+    with _lock, _session(path) as con:
+        if con.execute("SELECT 1 FROM messages WHERE session=? LIMIT 1", (session,)).fetchone() is None:
+            raise KeyError("no such chat")
+        con.execute(
+            "INSERT INTO titles(session, title) VALUES (?,?) ON CONFLICT(session) DO UPDATE SET title=excluded.title",
+            (session, title),
+        )
+    return title
 
 
 def delete_session(session: str, path: Path | None = None) -> None:
     with _lock, _session(path) as con:
+        con.execute("DELETE FROM writes WHERE msg_id IN (SELECT id FROM messages WHERE session=?)", (session,))
         con.execute("DELETE FROM reactions WHERE msg_id IN (SELECT id FROM messages WHERE session=?)", (session,))
         con.execute("DELETE FROM messages WHERE session=?", (session,))
+        con.execute("DELETE FROM titles WHERE session=?", (session,))
+        con.execute("DELETE FROM pins WHERE session=?", (session,))

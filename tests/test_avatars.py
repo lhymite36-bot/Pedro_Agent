@@ -5,7 +5,7 @@ from pathlib import Path
 import chat_app
 
 STATIC = Path(chat_app.STATIC)
-SHAPES = ["round", "robot", "cat", "ghost", "square", "bunny", "spark"]
+SHAPES = ["round", "robot", "cat", "ghost", "square", "bunny", "spark", "fox", "bear", "owl", "alien", "dino", "panda", "frog", "chick", "octopus", "star"]
 
 
 class AvatarTests(unittest.TestCase):
@@ -24,11 +24,16 @@ class AvatarTests(unittest.TestCase):
         self.assertNotIn("twinkle", css)
 
     def test_png_files_served(self):
+        import bots
+
+        js = (STATIC / "avatar.js").read_text(encoding="utf-8")
         for s in SHAPES:
             p = STATIC / "avatars" / f"{s}.png"
             self.assertTrue(p.exists(), p)
             self.assertEqual(p.read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
             self.assertEqual(chat_app.STATIC_FILES.get(f"avatars/{s}.png"), "image/png")
+            self.assertIn(s, bots.AVATARS)
+            self.assertIn(s, js)
 
 
 if __name__ == "__main__":

@@ -83,6 +83,25 @@ def note_model_call(model: str, ok: bool, error: str = "") -> None:
         _save("gemini_usage.json", data)
 
 
+def exhausted_models() -> set[str]:
+    """Gemini models that already hit a busy or quota error today. Tomorrow's file is a new day."""
+    day = time.strftime("%Y-%m-%d")
+    usage = _load("gemini_usage.json", {}).get(day) or {}
+    if not isinstance(usage, dict):
+        return set()
+    return {str(model) for model, row in usage.items()
+            if isinstance(row, dict) and int(row.get("busy") or 0) > 0}
+
+
+def quota_line(selected: str = "") -> str:
+    """A short line when a Gemini model already hit its free-tier limit today."""
+    exhausted = sorted(exhausted_models())
+    if not exhausted:
+        return ""
+    name = selected if selected in exhausted else exhausted[0]
+    return f"{name} is out for today"
+
+
 def gemini_usage(days: int = 1) -> dict[str, Any]:
     data = _load("gemini_usage.json", {})
     keep = {d: data[d] for d in sorted(data)[-max(1, int(days)):]}
@@ -104,7 +123,7 @@ def show_change_log(limit: int = 20) -> dict[str, Any]:
     log = _load("change_log.json", [])[-max(1, int(limit)):]
     lines = [f"{e['t']} {e['action']} {e['path']} ({e['tool']})" for e in log]
     return {"ok": True, "message": "\n".join(lines) or "No changes recorded yet.", "entries": log,
-            "note": "To undo, ask me to remove a listed file; deleting always asks you first."}
+            "note": "Say undo to put the last file back. undo_last_change restores the previous copy, or removes a file just created."}
 
 
 def add_deadline(title: str, due: str, note: str = "") -> dict[str, Any]:

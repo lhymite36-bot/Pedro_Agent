@@ -11,6 +11,7 @@
   }
   function hueShift(hex) { return ((hueOf(hex) - BASE_HUE) % 360 + 360) % 360; }
   function scheduleLabel(t) {
+    if (t.watch && t.watch.path) return 'when ' + t.watch.path + ' changes';
     if (!t.schedule) return 'one-off';
     if (t.schedule.every_minutes) return 'every ' + t.schedule.every_minutes + ' min';
     return 'daily ' + t.schedule.daily;
@@ -18,7 +19,7 @@
   if (typeof module !== 'undefined' && module.exports) { module.exports = { hueShift, hueOf, scheduleLabel }; return; }
 
   const $ = (s) => document.querySelector(s);
-  let bots = [], allTools = [], editing = null;
+  let bots = [], allTools = [], editing = null, recording = false;
   const DEFAULT = { color: '#5b6cff', shape: 'round' };
   function look(bot) { return bot ? { color: bot.color || DEFAULT.color, shape: bot.avatar || 'round' } : DEFAULT; }
   function tint(av, bot) { const l = look(bot); av.setLook(l.color, l.shape); }
@@ -61,14 +62,23 @@
     await load(); if (root.loadGroups) root.loadGroups(); return true;
   }
 
+  function sizeTask(row) {
+    const kind = row.querySelector('.tk').value;
+    const box = row.querySelector('.tv');
+    box.style.width = kind === 'watch' ? '160px' : '80px';
+    box.placeholder = kind === 'watch' ? 'Downloads *.pdf' : (kind === 'daily' ? '08:00' : '30');
+  }
   function taskRow(t) {
     const row = document.createElement('div'); row.className = 'task';
-    const kind = t.schedule ? (t.schedule.every_minutes ? 'every' : 'daily') : 'once';
+    const kind = t.watch ? 'watch' : t.schedule ? (t.schedule.every_minutes ? 'every' : 'daily') : 'once';
     row.innerHTML = '<input class="tt" placeholder="Task, e.g. Summarise my unread email">' +
-      '<select class="tk"><option value="once">One-off</option><option value="every">Every N min</option><option value="daily">Daily at</option></select>' +
+      '<select class="tk"><option value="once">One-off</option><option value="every">Every N min</option><option value="daily">Daily at</option><option value="watch">When files arrive</option></select>' +
       '<input class="tv" placeholder="30 or 08:00"><button type="button" class="ib run" title="Run now">▶</button><button type="button" class="ib del" title="Remove">✕</button>';
     row.querySelector('.tt').value = t.text || ''; row.querySelector('.tk').value = kind;
-    row.querySelector('.tv').value = t.schedule ? (t.schedule.every_minutes || t.schedule.daily || '') : '';
+    if (t.watch) row.querySelector('.tv').value = (t.watch.path || '') + (t.watch.pattern && t.watch.pattern !== '*' ? ' ' + t.watch.pattern : '');
+    else row.querySelector('.tv').value = t.schedule ? (t.schedule.every_minutes || t.schedule.daily || '') : '';
+    sizeTask(row);
+    row.querySelector('.tk').onchange = () => sizeTask(row);
     row.dataset.id = t.id || ''; row.dataset.last = t.last_result || '';
     row.querySelector('.del').onclick = () => row.remove();
     row.querySelector('.run').onclick = async () => {
@@ -79,8 +89,27 @@
     return row;
   }
 
+  function lessonRow(item, listName) {
+    const row = document.createElement('div'); row.className = 'bot-skill';
+    const sp = document.createElement('span'); sp.textContent = item.name || item.text; sp.title = item.text || '';
+    const del = document.createElement('button'); del.type = 'button'; del.className = 'ib'; del.title = 'Remove'; del.textContent = '✕';
+    del.onclick = () => {
+      if (!editing) return;
+      editing[listName] = (editing[listName] || []).filter((x) => x !== item && x.id !== item.id);
+      row.remove();
+    };
+    row.append(sp, del); return row;
+  }
+  function showLessons() {
+    const skills = $('#bot-skills'); const notes = $('#bot-notes');
+    if (skills) { skills.innerHTML = ''; (editing && editing.skills || []).forEach((s) => skills.appendChild(lessonRow(s, 'skills'))); }
+    if (notes) { notes.innerHTML = ''; (editing && editing.notes || []).forEach((n) => notes.appendChild(lessonRow(n, 'notes'))); }
+    if ($('#bot-teach-stop')) $('#bot-teach-stop').hidden = !recording;
+    if ($('#bot-teach')) $('#bot-teach').hidden = recording;
+  }
   function openEditor(bot) {
-    editing = bot || null; const b = bot || { name: '', color: '#7c8cff', avatar: 'round', role: '', model: '', tools: [], rules: {}, tasks: [] };
+    editing = bot ? Object.assign({}, bot, { notes: (bot.notes || []).slice(), skills: (bot.skills || []).slice() }) : null;
+    const b = editing || { name: '', color: '#7c8cff', avatar: 'round', role: '', model: '', tools: [], rules: {}, tasks: [] };
     $('#bot-name').value = b.name; $('#bot-color').value = b.color; $('#bot-shape').value = b.avatar;
     $('#bot-role').value = b.role; $('#bot-model').value = b.model || '';
     $('#bot-rules').value = Object.keys(b.rules || {}).length ? JSON.stringify(b.rules, null, 2) : '';
@@ -92,6 +121,9 @@
     });
     $('#bot-toolfilter').value = '';
     const tasks = $('#bot-tasks'); tasks.innerHTML = ''; (b.tasks || []).forEach((t) => tasks.appendChild(taskRow(t)));
+    if ($('#bot-lesson')) $('#bot-lesson').value = '';
+    if ($('#bot-teachmsg')) $('#bot-teachmsg').textContent = '';
+    showLessons();
     $('#bot-delete').style.display = bot ? '' : 'none'; $('#botmsg').textContent = '';
     $('#boted-title').textContent = bot ? 'Edit bot' : 'New bot';
     previewTint(); $('#boted').classList.add('open'); $('#overlay').classList.add('open');
@@ -118,14 +150,23 @@
   function collect() {
     const tasks = Array.from(document.querySelectorAll('#bot-tasks .task')).map((r) => {
       const kind = r.querySelector('.tk').value, v = r.querySelector('.tv').value.trim();
-      const schedule = kind === 'every' ? { every_minutes: parseInt(v, 10) || 60 } : kind === 'daily' ? { daily: v || '08:00' } : null;
-      return { id: r.dataset.id || undefined, text: r.querySelector('.tt').value, schedule };
+      let schedule = null, watch = null;
+      if (kind === 'every') schedule = { every_minutes: parseInt(v, 10) || 60 };
+      else if (kind === 'daily') schedule = { daily: v || '08:00' };
+      else if (kind === 'watch') {
+        const bits = v.split(/\s+/).filter(Boolean);
+        let pattern = '*', path = v || 'Downloads';
+        if (bits.length > 1 && /[*?]/.test(bits[bits.length - 1])) { pattern = bits.pop(); path = bits.join(' '); }
+        watch = { path: path, pattern: pattern };
+      }
+      return { id: r.dataset.id || undefined, text: r.querySelector('.tt').value, schedule, watch };
     }).filter((t) => t.text.trim());
     let rulesObj = {}; const raw = $('#bot-rules').value.trim();
     if (raw) rulesObj = JSON.parse(raw);
     const tools = Array.from(document.querySelectorAll('#bot-tools label')).filter((l) => l.querySelector('input').checked).map((l) => l.dataset.name);
     return { id: editing ? editing.id : undefined, created: editing ? editing.created : undefined, name: $('#bot-name').value,
-      color: $('#bot-color').value, avatar: $('#bot-shape').value, role: $('#bot-role').value, model: $('#bot-model').value, tools, rules: rulesObj, tasks };
+      color: $('#bot-color').value, avatar: $('#bot-shape').value, role: $('#bot-role').value, model: $('#bot-model').value, tools, rules: rulesObj, tasks,
+      notes: editing ? (editing.notes || []) : [], skills: editing ? (editing.skills || []) : [] };
   }
 
   function wire() {
@@ -135,6 +176,25 @@
     $('#overlay').addEventListener('click', closeEditor);
     $('#bot-color').oninput = previewTint;
     $('#bot-addtask').onclick = () => $('#bot-tasks').appendChild(taskRow({}));
+    if ($('#bot-teach')) $('#bot-teach').onclick = async () => {
+      if (!editing || !editing.id) { $('#bot-teachmsg').textContent = 'Save the bot first, then record.'; return; }
+      const name = ($('#bot-lesson').value || '').trim() || 'lesson';
+      $('#bot-teachmsg').textContent = 'Starting…';
+      const r = await (await fetch('/api/bots/teach', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: editing.id, name }) })).json();
+      if (!r.ok) { $('#bot-teachmsg').textContent = r.error || 'Could not record.'; return; }
+      recording = true; $('#bot-teach').hidden = true; $('#bot-teach-stop').hidden = false;
+      $('#bot-teachmsg').textContent = 'Recording on this PC. Do the task, then press Stop and save.';
+    };
+    if ($('#bot-teach-stop')) $('#bot-teach-stop').onclick = async () => {
+      $('#bot-teachmsg').textContent = 'Saving what you did…';
+      const r = await (await fetch('/api/bots/teach_stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json();
+      recording = false; $('#bot-teach').hidden = false; $('#bot-teach-stop').hidden = true;
+      if (!r.ok) { $('#bot-teachmsg').textContent = r.error || 'Could not save the lesson.'; return; }
+      await load();
+      const saved = (root.pedroBots || []).find((b) => editing && b.id === editing.id) || r.saved;
+      if (saved) openEditor(saved);
+      $('#bot-teachmsg').textContent = r.message || 'Lesson saved.';
+    };
     $('#bot-toolfilter').oninput = (e) => { const q = e.target.value.toLowerCase(); document.querySelectorAll('#bot-tools label').forEach((l) => { l.style.display = l.dataset.name.includes(q) ? '' : 'none'; }); };
     $('#bot-save').onclick = async () => {
       let body; try { body = collect(); } catch (e) { $('#botmsg').textContent = 'Rules override must be JSON: ' + e.message; return; }

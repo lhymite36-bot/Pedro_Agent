@@ -204,10 +204,13 @@ def build_local_program(
                 raise ValueError("entry must be a .py or .html file.")
         project.mkdir(parents=True, exist_ok=True)
         saved: list[str] = []
+        import undo_store
         for relative, content in written:
             destination = project / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
+            undo_store.remember(destination)
             destination.write_text(content, encoding="utf-8")
+            undo_store.seal(destination)
             saved.append(relative.as_posix())
         command: list[str] = []
         if entry_path is not None and agent._as_bool(run):

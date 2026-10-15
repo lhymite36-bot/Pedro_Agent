@@ -43,6 +43,16 @@ STATIC_FILES = {
     "avatars/square.png": "image/png",
     "avatars/bunny.png": "image/png",
     "avatars/spark.png": "image/png",
+    "avatars/fox.png": "image/png",
+    "avatars/bear.png": "image/png",
+    "avatars/owl.png": "image/png",
+    "avatars/alien.png": "image/png",
+    "avatars/dino.png": "image/png",
+    "avatars/panda.png": "image/png",
+    "avatars/frog.png": "image/png",
+    "avatars/chick.png": "image/png",
+    "avatars/octopus.png": "image/png",
+    "avatars/star.png": "image/png",
     "reactions.js": "application/javascript; charset=utf-8",
     "markdown.js": "application/javascript; charset=utf-8",
     "avatar.js": "application/javascript; charset=utf-8",
@@ -87,9 +97,9 @@ def level_payload() -> dict[str, Any]:
     try:
         import speech_level
 
-        return {"level": speech_level.current()}
+        return {"level": speech_level.current(), "mic": speech_level.mic()}
     except Exception:
-        return {"level": None}
+        return {"level": None, "mic": None}
 
 
 def status_payload(state: "AppState") -> dict[str, Any]:
@@ -104,18 +114,32 @@ def status_payload(state: "AppState") -> dict[str, Any]:
         import speech_level
 
         level = speech_level.current()
+        mic_level = speech_level.mic()
     except Exception:
         level = None
+        mic_level = None
     return {
         "busy": state.busy.locked(),
         "listening": state.mic_lock.locked(),
         "speaking": state.pipeline is not None and not state.busy.locked(),
         "speech_level": level if isinstance(level, (int, float)) else None,
+        "mic_level": mic_level if isinstance(mic_level, (int, float)) else None,
         "telegram": telegram,
         "model": state.model,
+        "active_model": str(getattr(state, "active_model", "") or ""),
+        "quota_note": _quota_note(state.model),
         "speak": state.speak,
         "speak_mode": state.speak_mode,
     }
+
+
+def _quota_note(selected: str) -> str:
+    try:
+        import extras148
+
+        return extras148.quota_line(selected)
+    except Exception:
+        return ""
 
 
 SPEAK_MODES = ("voice", "always", "never")
@@ -285,7 +309,37 @@ def _new_pipeline(state: AppState) -> Any:
     return factory()
 
 
-SPEECH_FINISH_TIMEOUT = 120.0  # seconds; a stuck audio device cannot hang the turn
+SPEECH_FINISH_TIMEOUT = 120.0  # no playback progress for this long means the device is stuck
+SPEECH_MAX_SECONDS = 20 * 60  # a reply that keeps playing is not cut before this
+
+
+def speech_deadline(now: float, deadline: float, cursor: int, last: int | None) -> tuple[float, int]:
+    """Extend the deadline while the voice is still moving forward."""
+    if last is None or cursor != last:
+        return now + SPEECH_FINISH_TIMEOUT, cursor
+    return deadline, last if last is not None else cursor
+
+
+def _wait_for_speech(worker: threading.Thread, pipeline: Any) -> str:
+    """Wait until playback ends. A moving voice is not stopped for being long."""
+    import speech_level
+
+    started = time.monotonic()
+    deadline = started + SPEECH_FINISH_TIMEOUT
+    last: int | None = speech_level.cursor()
+    while worker.is_alive():
+        now = time.monotonic()
+        if now - started > SPEECH_MAX_SECONDS or now >= deadline:
+            try:
+                pipeline.abort()
+            except Exception:
+                pass
+            return "timeout"
+        worker.join(min(0.2, max(0.01, deadline - now)))
+        if not worker.is_alive():
+            return "done"
+        deadline, last = speech_deadline(time.monotonic(), deadline, speech_level.cursor(), last)
+    return "done"
 
 
 def _finish_speech(state: AppState, pipeline: Any, reply: str, spoke_any: bool, emit: Any) -> None:
@@ -308,13 +362,8 @@ def _finish_speech(state: AppState, pipeline: Any, reply: str, spoke_any: bool, 
 
         worker = threading.Thread(target=run, name="speech-finish", daemon=True)
         worker.start()
-        worker.join(SPEECH_FINISH_TIMEOUT)
-        if worker.is_alive():
+        if _wait_for_speech(worker, pipeline) == "timeout":
             status, detail = "timeout", "Speech playback did not finish; stopped it."
-            try:
-                pipeline.abort()
-            except Exception:
-                pass
             return
         if "error" in box:
             status, detail = "error", f"Voice: {box['error']}"
@@ -346,7 +395,18 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
     """
     agent = _agent()
     import step_labels, team_agent
-    emit = step_labels.wrap_emit(emit)
+    wrote: list[str] = []
+    raw_emit = emit
+
+    def watch(ev: dict) -> None:
+        if ev.get("event") == "model_switch":
+            shown = str(ev.get("model") or "")
+            state.active_model = shown.split(":", 1)[-1] if shown.startswith("backup:") else shown
+        if ev.get("event") == "tool_end" and ev.get("ok") and ev.get("path"):
+            wrote.append(str(ev["path"]))
+        raw_emit(ev)
+
+    emit = step_labels.wrap_emit(watch)
     team_agent.LIVE_EMIT = emit
     emit({"event": "step", "label": "Thinking…", "name": ""})
     state.cancel.clear()
@@ -369,6 +429,10 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
 
         def save_reply(sess: str, role: str, said: str) -> int:   # store + tell the window the id and reactions
             mid = chat_store.add(sess, role, said)
+            if wrote:
+                chat_store.remember_writes(mid, wrote)
+                emit({"event": "writes", "id": mid, "paths": list(wrote)})
+                wrote.clear()
             emit({"event": "saved", "role": role, "id": mid})
             emit({"event": "reactions", "id": user_id,
                   "reactions": chat_store.reactions_for([user_id]).get(user_id, [])})
@@ -623,6 +687,7 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     after = 0
                 self._json({"items": live_pc.activity(after), "busy": state.busy.locked(),
                             "now": live_pc.busy_text(), "remote": self.remote,
+                            "local": not self.remote,
                             "control": remote_control_allowed()})
             else:
                 return False
@@ -798,6 +863,28 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     self._json({"ok": False, "error": "Run setup on the PC itself."}, 403)
                 else:
                     self._json(save_setup(data))
+            elif url.path == "/live/control":
+                if self.remote:
+                    self._json({"ok": False, "error": "Phone control stays behind Allow control."}, 403)
+                else:
+                    import live_pc
+                    self._json(live_pc.local_control(data))
+            elif url.path == "/api/pin":
+                try:
+                    on = chat_store.set_pin(str(data.get("session") or ""), bool(data.get("on")))
+                    self._json({"ok": True, "pinned": on})
+                except (ValueError, KeyError) as exc:
+                    self._json({"ok": False, "error": str(exc)}, 400)
+            elif url.path == "/api/undo":
+                if self.remote:
+                    self._json({"ok": False, "error": "Undo is only available on the PC."}, 403)
+                else:
+                    import undo_store
+                    paths = data.get("paths") if isinstance(data.get("paths"), list) else []
+                    if paths:
+                        self._json(undo_store.undo_paths([str(p) for p in paths[:40]]))
+                    else:
+                        self._json(undo_store.undo_last_change())
             elif url.path == "/api/chat":
                 self._chat(data)
             elif url.path == "/api/routines/update":   # Routines page buttons
@@ -879,10 +966,28 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 threading.Thread(target=bots.run_task, args=(bot_id, task_id),
                                  kwargs={"unattended": False}, daemon=True).start()
                 self._json({"ok": True, "started": True})
+            elif url.path == "/api/bots/teach":
+                import demo_skills
+                found = bots.get_bot(str(data.get("id") or ""))
+                if found is None:
+                    self._json({"ok": False, "error": "Save the bot first."}, 400)
+                else:
+                    self._json(demo_skills.record_demonstration(str(data.get("name") or "lesson"), bot=found["id"]))
+            elif url.path == "/api/bots/teach_stop":
+                import demo_skills
+                result = demo_skills.stop_demonstration()
+                saved = bots.get_bot(str(result.get("bot") or "")) if result.get("ok") else None
+                self._json({**result, "saved": saved})
             elif url.path == "/api/react":   # tap an emoji on a message; tapping yours again removes it
                 try:
                     found = chat_store.toggle_reaction(int(data.get("id") or 0), str(data.get("emoji") or ""), "you")
                     self._json({"ok": True, "id": int(data.get("id") or 0), "reactions": found})
+                except (ValueError, KeyError) as exc:
+                    self._json({"ok": False, "error": str(exc)}, 400)
+            elif url.path == "/api/rename":
+                try:
+                    title = chat_store.rename_session(str(data.get("session") or ""), str(data.get("title") or ""))
+                    self._json({"ok": True, "title": title})
                 except (ValueError, KeyError) as exc:
                     self._json({"ok": False, "error": str(exc)}, 400)
             elif url.path == "/api/delete_session":

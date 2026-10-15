@@ -46,8 +46,10 @@ function unlockAudio() { if (audioUnlocked) return; audioUnlocked = true; try { 
 ['pointerdown', 'touchstart', 'keydown'].forEach((n) => document.addEventListener(n, unlockAudio, { capture: true }));
 function playClip(url) {
   return new Promise((resolve) => {
-    let finished = false; const end = () => { if (finished) return; finished = true; setMood('idle'); resolve(); };
+    let finished = false;
+    const end = () => { if (finished) return; finished = true; voiceOpen = false; setMood('idle'); resolve(); };
     voiceAudio.onended = end; voiceAudio.onerror = end; voiceAudio.src = url;
+    voiceOpen = true;
     setMood('speaking');
     const p = voiceAudio.play();
     if (p) p.catch(() => { setStatus('Tap anywhere to allow voice replies, then try again.', true); end(); });
@@ -59,24 +61,71 @@ const avatars = [createAvatar($('#hdr-avatar')), createAvatar($('#brand-avatar')
 const MOODS = { idle: 'Idle', listening: 'Listening…', thinking: 'Thinking…', working: 'Working…', speaking: 'Speaking…' };
 let rowFace = null; // avatar of the reply being produced
 window.mainAvatars = avatars;
+let voiceOpen = false; // stay on Speaking until the voice itself has finished
 function setMood(state) {
+  if (voiceOpen && state !== 'speaking') state = 'speaking';
   avatars.forEach((a) => a.setState(state));
   $('#mood').textContent = MOODS[state] || state;
   if (rowFace) rowFace.setState(state);
-  levelPoll(state === 'speaking');
+  levelPoll(state === 'speaking' ? 'speak' : state === 'listening' ? 'listen' : '');
 }
-// Real TTS loudness: poll /api/level fast only while speaking.
-let levelTimer = null; let levelBusy = false;
-function levelPoll(on) {
+function setLiveStep(text) {
+  const el = $('#live-step'); if (!el) return;
+  const t = String(text || '').trim();
+  if (!t || t === 'Thinking…') { el.hidden = true; el.textContent = ''; return; }
+  el.hidden = false; el.textContent = t;
+}
+// Real loudness: the voice while speaking, the microphone while listening.
+let levelTimer = null; let levelBusy = false; let levelMode = '';
+let micStream = null; let micAnalyser = null; let micAudioCtx = null; let micBuf = null;
+function localMicLevel() {
+  if (!micAnalyser) return null;
+  micBuf = micBuf || new Uint8Array(micAnalyser.fftSize);
+  micAnalyser.getByteTimeDomainData(micBuf);
+  let sum = 0;
+  for (let i = 0; i < micBuf.length; i++) { const v = (micBuf[i] - 128) / 128; sum += v * v; }
+  return Math.min(1, Math.sqrt(sum / micBuf.length) * 3.2);
+}
+function releaseMicMeter() {
+  if (micStream) micStream.getTracks().forEach((t) => t.stop());
+  micStream = null; micAnalyser = null; micBuf = null;
+  if (micAudioCtx) { micAudioCtx.close(); micAudioCtx = null; }
+}
+function armMicMeter() {
+  if (micAnalyser || ON_PC || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+  navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
+    if (levelMode !== 'listen') { stream.getTracks().forEach((t) => t.stop()); return; }
+    micStream = stream;
+    micAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = micAudioCtx.createMediaStreamSource(stream);
+    micAnalyser = micAudioCtx.createAnalyser();
+    micAnalyser.fftSize = 512;
+    src.connect(micAnalyser);
+  }).catch(() => {});
+}
+function applyLevel(v) {
+  if (typeof v !== 'number') return;
+  avatars.forEach((a) => a.setLevel(v));
+  if (rowFace) rowFace.setLevel(v);
+}
+function levelPoll(mode) {
+  if (mode === levelMode) return;
+  levelMode = mode;
   clearInterval(levelTimer); levelTimer = null;
-  if (!on) return;
+  if (mode !== 'listen') releaseMicMeter();
+  if (!mode) return;
+  if (mode === 'listen') armMicMeter();
   levelTimer = setInterval(async () => {
     if (levelBusy) return; levelBusy = true;
     try {
+      if (mode === 'listen') {
+        const local = localMicLevel();
+        if (typeof local === 'number') { applyLevel(local); return; }
+      }
       const r = await (await fetch('/api/level')).json();
-      if (typeof r.level === 'number') { avatars.forEach((a) => a.setLevel(r.level)); if (rowFace) rowFace.setLevel(r.level); }
+      applyLevel(mode === 'listen' ? r.mic : r.level);
     } catch (e) { /* server busy; keep synthetic motion */ } finally { levelBusy = false; }
-  }, 60);
+  }, 40);
 }
 function botFace() {
   const d = document.createElement('div'); d.className = 'face';
@@ -111,13 +160,14 @@ function addUser(text, files) {
   return row;
 }
 function addBot() {
-  const row = document.createElement('div'); row.className = 'row bot';
+  const row = document.createElement('div'); row.className = 'row bot msg'; row.dataset.role = 'assistant';
   row.appendChild(botFace());
   const col = document.createElement('div'); col.className = 'bubble';
   const chips = document.createElement('div'); chips.className = 'chips';
   const body = document.createElement('div'); body.className = 'md';
   col.append(chips, body); row.appendChild(col); $('#log').appendChild(row); showEmpty(); scrollDown();
   if (window.Reactions) Reactions.attach(row);
+  addCopy(row);
   return { row, chips, body, text: '' };
 }
 function renderMd(el, text, streaming) {
@@ -145,6 +195,7 @@ function activity(bubble) {
   const lbl = a.querySelector('.lbl'); let cur = null; const done = []; let t0 = performance.now(); let ended = false;
   const api = {
     set(text) {
+      setLiveStep(text);
       if (cur && cur.textContent === text) return;
       const n = document.createElement('span'); n.className = 'in'; n.textContent = text; lbl.appendChild(n);
       requestAnimationFrame(() => requestAnimationFrame(() => n.classList.remove('in')));
@@ -194,16 +245,74 @@ async function api(path, body) {
   const opt = body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
   const r = await fetch(path, opt); return r.json();
 }
-async function loadSessions() {
-  const list = await api('/api/sessions'); const box = $('#sessions'); box.innerHTML = '';
-  list.filter((s) => !String(s.session).startsWith('bot-') && !String(s.session).startsWith('group-')).forEach((s) => {
-    const d = document.createElement('div'); d.className = 'sess' + (s.session === session ? ' active' : '');
+let sessionCache = []; let chatQuery = '';
+function shortWhen(ts) {
+  const n = Number(ts); if (!n) return '';
+  const d = new Date(n * 1000); if (Number.isNaN(d.getTime())) return '';
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+function drawSessions() {
+  const box = $('#sessions'); if (!box) return; box.innerHTML = '';
+  const q = chatQuery.trim().toLowerCase();
+  const list = sessionCache.filter((s) => !String(s.session).startsWith('bot-') && !String(s.session).startsWith('group-'))
+    .filter((s) => !q || ((s.title || '') + ' ' + (s.preview || '') + ' ' + (s.session || '')).toLowerCase().includes(q));
+  if (!list.length) { const empty = document.createElement('div'); empty.className = 'sess-empty'; empty.textContent = q ? 'No chats match' : 'No chats yet'; box.appendChild(empty); return; }
+  list.forEach((s) => {
+    const d = document.createElement('div'); d.className = 'sess' + (s.session === session ? ' active' : '') + (s.pinned ? ' pinned' : '');
     if (s.session === 'telegram') { const t = document.createElement('i'); t.className = 'tag'; t.textContent = 'Telegram'; d.appendChild(t); }
-    const sp = document.createElement('span'); sp.textContent = s.title || s.session; d.appendChild(sp);
+    const main = document.createElement('div'); main.className = 'sess-main';
+    const sp = document.createElement('span'); sp.className = 'sess-title'; sp.textContent = s.title || s.session; main.appendChild(sp);
+    const meta = document.createElement('small'); meta.className = 'sess-meta';
+    const when = shortWhen(s.last); const preview = s.preview || '';
+    meta.textContent = preview && when ? preview + ' · ' + when : (preview || when);
+    main.appendChild(meta); d.appendChild(main);
+    d.appendChild(pinBtn(s));
     d.appendChild(trashBtn('Delete chat', () => deleteChat(s.session, s.title || 'this chat')));
-    d.onclick = () => openSession(s.session); box.appendChild(d);
+    let clickTimer = null;
+    d.onclick = () => { clearTimeout(clickTimer); clickTimer = setTimeout(() => openSession(s.session), 220); };
+    d.oncontextmenu = (e) => { e.preventDefault(); togglePin(s); };
+    sp.ondblclick = (e) => { e.stopPropagation(); e.preventDefault(); clearTimeout(clickTimer); beginRename(main, sp, s); };
+    box.appendChild(d);
   });
 }
+function pinBtn(s) {
+  const b = document.createElement('button'); b.type = 'button'; b.className = 'pin';
+  b.title = s.pinned ? 'Unpin' : 'Pin'; b.setAttribute('aria-label', s.pinned ? 'Unpin chat' : 'Pin chat');
+  b.textContent = s.pinned ? '\u2605' : '\u2606';
+  b.onclick = (e) => { e.stopPropagation(); e.preventDefault(); togglePin(s); };
+  return b;
+}
+async function togglePin(s) {
+  const r = await api('/api/pin', { session: s.session, on: !s.pinned });
+  if (!r.ok) setStatus(r.error || 'Could not pin.', true);
+  loadSessions();
+}
+function beginRename(main, titleEl, s) {
+  const input = document.createElement('input'); input.className = 'sess-rename'; input.value = s.title || '';
+  titleEl.replaceWith(input); input.focus(); input.select();
+  let done = false;
+  async function commit(save) {
+    if (done) return; done = true;
+    const name = input.value.trim();
+    if (save && name && name !== (s.title || '')) {
+      const r = await api('/api/rename', { session: s.session, title: name });
+      if (!r.ok) setStatus(r.error || 'Could not rename.', true);
+    }
+    loadSessions();
+  }
+  input.onclick = (e) => e.stopPropagation();
+  input.ondblclick = (e) => e.stopPropagation();
+  input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); commit(true); } if (e.key === 'Escape') { e.preventDefault(); commit(false); } };
+  input.onblur = () => commit(true);
+}
+async function loadSessions() {
+  const rows = await api('/api/sessions'); sessionCache = Array.isArray(rows) ? rows : []; drawSessions();
+}
+window.loadSessions = loadSessions;
+const chatFind = $('#chat-find');
+if (chatFind) chatFind.oninput = () => { chatQuery = chatFind.value; drawSessions(); };
 // ---------- delete (always asks first) ----------
 function trashBtn(title, onDel) {
   const b = document.createElement('button'); b.type = 'button'; b.className = 'trash'; b.title = title; b.setAttribute('aria-label', title);
@@ -226,7 +335,7 @@ if ($('#clear-chats')) $('#clear-chats').onclick = clearAllChats;
 async function openSession(s) {
   session = s; localStorage.session = s; $('#log').innerHTML = '';
   const rows = await api('/api/history?session=' + encodeURIComponent(s));
-  rows.forEach((m) => { if (m.card) { renderCard(m.card); return; } if (/^\[\[card:[0-9a-f]{12}\]\]$/.test(m.text || '')) return; if (m.role === 'user') { const u = addUser(m.text, m.files); if (window.Reactions) Reactions.attach(u, m.id, m.reactions); } else { const t = /^\[\[@([a-z0-9-]+)\]\]\s?/.exec(m.text || ''); const b = addBot(); if (window.Reactions) Reactions.attach(b.row, m.id, m.reactions); if (t && window.markSpeaker) window.markSpeaker(b, t[1]); renderMd(b.body, t ? m.text.slice(t[0].length) : m.text); groupChips(b, m.chips); } });
+  rows.forEach((m) => { if (m.card) { renderCard(m.card); return; } if (/^\[\[card:[0-9a-f]{12}\]\]$/.test(m.text || '')) return; if (m.role === 'user') { const u = addUser(m.text, m.files); if (window.Reactions) Reactions.attach(u, m.id, m.reactions); } else { const t = /^\[\[@([a-z0-9-]+)\]\]\s?/.exec(m.text || ''); const b = addBot(); if (window.Reactions) Reactions.attach(b.row, m.id, m.reactions); if (t && window.markSpeaker) window.markSpeaker(b, t[1]); renderMd(b.body, t ? m.text.slice(t[0].length) : m.text); groupChips(b, m.chips); if (m.writes && m.writes.length) addUndo(b.row, m.writes); } });
   showEmpty(); loadSessions(); if (window.applyBotHeader) window.applyBotHeader();
 }
 $('#new').onclick = () => { session = ''; localStorage.session = ''; $('#log').innerHTML = ''; showEmpty(); loadSessions(); if (window.applyBotHeader) window.applyBotHeader(); $('#t').focus(); };
@@ -243,8 +352,9 @@ async function pollStatus() {
     $('#st-voice').className = 'dot ' + (st.speaking || st.listening ? 'busy' : (speakOn ? 'on' : ''));
     $('#st-voice-t').textContent = st.speaking ? 'speaking' : st.listening ? 'listening' : (speakMode === 'always' ? 'on' : speakMode === 'never' ? 'off' : 'replies to voice');
     $('#st-model').textContent = st.model || '-';
-    if (typeof st.speech_level === 'number' && st.speaking) avatars.forEach((a) => a.setLevel(st.speech_level));
+    if (typeof st.speech_level === 'number' && st.speaking) applyLevel(st.speech_level);
     if (typeof st.mic_level === 'number') level = st.mic_level;
+    else if (!st.listening) level = 0;
   } catch (e) { $('#st-agent').className = 'dot'; $('#st-agent-t').textContent = 'offline'; }
 }
 setInterval(pollStatus, 1500); pollStatus();
@@ -263,11 +373,67 @@ function waveOn(on) {
 }
 
 // ---------- chat ----------
-async function stop() { stopClip(); await fetch('/api/stop', { method: 'POST' }); }
+async function stop() { voiceOpen = false; stopClip(); setMood('idle'); await fetch('/api/stop', { method: 'POST' }); }
 function setRunning(on) {
   running = on; const b = $('#send'); b.classList.toggle('stop', on);
   b.innerHTML = on ? '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>'
     : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
+  const stopBtn = $('#hdr-stop'); if (stopBtn) stopBtn.hidden = !on;
+  if (!on) setLiveStep('');
+}
+if ($('#hdr-stop')) $('#hdr-stop').onclick = () => { if (running) stop(); };
+function replyBar(row) {
+  const bubble = row && row.querySelector('.bubble'); if (!bubble) return null;
+  let bar = bubble.querySelector('.msg-actions');
+  if (!bar) { bar = document.createElement('div'); bar.className = 'msg-actions'; bubble.appendChild(bar); }
+  return bar;
+}
+function addCopy(row) {
+  if (!row || row.querySelector('.msg-copy')) return;
+  const bar = replyBar(row); if (!bar) return;
+  const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'msg-copy'; btn.textContent = 'Copy';
+  btn.onclick = async () => {
+    const md = row.querySelector('.md');
+    const text = md ? md.innerText : '';
+    try { await navigator.clipboard.writeText(text); btn.textContent = 'Copied'; }
+    catch (e) { btn.textContent = 'Copy failed'; }
+    setTimeout(() => { btn.textContent = 'Copy'; }, 1200);
+  };
+  bar.appendChild(btn);
+}
+function addUndo(row, paths) {
+  const list = (paths || []).filter(Boolean);
+  if (!row || !list.length || row.querySelector('.msg-undo')) return;
+  const bar = replyBar(row); if (!bar) return;
+  const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'msg-undo'; btn.textContent = 'Undo';
+  btn.onclick = async () => {
+    btn.disabled = true;
+    let r; try { r = await api('/api/undo', { paths: list }); } catch (e) { r = { ok: false, error: String(e) }; }
+    btn.textContent = r.ok ? 'Undone' : (r.error || 'Not undone');
+  };
+  bar.appendChild(btn);
+}
+function finishPing() {
+  const header = document.querySelector('main > header');
+  if (header) {
+    header.classList.remove('done-flash');
+    void header.offsetWidth;
+    header.classList.add('done-flash');
+    setTimeout(() => header.classList.remove('done-flash'), 1300);
+  }
+  const oldTitle = document.title;
+  document.title = 'Pedro finished';
+  setTimeout(() => { if (document.title === 'Pedro finished') document.title = oldTitle; }, 2000);
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    const ctx = new Ctx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine'; osc.frequency.value = 880; gain.gain.value = 0.05;
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.start(); osc.stop(ctx.currentTime + 0.15);
+    osc.onended = () => ctx.close();
+  } catch (e) {}
 }
 function groupChips(b, chips) {
   (chips || []).forEach((c) => { const el = chip(b.chips, c.text); el.classList.add(c.kind === 'blocked' ? 'bad' : 'ok', 'gchip'); });
@@ -276,7 +442,7 @@ function groupChips(b, chips) {
 function renderCard(c) {
   if (!c) return null;
   const old = document.querySelector('.pa-card[data-id="' + c.id + '"]'); if (old) old.closest('.row').remove();
-  const row = document.createElement('div'); row.className = 'row bot'; row.appendChild(botFace());
+  const row = document.createElement('div'); row.className = 'row bot msg'; row.dataset.role = 'assistant'; row.appendChild(botFace());
   const card = document.createElement('div'); card.className = 'bubble pa-card ' + c.status; card.dataset.id = c.id; card.dataset.kind = c.kind;
   const q = document.createElement('div'); q.className = 'pa-q'; q.textContent = c.kind === 'approval' && !c.order ? 'Waiting for you: ' + c.question : (c.order ? 'Place this order on ' + c.order.platform + '?' : c.question); card.appendChild(q);
   const done = c.status !== 'open'; const ans = c.answer || {};
@@ -323,6 +489,7 @@ function renderCard(c) {
   row.appendChild(card); $('#log').appendChild(row); showEmpty(); scrollDown(); return row;
 }
 async function send(text, isVoice, files) {
+  const turnStarted = performance.now();
   isVoice = !!isVoice || nextIsVoice; nextIsVoice = false; const talk = willSpeak(isVoice); let clip = null;
   files = files || []; if (!text && files.length) text = '(sent attachments)';
   const userRow = addUser(text, files); hands.turnStarted(); setRunning(true); setMood('thinking');
@@ -344,6 +511,7 @@ async function send(text, isVoice, files) {
           continue;
         }
         if (ev.event === 'group_done') { continue; }
+        if (ev.event === 'writes') { addUndo(bot.row, ev.paths); continue; }
         if (ev.event === 'saved') { if (window.Reactions) Reactions.attach(ev.role === 'user' ? userRow : bot.row, ev.id); continue; }
         if (ev.event === 'reactions') { if (window.Reactions) Reactions.update(ev.id, ev.reactions); continue; }
         if (ev.event === 'done' && ev.speaker) { bot.text = ev.text || ''; renderMd(bot.body, bot.text, false); groupChips(bot, ev.chips); scrollDown(); continue; }
@@ -351,7 +519,7 @@ async function send(text, isVoice, files) {
         else if (ev.event === 'step') { act.set(ev.label || 'Working…'); if (ev.name) { labels[ev.name] = ev.label; setMood('working'); } }
         else if (ev.event === 'plan') { renderPlan(bot, ev); const next = (ev.steps || []).find((x) => x.status === 'pending'); act.set(next ? 'Step ' + next.number + ': ' + next.text : 'All steps done, checking…'); }
         else if (ev.event === 'team_plan') { act.set('Team is planning ' + ((ev.steps || []).length) + ' tasks'); }
-        else if (ev.event === 'token') { act.set('Writing the reply…'); bot.text += (bot.text ? ' ' : '') + ev.text; renderMd(bot.body, bot.text, true); scrollDown(); if (talk && !speaking) { speaking = true; setMood('speaking'); } }
+        else if (ev.event === 'token') { act.set('Writing the reply…'); bot.text += (bot.text ? ' ' : '') + ev.text; renderMd(bot.body, bot.text, true); scrollDown(); if (talk && !speaking) { speaking = true; voiceOpen = true; setMood('speaking'); } }
         else if (ev.event === 'tool_start') { /* shown by the live activity line */ }
         else if (ev.event === 'tool_end') {
           act.finish(labels[ev.name] || ev.name.replace(/_/g, ' '), ev.ok); act.set('Thinking…'); setMood('thinking');
@@ -359,25 +527,28 @@ async function send(text, isVoice, files) {
           if (ev.image) addImage(bot.chips.parentNode.querySelector('.md').parentNode, ev.image);
         }
         else if (ev.event === 'card') { renderCard(ev.card); }
-        else if (ev.event === 'model_switch') { chip(bot.chips, 'switched to ' + ev.model).classList.add('ok'); }
+        else if (ev.event === 'model_switch') {
+          chip(bot.chips, 'switched to ' + ev.model).classList.add('ok');
+        }
         else if (ev.event === 'error') { addError(bot.body.parentNode, ev.text); setStatus(ev.text, true); }
         else if (ev.event === 'barge') { barge = ev.text; }
         else if (ev.event === 'done') {
           act.end();
           finalText = ev.text || bot.text; if (!bot.text && finalText) bot.text = finalText;
           renderMd(bot.body, bot.text || '', false); if (!bot.text) bot.body.innerHTML = '';
-          if (talk && bot.text) setMood('speaking'); else setMood('idle');
+          if (talk && bot.text) { voiceOpen = true; setMood('speaking'); } else if (!voiceOpen) setMood('idle');
         }
         else if (ev.event === 'audio') { clip = ev.url; }
-        else if (ev.event === 'speech_end') { if (!clip) setMood('idle'); }
+        else if (ev.event === 'speech_end') { if (!clip) { voiceOpen = false; setMood('idle'); } }
       }
     }
   } catch (e) { addError(bot.body.parentNode, 'Connection to the agent failed: ' + (e && e.message || e)); }
   finally {
-    act.end(); if (rowFace) { const f = rowFace; f.setState('idle'); f.celebrate(); }
+    act.end();
     renderMd(bot.body, bot.text || '', false); if (!bot.text) bot.body.innerHTML = '';
-    setRunning(false); setMood('idle'); rowFace = null; loadSessions();
+    if (performance.now() - turnStarted > 8000 && document.hidden) finishPing();
     if (clip) await playClip(clip);
+    voiceOpen = false; setMood('idle'); rowFace = null; setRunning(false); loadSessions();
     if (barge) { hands.state.turnRunning = false; send(barge, true); } else hands.turnEnded();
   }
 }
@@ -516,6 +687,7 @@ if (session) openSession(session); else { loadSessions(); showEmpty(); }
 })();
 
 $('#backup-save') && ($('#backup-save').onclick = async () => { const v = $('#backup-key').value.trim(); if (!v) return; const r = await api('/api/setup', { groq_api_key: v }); $('#backup-key').value = ''; $('#backup-msg').textContent = r.ok ? (r.backup_model ? ' Saved.' : ' Not saved.') : (' ' + (r.error || 'Could not save.')); });
+$('#undo-last') && ($('#undo-last').onclick = async () => { const r = await api('/api/undo', {}); const el = $('#undo-msg'); if (el) el.textContent = ' ' + (r.ok ? (r.message || 'Undone.') : (r.error || 'Nothing to undo.')); });
 
 
 // 1.4.8: Approve / Deny bar for a waiting send/delete (works in the phone app too; it never sends by itself)

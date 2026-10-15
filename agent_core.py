@@ -460,7 +460,7 @@ How to work (reasoning and checking):
 - Checker step: before the final report of a multi-step task, call review_work with your claims and the files you made. Report every 'Could not verify' line; never hide a problem it found.
 - Saved task skills: if Pedro says "like last time" or a task matches one, call list_task_skills / use_task_skill and follow it. After a task worked well and Pedro may repeat it, offer save_task_skill (no passwords, no graded tests). Recorded mouse demos are separate: list_skills / replay_skill.
 - "Is everything set up" / setup help: setup_checklist.
-- "Morning report" or a daily check calls daily_report. Deadlines: add_deadline. "What did you change": show_change_log. "How much Gemini did I use": gemini_usage.
+- "Morning report" or a daily check calls daily_report. Deadlines: add_deadline. "What did you change": show_change_log. "Undo that" or "undo the last file" calls undo_last_change. "How much Gemini did I use": gemini_usage.
 - Before acting on anything with more than one step, think it through: what the user really wants, what "done" looks like, and the shortest safe path. Write that as create_task_plan steps, each with a checkable result (a file exists, a page shows X, a field says Y).
 - After each step, check the real result, not your intention: take_screenshot or verify_screen with a specific expectation (exact title, file name, or text), or read the file back. A vague expectation ("page loaded") proves nothing.
 - Never claim something is done, saved, sent, complete or "none left" without evidence you saw in this run. If you could not check, say so plainly.
@@ -631,6 +631,11 @@ Itvedant Wingz assignments (when the user mentions Itvedant, Wingz, assignments,
 
 Wake word:
 - A background listener waits for "hey agent", plays a chime, then records the request. You do not call a tool for the wake phrase. The text you receive is the request that followed it.
+
+Custom bots:
+- Each bot has its own notebook (bot_remember, bot_notes), lessons (save_bot_skill, list_bot_skills), and a folder (list_my_files). A scheduled task is given its previous result and the files it wrote.
+- A bot may hand one task to another bot with ask_bot. The bot that receives it cannot hand it on.
+- To teach a bot by doing the task on this PC, call teach_bot or record_demonstration with that bot's name, tell the user to do the task, then call stop_demonstration when they say stop. The lesson is saved on that bot. Typed passwords stay on this PC and are not put in the lesson. replay_skill repeats the recorded clicks. Where the lesson typed and the user gave new words, pass them as inputs, one value per line. When the questions or labels on screen are different, call follow_skill. It reads the screen, types the answer that fits, and fixes a step that did not land. It stops for a password or a graded test, quiz, or exam.
 
 Memory:
 - Facts listed under "Known facts saved on this computer" are already loaded. Use them. Do not ask again for a name, a preference, or a game path that is listed there.
@@ -1980,7 +1985,13 @@ def create_directory(relative_path: str) -> dict[str, Any]:
             return _err("Refusing to treat the game folder itself as a new directory.")
         if target.exists() and not target.is_dir():
             return _err(f"A file already exists at {target}, so a folder was not created.")
+        import undo_store
+        fresh = not target.exists()
+        if fresh:
+            undo_store.remember(target, directory=True)
         target.mkdir(parents=True, exist_ok=True)
+        if fresh:
+            undo_store.seal(target)
         return _ok(
             f"Folder is ready: {target}",
             game_root=str(game),
@@ -4987,6 +4998,10 @@ import extras148 as _extras
 TOOL_DECLARATIONS.extend(_extras.DECLARATIONS)
 TOOLS.update(_extras.TOOLS)
 _PLAN_FREE_TOOLS.update(_extras.TOOLS)
+import undo_store as _undo
+TOOL_DECLARATIONS.extend(_undo.DECLARATIONS)
+TOOLS.update(_undo.TOOLS)
+_PLAN_FREE_TOOLS.update(_undo.TOOLS)
 import extras149 as _extras149
 TOOL_DECLARATIONS.extend(_extras149.DECLARATIONS)
 TOOLS.update(_extras149.TOOLS)
@@ -5253,6 +5268,20 @@ def set_unattended(on: bool) -> None:
     _tool_scope.unattended = bool(on)
 
 
+def _clean_tool_arguments(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Drop blank argument names.
+
+    A backup model sometimes calls a no-input tool as {"": {}}. That name is
+    not a parameter, so the call used to fail before the webcam opened.
+    """
+    cleaned: dict[str, Any] = {}
+    for key, value in arguments.items():
+        name = str(key).strip()
+        if name:
+            cleaned[name] = value
+    return cleaned
+
+
 def invoke_tool(name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
     """Run one declared tool. Exceptions become error payloads for the model."""
     function = TOOLS.get(name)
@@ -5268,7 +5297,7 @@ def invoke_tool(name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
         return _err("Wingz work happens in the web portal in Chrome. Desktop apps are blocked for this task; "
                     "use navigate_browser/open_website with https://wingz.itvedant.com/ instead.",
                     blocked_by_rules=True)
-    arguments = dict(arguments or {})
+    arguments = _clean_tool_arguments(dict(arguments or {}))
     rule_block = rules.tool_block_reason(name)
     if rule_block is not None:
         return _err(rule_block, blocked_by_rules=True)
@@ -5316,6 +5345,12 @@ def invoke_tool(name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
         confirm_action.note_done(name, arguments, result)
     if result.get("ok"):
         _autosave_tool_memory(name, result)
+        try:
+            import bots as _bots
+
+            _bots.note_tool_paths(result)
+        except Exception:
+            pass
     return result
 
 
@@ -5324,6 +5359,8 @@ def _redacted_tool_arguments(name: str, arguments: dict[str, Any]) -> dict[str, 
     shown = dict(arguments)
     if name == "type_text" and "text" in shown:
         shown["text"] = f"[{len(str(shown['text']))} characters]"
+    if name in {"replay_skill", "follow_skill"} and "inputs" in shown:
+        shown["inputs"] = f"[{len(str(shown['inputs']))} characters]"
     if name == "run_blender_task" and "script" in shown:
         shown["script"] = f"[{len(str(shown['script']))} characters]"
     if name == "build_local_program" and "files" in shown:
@@ -5398,6 +5435,12 @@ def _scrub(text: str) -> str:
 def _is_daily_quota(exc: BaseException) -> bool:
     text = str(exc)
     return "RESOURCE_EXHAUSTED" in text or "429" in text
+
+
+ALL_QUOTA_MESSAGE = (
+    "Every Gemini model is out of free requests for today. "
+    "Paste a Groq key in Settings -> Backup model key, or wait until tomorrow."
+)
 
 
 def _quota_message(exc: BaseException) -> str:
@@ -5682,6 +5725,17 @@ def _thinking_rejected(exc: BaseException) -> bool:
     )
 
 
+def _undo_path(result: dict[str, Any]) -> str:
+    """A file path safe to show on an Undo button. Secret files are omitted."""
+    raw = str(result.get("path") or result.get("file") or "")
+    if not raw:
+        return ""
+    name = Path(raw).name.casefold()
+    if name == ".env" or name.startswith(".env."):
+        return ""
+    return raw
+
+
 def _result_image(result: dict[str, Any]) -> str | None:
     """A screenshot/webcam/image path in a tool result, for the chat preview."""
     path = str(result.get("path") or result.get("image_path") or "")
@@ -5698,6 +5752,37 @@ def model_candidates(first: str | None = None) -> list[str]:
         if name and name not in order:
             order.append(name)
     return order
+
+
+def models_for_turn(order: list[str], spent: set[str] | None = None) -> tuple[list[str], bool]:
+    """Drop models already out of free quota today.
+
+    The second value is true when the order had models and every one of them is spent,
+    which means the turn should use the Groq backup instead of calling Gemini.
+    """
+    gone = spent or set()
+    fresh = [name for name in order if name not in gone]
+    return fresh, bool(order) and not fresh
+
+
+def _spent_models() -> set[str]:
+    try:
+        import extras148
+        return set(extras148.exhausted_models())
+    except Exception:
+        return set()
+
+
+def _use_quota_backup(user_text: str, history: list[Any], types: Any, on_event: Callable[[dict[str, Any]], None] | None) -> str | None:
+    """Groq reply when every Gemini model is out for today. None when no backup key is set."""
+    import cloud_fallback
+
+    if not cloud_fallback.available():
+        return None
+    print("[quota] Every Gemini model is out of free requests today. Using the backup model.", flush=True)
+    reply = cloud_fallback.run(user_text, on_event=on_event)
+    history.append(types.Content(role="model", parts=[types.Part.from_text(text=reply)]))
+    return reply
 
 
 def max_tool_rounds() -> int:
@@ -6121,6 +6206,7 @@ def _run_agent_core(
                 ok=bool(result.get("ok")),
                 detail=_scrub(str(result.get("message") or result.get("error") or ""))[:400],
                 image=_result_image(result),
+                path=_undo_path(result) if result.get("ok") else "",
             )
             response_parts.append(
                 _function_response(name, result, getattr(call, "id", None))
@@ -6484,6 +6570,64 @@ def _ensure_speech_mixer() -> None:
     pygame.mixer.music.set_volume(1.0)
 
 
+# A decoded length under this is not used to end a reply. A bad Sound
+# decode of a few hundred milliseconds must not unload the voice at once.
+_PLAYBACK_MIN_TRUST_MS = 400
+
+
+def playback_should_continue(
+    *,
+    busy: bool,
+    pos_ms: float,
+    elapsed_ms: float,
+    duration_ms: int,
+    saw_busy: bool,
+    quiet_ticks: int,
+) -> str:
+    """Decide one playback poll: 'play', 'wait', or 'done'.
+
+    pygame's get_pos() can report the previous track, or a position past the
+    file, on the first poll. That reading is not the end of the reply. The
+    reply ends when wall-clock time has reached a trusted file length, or
+    the device has stayed idle after startup when there is no trusted length.
+    'done' unloads the device, so an early 'done' cuts the voice at the start.
+    """
+    trusted = duration_ms >= _PLAYBACK_MIN_TRUST_MS
+    pos_in_file = trusted and 0 <= pos_ms <= duration_ms + 80
+    playing = bool(busy) or pos_in_file
+    if trusted and elapsed_ms + 40 >= duration_ms:
+        near_end = pos_in_file and pos_ms >= duration_ms - 80
+        if not busy or near_end or elapsed_ms >= duration_ms + 200:
+            return "done"
+        return "play"
+    if playing:
+        return "play"
+    if not saw_busy and elapsed_ms < 1500:
+        return "wait"
+    if trusted and elapsed_ms + 120 < duration_ms:
+        return "wait"
+    if not trusted and elapsed_ms < 2000:
+        return "wait"
+    if quiet_ticks < 8:
+        return "wait"
+    return "done"
+
+
+def _voice_file_ms(path: Path) -> int:
+    """File length in milliseconds, or 0 when pygame cannot say."""
+    try:
+        import pygame
+
+        sound = pygame.mixer.Sound(str(path))
+        try:
+            ms = int(float(sound.get_length()) * 1000)
+        finally:
+            del sound
+        return ms if ms > 0 else 0
+    except Exception:
+        return 0
+
+
 def _play_mp3_pygame(
     path: Path,
     stop_event: threading.Event | None = None,
@@ -6491,25 +6635,83 @@ def _play_mp3_pygame(
     import pygame
 
     _ensure_speech_mixer()
+    # Measure the file before music.load. A Sound created afterwards can
+    # disturb the track that is about to play.
+    file_ms = _voice_file_ms(path)
+    envelope = speech_level.envelope_for_file(path)
+    speech_level.start(envelope)
+    envelope_ms = len(envelope) * speech_level.WINDOW_MS
+    # Ignore a tiny decode and a wildly long one. Either would unload the
+    # PC voice at the wrong time. Between two sane lengths, keep the longer
+    # so the end of the reply is not clipped.
+    trusted_lengths = [
+        ms for ms in (file_ms, envelope_ms)
+        if _PLAYBACK_MIN_TRUST_MS <= ms <= 180_000
+    ]
+    duration_ms = max(trusted_lengths) if trusted_lengths else 0
     if stop_event is not None:
         _arm_playback(stop_event, use_pygame=True)
     music = pygame.mixer.music
     music.set_volume(1.0)
     music.load(str(path))
-    speech_level.start(speech_level.envelope_for_file(path))
+    started = time.monotonic()
+    saw_busy = False
+    quiet_ticks = 0
     try:
         if stop_event is not None and stop_event.is_set():
             return
         music.play()
         clock = pygame.time.Clock()
-        while music.get_busy():
+        while True:
             if stop_event is not None and stop_event.is_set():
+                music.stop()
                 break
-            speech_level.update(music.get_pos())
+            try:
+                pos = float(music.get_pos())
+            except (TypeError, ValueError):
+                pos = -1.0
+            busy = bool(music.get_busy())
+            elapsed = (time.monotonic() - started) * 1000
+            # A position past the file is the previous mixer clock, not this reply.
+            usable_pos = pos
+            if duration_ms > 0 and not (0 <= pos <= duration_ms + 150):
+                usable_pos = -1.0
+            decision = playback_should_continue(
+                busy=busy,
+                pos_ms=pos,
+                elapsed_ms=elapsed,
+                duration_ms=duration_ms,
+                saw_busy=saw_busy,
+                quiet_ticks=quiet_ticks,
+            )
+            if busy or usable_pos >= 0:
+                saw_busy = True
+                quiet_ticks = 0
+                speech_level.update(usable_pos if usable_pos >= 0 else elapsed)
+            else:
+                quiet_ticks += 1
+            if decision == "done":
+                # Never unload while wall-clock time is still inside a real file.
+                if (
+                    duration_ms >= _PLAYBACK_MIN_TRUST_MS
+                    and elapsed + 80 < duration_ms
+                    and (stop_event is None or not stop_event.is_set())
+                ):
+                    clock.tick(100)
+                    continue
+                # The file timeline is over. Leave a short drain, and do not
+                # call stop(), which cuts off the end of the voice.
+                if stop_event is None or not stop_event.is_set():
+                    settle = time.monotonic()
+                    while time.monotonic() - settle < 0.35 and music.get_busy():
+                        if stop_event is not None and stop_event.is_set():
+                            music.stop()
+                            break
+                        clock.tick(100)
+                break
             clock.tick(100)
     finally:
         speech_level.stop()
-        music.stop()
         unload = getattr(music, "unload", None)
         if callable(unload):
             unload()
@@ -6539,6 +6741,7 @@ def _play_mp3_windows(
         if started != 0:
             detail = buffer.value.strip() or str(started)
             raise RuntimeError(f"Could not play the voice audio ({detail}).")
+        origin = time.monotonic()
         while True:
             if stop_event is not None and stop_event.is_set():
                 send(f"stop {alias}")
@@ -6546,6 +6749,7 @@ def _play_mp3_windows(
             send(f"status {alias} mode")
             if buffer.value.strip().casefold() != "playing":
                 break
+            speech_level.note_cursor((time.monotonic() - origin) * 1000)
             time.sleep(0.02)
     finally:
         send(f"close {alias}")
@@ -6577,6 +6781,10 @@ BARGE_FRAME_MS = 30
 BARGE_WARMUP_FRAMES = 4
 BARGE_HOT_FRAMES = 1
 BARGE_TRAILING_FRAMES = 18
+# Speaker onset on the PC is loud for about the first second. Treating that
+# as the user talking stops the reply at the start. The phone does not use
+# this microphone path.
+BARGE_ONSET_GRACE_S = 1.0
 # While the reply plays, speech must sit above the speaker bleed.
 BARGE_ECHO_RATIO = 1.5
 BARGE_RELEASE_RATIO = 1.25
@@ -6661,6 +6869,11 @@ def _collect_barge_pcm(
     return None
 
 
+def barge_in_grace(elapsed_s: float) -> bool:
+    """True while PC speaker onset must not be treated as the user talking."""
+    return elapsed_s < BARGE_ONSET_GRACE_S
+
+
 def _collect_barge_from_microphone(
     stop_playback: threading.Event,
     playback_done: threading.Event,
@@ -6684,12 +6897,20 @@ def _collect_barge_from_microphone(
         audio.terminate()
         raise
     meter = _BargeMeter()
+    opened = time.monotonic()
     try:
         while True:
             if playback_done.is_set() and not meter.speaking:
                 return None
             frame = stream.read(frame_count, exception_on_overflow=False)
             status = meter.push(frame)
+            if barge_in_grace(time.monotonic() - opened):
+                if status != "continue":
+                    meter.noise = max(meter.noise, _pcm_rms(frame))
+                    meter.speaking = False
+                    meter.silence = 0
+                    meter.speech.clear()
+                continue
             if status == "speech":
                 stop_agent_speech()
             elif status == "done":
@@ -6799,7 +7020,10 @@ async def _barge_during_playback(
         )
     finally:
         playback_done.set()
-        stop_agent_speech()
+        # Stop only when the user interrupted. Stopping after a natural end
+        # cuts the last part of the reply.
+        if stop_playback.is_set():
+            stop_agent_speech()
         _disarm_playback()
         watch_stop.set()
         if watcher is not None:
@@ -6910,11 +7134,27 @@ def listen_to_microphone(
             recognizer.dynamic_energy_threshold = True
             if announce:
                 print("Listening...", flush=True)
-            audio = recognizer.listen(
-                source,
-                timeout=timeout,
-                phrase_time_limit=phrase_time_limit,
-            )
+            stream = source.stream
+            original_read = stream.read
+
+            def _metered_read(*args: Any, **kwargs: Any) -> bytes:
+                data = original_read(*args, **kwargs)
+                try:
+                    speech_level.note_pcm(data)
+                except Exception:
+                    pass
+                return data
+
+            stream.read = _metered_read
+            try:
+                audio = recognizer.listen(
+                    source,
+                    timeout=timeout,
+                    phrase_time_limit=phrase_time_limit,
+                )
+            finally:
+                stream.read = original_read
+                speech_level.clear_mic()
     except speech_module.WaitTimeoutError:
         return _err("No speech heard. Try again.")
     except AttributeError as exc:

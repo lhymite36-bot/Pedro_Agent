@@ -60,6 +60,7 @@ _TEMPLATES: dict[str, tuple[str, tuple[str, ...]]] = {
     "self_upgrade": ("Upgrading myself", ()),
     "record_demonstration": ("Watching you to learn a skill", ()),
     "replay_skill": ("Replaying skill {}", ("name",)),
+    "follow_skill": ("Following {}", ("name",)),
     "system_tests": ("Running tests", ()),
 }
 

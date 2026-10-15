@@ -16,6 +16,8 @@ WINDOW_MS = 40
 _lock = threading.Lock()
 _envelope: list[float] = []
 _level: float | None = None
+_cursor = -1
+_mic: float | None = None
 
 
 def envelope_from_samples(samples: Any, rate: int, channels: int = 1, window_ms: int = WINDOW_MS) -> list[float]:
@@ -57,15 +59,17 @@ def envelope_for_file(path: Any) -> list[float]:
 
 
 def start(envelope: list[float]) -> None:
-    global _envelope, _level
+    global _envelope, _level, _cursor
     with _lock:
         _envelope = list(envelope)
         _level = 0.0 if _envelope else None
+        _cursor = 0 if _envelope else -1
 
 
 def update(ms: float) -> float | None:
-    global _level
+    global _level, _cursor
     with _lock:
+        _cursor = int(max(0.0, ms))
         if not _envelope:
             return None
         index = int(max(0.0, ms) // WINDOW_MS)
@@ -73,11 +77,48 @@ def update(ms: float) -> float | None:
         return _level
 
 
+def note_cursor(ms: float) -> None:
+    """Record playback time when there is no loudness envelope."""
+    global _cursor
+    with _lock:
+        _cursor = int(max(0.0, ms))
+
+
+def cursor() -> int:
+    with _lock:
+        return _cursor
+
+
+def note_pcm(data: bytes) -> None:
+    """Publish the microphone loudness, 0..1, while a phrase is being recorded."""
+    global _mic
+    count = len(data) // 2
+    if count <= 0:
+        return
+    samples = array.array("h")
+    samples.frombytes(data[: count * 2])
+    rms = math.sqrt(sum(v * v for v in samples) / count)
+    with _lock:
+        _mic = min(1.0, rms / 3500.0)
+
+
+def mic() -> float | None:
+    with _lock:
+        return None if _mic is None else round(_mic, 3)
+
+
+def clear_mic() -> None:
+    global _mic
+    with _lock:
+        _mic = None
+
+
 def stop() -> None:
-    global _envelope, _level
+    global _envelope, _level, _cursor
     with _lock:
         _envelope = []
         _level = None
+        _cursor = -1
 
 
 def current() -> float | None:

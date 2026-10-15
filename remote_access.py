@@ -532,7 +532,9 @@ def make_remote_handler(state: Any) -> type:
                 self._json(allow_control(str(self._body().get("confirm") or "")))
                 return
             if path == "/live/control":
-                self._json(do_control(self._body()))
+                import live_pc
+
+                self._json(live_pc.local_control(self._body()))
                 return
             super().do_POST()
 

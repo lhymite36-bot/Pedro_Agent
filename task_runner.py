@@ -109,7 +109,10 @@ def capture_screenshot_file(name: str = "", crop: Any = None) -> dict[str, Any]:
             return _err("crop must be [left, top, right, bottom] on a 0-1000 grid.")
     stem = re.sub(r"[^A-Za-z0-9_-]+", "_", name or "")[:40] or time.strftime("shot_%H%M%S")
     path = _shots_dir() / f"{stem}.png"
+    import undo_store
+    undo_store.remember(path)
     img.save(path)
+    undo_store.seal(path)
     return _ok(f"Saved screenshot {path.name} ({img.size[0]}x{img.size[1]}).", path=str(path),
                width=img.size[0], height=img.size[1])
 
@@ -273,7 +276,10 @@ def make_document(title: str, steps: Any, format: str = "pdf", folder: str = "",
         while (out_dir / _safe_name(f"{title} {n}", "." + fmt)).exists():
             n += 1
         path = out_dir / _safe_name(f"{title} {n}", "." + fmt)
+    import undo_store
+    undo_store.remember(path)
     (_pdf if fmt == "pdf" else _docx)(path, title, items, headings)
+    undo_store.seal(path)
     return _ok(f"Saved {path.name} with {len(items)} steps at {path}.{note}", path=str(path), steps=len(items))
 
 

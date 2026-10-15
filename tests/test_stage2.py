@@ -75,9 +75,9 @@ class SpeechLevelTests(unittest.TestCase):
         self.assertTrue(speech_level.envelope_from_raw(raw, 1000, 2))
         speech_level.start([0.5])
         speech_level.update(0)
-        self.assertEqual(chat_app.level_payload(), {"level": 0.5})
+        self.assertEqual(chat_app.level_payload(), {"level": 0.5, "mic": None})
         speech_level.stop()
-        self.assertEqual(chat_app.level_payload(), {"level": None})
+        self.assertEqual(chat_app.level_payload(), {"level": None, "mic": None})
 
     def test_pygame_playback_drives_level(self) -> None:
         import inspect
@@ -86,8 +86,55 @@ class SpeechLevelTests(unittest.TestCase):
         src = inspect.getsource(agent_core._play_mp3_pygame)
         self.assertIn("speech_level.update", src)
         self.assertIn("speech_level.stop", src)
+        self.assertIn("playback_should_continue", src)
         js = (Path(__file__).resolve().parents[1] / "app_static" / "app.js").read_text(encoding="utf-8")
         self.assertIn("/api/level", js)
+        self.assertIn("voiceOpen", js)
+
+    def test_playback_waits_out_a_false_idle_and_a_moving_voice(self) -> None:
+        import agent_core
+        import chat_app
+
+        # A one-frame "not playing" just after start is not the end of the file.
+        self.assertEqual(agent_core.playback_should_continue(
+            busy=False, pos_ms=-1, elapsed_ms=40, duration_ms=4000, saw_busy=False, quiet_ticks=1,
+        ), "wait")
+        # Still inside the file, even if the device reports idle.
+        self.assertEqual(agent_core.playback_should_continue(
+            busy=False, pos_ms=-1, elapsed_ms=1000, duration_ms=4000, saw_busy=True, quiet_ticks=20,
+        ), "wait")
+        # The timeline has finished, so the device is left to drain.
+        self.assertEqual(agent_core.playback_should_continue(
+            busy=True, pos_ms=3980, elapsed_ms=4000, duration_ms=4000, saw_busy=True, quiet_ticks=0,
+        ), "done")
+        # pygame can report a position past the file on the first poll.
+        # That is not the end, and it must not unload the PC voice.
+        self.assertEqual(agent_core.playback_should_continue(
+            busy=False, pos_ms=999999, elapsed_ms=30, duration_ms=4000, saw_busy=False, quiet_ticks=0,
+        ), "wait")
+        self.assertEqual(agent_core.playback_should_continue(
+            busy=True, pos_ms=999999, elapsed_ms=30, duration_ms=4000, saw_busy=False, quiet_ticks=0,
+        ), "play")
+        # A few-hundred-millisecond decode is not trusted to end the reply at once.
+        self.assertEqual(agent_core.playback_should_continue(
+            busy=False, pos_ms=180, elapsed_ms=30, duration_ms=200, saw_busy=False, quiet_ticks=5,
+        ), "wait")
+        self.assertTrue(agent_core.barge_in_grace(0.2))
+        self.assertFalse(agent_core.barge_in_grace(1.0))
+        # No file length and the device has been idle: the reply is over.
+        self.assertEqual(agent_core.playback_should_continue(
+            busy=False, pos_ms=-1, elapsed_ms=2000, duration_ms=0, saw_busy=True, quiet_ticks=8,
+        ), "done")
+        now, deadline, cursor, last = 10.0, 10.5, 0, None
+        deadline, last = chat_app.speech_deadline(now, deadline, cursor, last)
+        self.assertEqual(last, 0)
+        self.assertGreater(deadline, now)
+        held = deadline
+        deadline, last = chat_app.speech_deadline(now + 1, deadline, 0, last)
+        self.assertEqual(deadline, held)
+        deadline, last = chat_app.speech_deadline(now + 1, deadline, 400, last)
+        self.assertGreater(deadline, held)
+        self.assertEqual(last, 400)
 
 
 class TeamTests(_Tmp):
@@ -169,7 +216,9 @@ class BotTests(_Tmp):
 
         self.bots, self.store = bots, chat_store
         os.environ["BOTS_DIR"] = str(self.root / "bots")
+        os.environ["BOT_FILES_DIR"] = str(self.root / "botfiles")
         self.addCleanup(os.environ.pop, "BOTS_DIR", None)
+        self.addCleanup(os.environ.pop, "BOT_FILES_DIR", None)
         self.addCleanup(setattr, bots, "engine", None)
         self.addCleanup(chat_store.close)
         self.calls = []
@@ -219,13 +268,15 @@ class BotTests(_Tmp):
         call = self.calls[-1]
         self.assertIn("Sort email.", call["prompt"])
         self.assertEqual(call["model"], "gemini-x")
-        self.assertEqual(call["scope"], {"recall_memory", "open_website"})
+        self.assertEqual(call["scope"], {"recall_memory", "open_website", "ask_bot", *self.bots.SELF_TOOLS})
         self.assertIsNotNone(call["blocked"])  # per-bot override applied in its thread
         self.assertIsNone(rules.tool_block_reason("open_website"))  # and only there
         self.assertIsNone(getattr(agent_core._tool_scope, "allowed", None))
         open_bot = self.bots.save_bot({"name": "Any"})
         self.bots.run_bot(open_bot, "x")
-        self.assertNotIn("ask_bot", self.calls[-1]["scope"])
+        self.assertIn("ask_bot", self.calls[-1]["scope"])
+        self.assertNotIn("run_team", self.calls[-1]["scope"])
+        self.assertIn("bot_remember", self.calls[-1]["scope"])
         self.assertIn("recall_memory", self.calls[-1]["scope"])
 
     def test_scheduled_tasks_and_thread_history(self) -> None:
@@ -249,6 +300,63 @@ class BotTests(_Tmp):
         self.assertFalse(self.bots._due(task, target - 5))
         task["last_run"] = target + 1
         self.assertFalse(self.bots._due(task, target + 60))
+
+    def test_notebook_folder_lesson_and_one_handoff(self) -> None:
+        import agent_core
+
+        self.bots.save_bot({"name": "Writer", "role": "writes"})
+        inbox = self._make()
+        self.handed = False
+
+        def fake(prompt, history, model, **kw):
+            self.calls.append({"prompt": prompt,
+                               "scope": getattr(agent_core._tool_scope, "allowed", None)})
+            if "Sort email." in prompt and not self.handed:
+                self.handed = True
+                self.nested = agent_core.invoke_tool("ask_bot", {"name": "Writer", "task": "write the note"})
+            if prompt.startswith("[You are the bot 'Writer'"):
+                self.refused = agent_core.invoke_tool("ask_bot", {"name": "Inbox Helper", "task": "again"})
+            return "bot reply"
+
+        self.bots.engine = fake
+        self.bots.run_bot(self.bots.get_bot(inbox["id"]), "hi", [])
+        self.assertTrue(self.nested["ok"], self.nested)
+        self.assertFalse(self.refused["ok"])
+        self.assertNotIn("ask_bot", self.calls[-1]["scope"])
+        self.assertTrue(self.bots.bot_remember("Sort invoices by date", "Inbox Helper")["ok"])
+        self.assertFalse(self.bots.bot_remember("password: hunter2", "Inbox Helper")["ok"])
+        self.bots.run_bot(self.bots.get_bot(inbox["id"]), "again", [])
+        self.assertIn("Sort invoices by date", self.calls[-1]["prompt"])
+        listed = self.bots.list_my_files("Inbox Helper")
+        self.assertTrue(listed["ok"], listed)
+        (Path(listed["path"]) / "note.txt").write_text("hello", encoding="utf-8")
+        self.assertTrue(any(name.endswith("note.txt") for name in self.bots.list_my_files("Inbox Helper")["files"]))
+        saved = self.bots.save_bot_skill("Export", "1. Open the sheet", "Inbox Helper")
+        self.assertTrue(saved["ok"], saved)
+        self.bots.run_bot(self.bots.get_bot(inbox["id"]), "use the lesson", [])
+        self.assertIn("Open the sheet", self.calls[-1]["prompt"])
+
+    def test_folder_watch_and_last_run_continue(self) -> None:
+        folder = self.root / "incoming"
+        folder.mkdir()
+        (folder / "old.pdf").write_text("old", encoding="utf-8")
+        bot = self.bots.save_bot({"name": "Filer", "role": "files", "tasks": [{
+            "text": "file the pdf",
+            "watch": {"path": str(folder), "pattern": "*.pdf"},
+        }]})
+        self.assertEqual(self.bots.run_due_tasks(1_000_000.0), [])
+        armed = self.bots.get_bot(bot["id"])["tasks"][0]
+        self.assertTrue(armed["watch_armed"])
+        self.assertIn("old.pdf", armed["watch_seen"])
+        new = folder / "new.pdf"
+        new.write_text("new", encoding="utf-8")
+        results = self.bots.run_due_tasks(1_000_000.0)
+        self.assertEqual(len(results), 1, results)
+        self.assertIn("new.pdf", self.calls[-1]["prompt"])
+        self.assertEqual(self.bots.run_due_tasks(1_000_000.0), [])
+        self.bots.run_task(bot["id"], bot["tasks"][0]["id"])
+        self.assertIn("Last time you ran this", self.calls[-1]["prompt"])
+        self.assertIn("bot reply", self.calls[-1]["prompt"])
 
     def test_main_agent_delegates_with_ask_bot(self) -> None:
         import agent_core
@@ -657,8 +765,12 @@ class RemoteAccessTests(_Tmp):
         self.assertFalse(act["control"])
         self.assertTrue(any("signed in" in a["text"] for a in act["items"]))
         self.assertEqual(self._req(base, "/api/rules", {"text": "x"}, cookie=cookie)[0], 403)
+        seen: list[str] = []
+        self.lp.mouse_override = lambda kind, fields: seen.append(kind)
+        self.addCleanup(setattr, self.lp, "mouse_override", None)
         ctl = json.loads(self._req(base, "/live/control", {"type": "click", "x": .5, "y": .5}, cookie=cookie)[2])
-        self.assertIn("View only", ctl["error"])
+        self.assertTrue(ctl["ok"], ctl)
+        self.assertEqual(seen, ["click"])
         self.assertEqual(self._req(base, "/api/status", cookie=cookie + "x")[0], 401)
         self.assertEqual(self._req(base, "/api/settings", {"model": "x"}, cookie=cookie, origin=False)[0], 200)
 
@@ -806,6 +918,7 @@ class DemoSkillTests(_Tmp):
         self.assertTrue(result["ok"], result)
         self.assertNotIn("hunter2", seen["prompt"])
         self.assertIn("7 characters typed", seen["prompt"])
+        self.assertIn("changes every time", seen["prompt"])
         self.assertTrue(seen["images"])
         folder = self.root / "skills" / "export-invoice"
         md = (folder / "SKILL.md").read_text(encoding="utf-8")
@@ -813,6 +926,9 @@ class DemoSkillTests(_Tmp):
         self.assertIn("replay skill export-invoice", md)
         actions = json.loads((folder / "actions.json").read_text(encoding="utf-8"))
         self.assertEqual(len(actions["events"]), 17)
+        self.assertEqual(actions["inputs"], [{"id": "input_1", "label": "Input 1", "chars": 7}])
+        self.assertNotIn("hunter2", json.dumps(actions["inputs"]))
+        self.assertIn("Input 1", md)
         self.assertEqual(self.ds.list_skills()["skills"][0]["name"], "export-invoice")
 
     def test_typing_can_be_shared_when_switched_off(self) -> None:
@@ -822,22 +938,158 @@ class DemoSkillTests(_Tmp):
         self.ds.save_skill(self._recorder())
         self.assertIn("hunter2", seen["p"])
 
-    def test_replay_by_name_and_cancel(self) -> None:
+    def test_replay_asks_for_new_text_and_types_that(self) -> None:
         self.llm.override = lambda p, i: "# x"
         self.ds.save_skill(self._recorder())
         log = []
         self.ds.controller_factory = lambda: (FakeMouse(log), FakeKeys(log))
-        out = self.ds.replay_skill("Export Invoice", speed=5, sleep=lambda s: None)
+        asked = self.ds.replay_skill("Export Invoice", speed=5, sleep=lambda s: None)
+        self.assertFalse(asked["ok"])
+        self.assertEqual(asked["needs_input"], [{"label": "Input 1", "chars": 7}])
+        self.assertNotIn("hunter2", json.dumps(asked))
+        self.assertFalse(log)
+        out = self.ds.replay_skill("export-invoice", speed=5, inputs="Ada", sleep=lambda s: None)
         self.assertTrue(out["ok"], out)
-        self.assertEqual(out["done"], 17)
+        self.assertNotIn("Ada", out["message"])
         self.assertEqual(log[0][0:2], ("press", (100, 200)))
-        self.assertIn(("kdown", "h"), log)
+        typed = [item[1] for item in log if item[0] == "kdown"]
+        self.assertEqual(typed, ["A", "d", "a"])
         self.assertIn(("scroll", 0, -2), log)
         cancel = threading.Event()
         cancel.set()
-        stopped = self.ds.replay_skill("export-invoice", cancel_event=cancel, sleep=lambda s: None)
+        stopped = self.ds.replay_skill("export-invoice", inputs="Ada", cancel_event=cancel, sleep=lambda s: None)
         self.assertTrue(stopped["stopped"])
         self.assertFalse(self.ds.replay_skill("nope")["ok"])
+
+    def test_two_typed_steps_take_two_new_values(self) -> None:
+        rec = self.ds.Recorder("Fill Form")
+        rec.name = "fill-form"
+        rec.screen = (0, 0)
+        rec.async_frames = False
+        enter = type("K", (), {"char": None, "name": "enter"})()
+        for ch in "Ann":
+            rec.on_press(types_key(ch))
+            rec.on_release(types_key(ch))
+        rec.on_press(enter)
+        rec.on_release(enter)
+        for ch in "12":
+            rec.on_press(types_key(ch))
+            rec.on_release(types_key(ch))
+        self.llm.override = lambda p, i: "# form"
+        self.ds.save_skill(rec)
+        log = []
+        self.ds.controller_factory = lambda: (FakeMouse(log), FakeKeys(log))
+        missing = self.ds.replay_skill("fill-form", inputs="only one", sleep=lambda s: None)
+        self.assertFalse(missing["ok"])
+        self.assertEqual(len(missing["needs_input"]), 2)
+        self.assertFalse(log)
+        out = self.ds.replay_skill("fill-form", inputs="Bea\n99", speed=5, sleep=lambda s: None)
+        self.assertTrue(out["ok"], out)
+        downs = [item[1] for item in log if item[0] == "kdown"]
+        self.assertEqual(downs[:3], ["B", "e", "a"])
+        self.assertTrue(any("enter" in item.casefold() for item in downs[3:-2]))
+        self.assertEqual(downs[-2:], ["9", "9"])
+
+    def _lesson(self, name: str, body: str) -> None:
+        folder = self.root / "skills" / name
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "SKILL.md").write_text(body, encoding="utf-8")
+
+    def test_follow_reads_a_new_question_and_fixes_a_miss(self) -> None:
+        self._lesson("answer-form", "# Answer form\n## Steps\n1. Read the question\n2. Type the answer\n3. Click Save\n")
+        replies = iter([
+            '{"action":"type","text":"Paris","reason":"the question asks for the capital"}',
+            '{"action":"click","x":1,"y":1,"reason":"missed the button"}',
+            '{"action":"click","x":8,"y":9,"reason":"the save button"}',
+            '{"action":"done","reason":"saved"}',
+        ])
+        seen = {}
+
+        def fake(prompt, images):
+            seen["prompt"] = prompt
+            self.assertTrue(images)
+            return next(replies)
+
+        self.llm.override = fake
+        log = []
+        self.ds.controller_factory = lambda: (FakeMouse(log), FakeKeys(log))
+        out = self.ds.follow_skill("answer-form", sleep=lambda s: None)
+        self.assertTrue(out["ok"], out)
+        self.assertEqual(out["actions"], ["type", "click", "click"])
+        self.assertNotIn("Paris", json.dumps(out))
+        typed = "".join(item[1] for item in log if item[0] == "kdown")
+        self.assertEqual(typed, "Paris")
+        presses = [item[1] for item in log if item[0] == "press"]
+        self.assertEqual(presses, [(1, 1), (8, 9)])
+        self.assertIn("write the answer that fits", seen["prompt"])
+        self.assertIn("Read the question", seen["prompt"])
+
+    def test_follow_stops_for_a_graded_test_and_a_secret(self) -> None:
+        self._lesson("quiz", "# Quiz\n## Steps\n1. Answer\n")
+        self.llm.override = lambda prompt, images: '{"action":"stop","reason":"This is a graded test."}'
+        log = []
+        self.ds.controller_factory = lambda: (FakeMouse(log), FakeKeys(log))
+        stopped = self.ds.follow_skill("quiz", sleep=lambda s: None)
+        self.assertFalse(stopped["ok"])
+        self.assertIn("graded test", stopped["error"])
+        self.assertFalse(log)
+        self.llm.override = lambda prompt, images: '{"action":"type","text":"password: hunter2","reason":"fill it"}'
+        hidden = self.ds.follow_skill("quiz", sleep=lambda s: None)
+        self.assertFalse(hidden["ok"])
+        self.assertNotIn("hunter2", json.dumps(hidden))
+        self.assertFalse(any(item[0] == "kdown" for item in log))
+
+    def test_follow_stops_when_the_same_step_keeps_failing(self) -> None:
+        self._lesson("stuck", "# Stuck\n## Steps\n1. Click Go\n")
+        self.llm.override = lambda prompt, images: '{"action":"click","x":3,"y":4,"reason":"go"}'
+        log = []
+        self.ds.controller_factory = lambda: (FakeMouse(log), FakeKeys(log))
+        out = self.ds.follow_skill("stuck", sleep=lambda s: None, limit=8)
+        self.assertFalse(out["ok"])
+        self.assertIn("fix", out["error"])
+        self.assertEqual(len([item for item in log if item[0] == "press"]), 2)
+
+    def test_shortcut_is_not_an_input(self) -> None:
+        events = [
+            {"type": "key", "key": "Key.ctrl", "down": True},
+            {"type": "key", "key": "s", "down": True},
+            {"type": "key", "key": "s", "down": False},
+            {"type": "key", "key": "Key.ctrl", "down": False},
+        ]
+        self.assertEqual(self.ds.input_slots(events), [])
+
+    def test_replay_without_typing_starts_immediately(self) -> None:
+        rec = self.ds.Recorder("Click Only")
+        rec.name = "click-only"
+        rec.screen = (0, 0)
+        rec.async_frames = False
+        rec.on_click(3, 4, types_button("left"), True)
+        rec.on_click(3, 4, types_button("left"), False)
+        self.llm.override = lambda p, i: "# click"
+        self.ds.save_skill(rec)
+        log = []
+        self.ds.controller_factory = lambda: (FakeMouse(log), FakeKeys(log))
+        out = self.ds.replay_skill("click-only", speed=5, sleep=lambda s: None)
+        self.assertTrue(out["ok"], out)
+        self.assertEqual(log[0][0:2], ("press", (3, 4)))
+
+    def test_recording_is_saved_on_the_named_bot(self) -> None:
+        import bots
+
+        os.environ["BOTS_DIR"] = str(self.root / "bots")
+        self.addCleanup(os.environ.pop, "BOTS_DIR", None)
+        bot = bots.save_bot({"name": "Teacher", "role": "learns"})
+        rec = self._recorder()
+        rec.bot_id = bot["id"]
+        self.llm.override = lambda p, i: "# Export invoice\n## Steps\n1. Click Export\n"
+        result = self.ds.save_skill(rec)
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["bot"], "Teacher")
+        lesson = bots.get_bot("Teacher")["skills"][0]
+        self.assertIn("Click Export", lesson["text"])
+        self.assertIn("Input 1", lesson["text"])
+        self.assertNotIn("hunter2", lesson["text"])
+        self.assertFalse(self.ds.record_demonstration("x", bot="nobody")["ok"])
 
     def test_vision_failure_still_writes_steps(self) -> None:
         def boom(p, i):

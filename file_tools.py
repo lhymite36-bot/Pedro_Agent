@@ -66,8 +66,12 @@ def write_text_file(path: str, content: str, overwrite: bool = False) -> dict[st
             return agent._err(reason)
         if target.exists() and not overwrite:
             return agent._err(f"Already exists: {target}. Pass overwrite true to replace it.")
+        import undo_store
+
+        undo_store.remember(target)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(str(content or ""), encoding="utf-8")
+        undo_store.seal(target)
         return agent._ok(f"Saved {target}.", path=str(target), bytes=target.stat().st_size)
     except Exception as exc:
         return agent._err(f"write_text_file failed: {exc}")

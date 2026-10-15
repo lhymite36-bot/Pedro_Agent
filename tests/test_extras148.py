@@ -36,6 +36,11 @@ class ExtrasTests(unittest.TestCase):
         msg = agent_core.invoke_tool("gemini_usage", {})["message"]
         self.assertIn("m1: 2 calls, 1 errors (1 busy/quota)", msg)
 
+    def test_quota_line_names_the_exhausted_model(self):
+        extras148.note_model_call("gemini-3.5-flash-lite", False, "429 quota exceeded")
+        self.assertEqual(extras148.quota_line("gemini-3.5-flash-lite"), "gemini-3.5-flash-lite is out for today")
+        self.assertEqual(extras148.quota_line("gemini-3.1-flash-lite"), "gemini-3.5-flash-lite is out for today")
+
     def test_change_log(self):
         extras148.note_change("make_document", "C:/x.pdf")
         self.assertIn("C:/x.pdf", agent_core.invoke_tool("show_change_log", {})["message"])

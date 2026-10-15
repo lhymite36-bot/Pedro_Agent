@@ -51,7 +51,7 @@ def _post(body: dict[str, Any]) -> dict[str, Any]:
         os.environ.get("BACKUP_MODEL_URL", "").strip() or DEFAULT_URL,
         data=json.dumps(body).encode("utf-8"),
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key()}",
-                 "User-Agent": "PedroAgent/1.4 (+https://github.com/lhymite36-bot/Pedro_Agent)"},  # Groq's Cloudflare blocks the urllib default (error 1010)
+                 "User-Agent": "PedroAgent/1.4.12 (+https://github.com/lhymite36-bot/Pedro_Agent)"},  # Groq's Cloudflare blocks the urllib default (error 1010)
         method="POST",
     )
     try:
@@ -133,7 +133,8 @@ def run(user_text: str, *, on_event: Callable[[dict[str, Any]], None] | None = N
                 args = {}
             emit({"event": "tool_start", "name": name, "arguments": args})
             result = agent._execute_logged_tool(name, args)
-            emit({"event": "tool_end", "name": name, "ok": bool(result.get("ok", True))})
+            emit({"event": "tool_end", "name": name, "ok": bool(result.get("ok", True)),
+                  "path": agent._undo_path(result) if result.get("ok") else ""})
             public = {k: v for k, v in result.items() if not str(k).startswith("_")}
             messages.append({"role": "tool", "tool_call_id": call.get("id") or name,
                              "content": agent._scrub(json.dumps(public, default=str))[:4000]})

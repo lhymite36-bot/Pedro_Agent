@@ -16,6 +16,7 @@
   <div class="side-label row-label">Groups<button class="ib small" id="newgroup" type="button" title="New group">+</button></div>
   <div id="groups"></div>
   <div class="side-label">Chats</div>
+  <input id="chat-find" class="chat-find" type="search" placeholder="Search chats" autocomplete="off">
   <div id="sessions"></div>
   <button class="side-btn" id="livebtn" type="button"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>Live PC</button>
   <button class="side-btn" id="setbtn" type="button"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</button>
@@ -30,8 +31,9 @@
   <header>
     <button class="ib" id="menubtn" type="button" title="Chats"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
     <div id="hdr-avatar"></div>
-    <div class="who"><b>Pedro_Agent</b><small id="mood">Idle</small></div>
+    <div class="who"><b>Pedro_Agent</b><small id="mood">Idle</small><small id="live-step" hidden></small></div>
     <div class="spacer"></div>
+    <button class="ib" id="hdr-stop" type="button" title="Stop" hidden><svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2"/></svg></button>
   </header>
   <div id="log"></div>
   <div id="empty">
@@ -48,10 +50,11 @@
     <div class="live-head"><b>Live PC</b><span id="live-now">Idle</span><div class="spacer"></div>
       <select id="live-mode" title="View mode"><option value="stream">Stream</option><option value="frames">Frames</option></select>
       <label class="fps"><select id="live-fps" title="Frames per second"><option>1</option><option>5</option><option selected>10</option><option>15</option><option>30</option></select><span id="live-fps-v">10 fps</span></label>
+      <label class="fps">Size <input id="live-size" type="range" min="40" max="100" value="62" title="Picture size"><span id="live-size-v">62</span></label>
       <button class="ib" id="live-close" type="button" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
-    <div class="live-screen"><img id="live-img" alt="Your PC screen"></div>
+    <div class="live-screen"><img id="live-img" alt="Your PC screen" draggable="false"><button type="button" class="live-resize" id="live-resize" title="Drag to resize"></button></div>
     <div id="live-control" style="display:none">
-      <label class="ctl"><input type="checkbox" id="live-ctl-on"> Tap the screen to click</label>
+      <label class="ctl"><input type="checkbox" id="live-ctl-on"> <span id="live-ctl-label">Tap the screen to click</span></label>
       <button class="btn ghost" id="live-allow" type="button">Allow control</button>
       <form id="live-type"><input id="live-text" placeholder="Type on the PC…"><button class="btn" type="submit">Send</button></form>
       <span id="live-ctl-msg"></span>
@@ -95,6 +98,7 @@
         <button class="btn" id="phone-newqr" type="button">New QR code</button> <button class="btn ghost danger" id="phone-unpair" type="button">Unpair all devices</button></div></div>
       </div>
     </div>
+    <div class="field"><div>Undo last file<small>Puts back the previous copy of the last file the agent wrote, or removes a file it just created. Stops if that file changed afterwards.</small></div><button class="btn ghost" id="undo-last" type="button">Undo</button><span id="undo-msg"></span></div>
     <div class="field"><div>Chats<small>Deletes every normal chat. Bots, groups and their rooms stay.</small></div><button class="btn ghost danger" id="clear-chats" type="button">Clear all chats</button></div>
     <div class="field"><div>Model<small>Free Gemini models, tried in order on quota errors.</small></div><select id="model2"></select></div><div class="field"><div>Backup model key<small>Used only when every Gemini model is busy. Free Groq key from console.groq.com/keys. Stays on this PC.</small></div><input id="backup-key" type="password" placeholder="Paste Groq key" autocomplete="off"><button type="button" id="backup-save">Save</button><span id="backup-msg"></span></div>
     <div class="field"><div>Setup check<small>What is ready and what still needs you. Shows no keys.</small></div><button type="button" class="btn" id="setup-check">Check</button></div><pre id="setup-out" hidden></pre>
@@ -121,7 +125,7 @@
       <div class="inline"><label class="btn ghost">Upload picture<input id="grp-file" type="file" accept="image/*" hidden></label>
       <button class="btn ghost" id="grp-picclear" type="button" hidden>Use preset</button></div>
       <div class="inline"><label>Colour <input type="color" id="grp-color" value="#5b9dff"></label>
-      <label>Avatar <select id="grp-avatar"><option>round</option><option>square</option><option>spark</option><option>robot</option><option>cat</option><option>ghost</option><option>bunny</option></select></label></div>
+      <label>Avatar <select id="grp-avatar"><option>round</option><option>square</option><option>spark</option><option>robot</option><option>cat</option><option>ghost</option><option>bunny</option><option>fox</option><option>bear</option><option>owl</option><option>alien</option><option>dino</option><option>panda</option><option>frog</option><option>chick</option><option>octopus</option><option>star</option></select></label></div>
       <div id="grp-cropctl" class="inline" hidden><label>Zoom <input id="grp-zoom" type="range" min="1" max="4" step="0.05" value="1"></label>
       <label>Left/right <input id="grp-panx" type="range" min="0" max="1" step="0.01" value="0.5"></label>
       <label>Up/down <input id="grp-pany" type="range" min="0" max="1" step="0.01" value="0.5"></label></div></div></div>
@@ -142,8 +146,16 @@
     <h4>Character</h4><div class="shape-pick" id="shape-pick"></div>
     <h4>Role / system prompt</h4>
     <textarea id="bot-role" rows="4" placeholder="You are my email assistant. Keep replies short…"></textarea>
-    <h4>Tasks <small>one-off (run with ▶) or scheduled</small></h4>
+    <h4>Tasks <small>one-off, on a clock, or when a folder changes</small></h4>
     <div id="bot-tasks"></div><button class="btn ghost" id="bot-addtask" type="button">+ Add task</button>
+    <h4>Lessons <small>record the steps once. If the questions change, tell the bot to follow the lesson</small></h4>
+    <div class="inline"><input id="bot-lesson" placeholder="Lesson name, e.g. export invoice" maxlength="60">
+      <button class="btn ghost" id="bot-teach" type="button">Record</button>
+      <button class="btn ghost" id="bot-teach-stop" type="button" hidden>Stop and save</button></div>
+    <p id="bot-teachmsg" class="dim"></p>
+    <div id="bot-skills"></div>
+    <h4>Notebook</h4>
+    <div id="bot-notes"></div>
     <h4>Allowed tools <small>none ticked = every tool rules.yaml allows</small></h4>
     <input id="bot-toolfilter" placeholder="Filter tools…"><div id="bot-tools"></div>
     <h4>Rules override <small>optional JSON merged over rules.yaml for this bot, e.g. {"confirm":{"extra_tools":["write_file"]}}</small></h4>

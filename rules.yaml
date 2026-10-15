@@ -46,6 +46,8 @@ agent:
   models:
     - gemini-3.5-flash-lite
     - gemini-3.1-flash-lite
+    - gemini-2.5-flash
+    - gemini-2.5-flash-lite
   max_tool_rounds: 120         # steps per request before it stops and reports
   tool_timeout_seconds: 300    # a stuck tool is abandoned after this
 
@@ -59,7 +61,7 @@ speed:                         # screen control timing (lower = faster, less for
   retries: 1                   # extra attempts when something isn't found
   vision_max_width: 1024       # screenshots are shrunk to this width for vision
   vision_jpeg_quality: 60
-  vision_model: gemini-3.5-flash-lite   # fastest free model for finding things
+  vision_model: gemini-2.5-flash-lite   # fastest free model for finding things
   use_ui_automation: true      # find buttons by name first (instant), vision second
   ui_automation_timeout_seconds: 1.5
   window_cache_seconds: 30
