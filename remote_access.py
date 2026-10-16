@@ -546,6 +546,7 @@ def make_remote_handler(state: Any) -> type:
 
 _server: ThreadingHTTPServer | None = None
 _tunnel: subprocess.Popen | None = None
+_tunnel_gen = 0
 public_url = ""
 
 
@@ -571,13 +572,12 @@ def start(state: Any) -> dict[str, Any]:
 
 
 def stop() -> None:
-    global _server, _tunnel
-    if _tunnel is not None:
-        try:
-            _tunnel.terminate()
-        except Exception:
-            pass
-        _tunnel = None
+    global _server, _tunnel, _tunnel_gen
+    _tunnel_gen += 1
+    proc = _tunnel
+    _tunnel = None
+    if proc is not None:
+        _end_process(proc)
     if _server is not None:
         try:
             _server.shutdown()
@@ -585,6 +585,20 @@ def stop() -> None:
         except Exception:
             pass
         _server = None
+
+
+def _end_process(proc: subprocess.Popen) -> None:
+    try:
+        proc.terminate()
+    except Exception:
+        pass
+    try:
+        proc.wait(timeout=5)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
 
 
 def cloudflared_exe() -> str | None:
@@ -602,6 +616,40 @@ def parse_tunnel_url(line: str) -> str:
     return match.group(0) if match else ""
 
 
+def _follow_tunnel_output(proc: subprocess.Popen) -> bool:
+    """Read until cloudflared closes its output. Returns True when that process is still running.
+
+    Stopping at the first URL leaves the pipe unread. Once the pipe fills, cloudflared
+    blocks and the phone link stops resolving.
+    """
+    global public_url
+    announced = False
+    stream = proc.stdout
+    try:
+        if stream is not None:
+            for line in stream:
+                if announced:
+                    continue
+                url = parse_tunnel_url(line)
+                if not url:
+                    continue
+                announced = True
+                public_url = url
+                _announce(url, access_token())
+    except Exception:
+        pass
+    try:
+        alive = proc.poll() is None
+    except Exception:
+        alive = False
+    if not alive:
+        try:
+            proc.wait(timeout=5)
+        except Exception:
+            pass
+    return alive
+
+
 def start_tunnel(port: int) -> str:
     """Cloudflare quick tunnel (free, no account). Returns the https URL."""
     global _tunnel, public_url
@@ -612,17 +660,38 @@ def start_tunnel(port: int) -> str:
     flags: dict[str, Any] = {}
     if os.name == "nt":
         flags["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    _tunnel = subprocess.Popen([exe, "tunnel", "--no-autoupdate", "--url", f"http://127.0.0.1:{port}"],
-                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, shell=False, **flags)
-    deadline = time.time() + 60
-    for line in _tunnel.stdout or []:
-        url = parse_tunnel_url(line)
-        if url:
-            public_url = url
-            _announce(url, access_token())
+    generation = _tunnel_gen
+    quick_fails = 0
+    while generation == _tunnel_gen:
+        proc = subprocess.Popen(
+            [exe, "tunnel", "--no-autoupdate", "--url", f"http://127.0.0.1:{port}"],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+            text=True, encoding="utf-8", errors="replace", bufsize=1, shell=False, **flags)
+        _tunnel = proc
+        if generation != _tunnel_gen:
+            _end_process(proc)
+            if _tunnel is proc:
+                _tunnel = None
             break
-        if time.time() > deadline:
+        opened = time.monotonic()
+        alive = _follow_tunnel_output(proc)
+        if generation != _tunnel_gen:
+            if _tunnel is proc:
+                _tunnel = None
             break
+        if alive:
+            break
+        if _tunnel is proc:
+            _tunnel = None
+        public_url = ""
+        if time.monotonic() - opened >= 45:
+            quick_fails = 0
+        else:
+            quick_fails += 1
+        if quick_fails >= 4:
+            print("Remote: the phone link stopped. Turn Connect phone off and on in Settings.", flush=True)
+            break
+        time.sleep(min(2 * quick_fails, 8))
     return public_url
 
 

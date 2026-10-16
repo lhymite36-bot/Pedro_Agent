@@ -43,6 +43,23 @@ runner: Callable[[str, str, set[str]], str] | None = None
 
 
 LIVE_EMIT: Callable[[dict[str, Any]], None] | None = None
+_live_local = threading.local()
+
+
+def bind_live_emit(fn: Callable[[dict[str, Any]], None] | None) -> None:
+    """Plan and team lines from this thread stay in this chat."""
+    _live_local.bound = True
+    _live_local.emit = fn
+
+
+def clear_live_emit() -> None:
+    _live_local.bound = False
+
+
+def _live_emit() -> Callable[[dict[str, Any]], None] | None:
+    if getattr(_live_local, "bound", False):
+        return getattr(_live_local, "emit", None)
+    return LIVE_EMIT
 
 
 def settings() -> dict[str, Any]:
@@ -87,7 +104,10 @@ def _default_runner(role: str, task: str, tools: set[str]) -> str:
 
     prompt = (
         f"[Team member: {role}] {ROLES[role]['brief']} Only use these tools: "
-        f"{', '.join(sorted(tools)) or 'none'}. Do this sub-task and report the result briefly.\n\n{task}"
+        f"{', '.join(sorted(tools)) or 'none'}. Do this sub-task and report the result briefly. "
+        "Say only what a tool returned. If you did not check it, say you have not checked it. "
+        "Do not invent a path or a success.\n\n"
+        f"{task}"
     )
     agent_core.set_tool_scope(tools)
     try:
@@ -96,8 +116,10 @@ def _default_runner(role: str, task: str, tools: set[str]) -> str:
         agent_core.set_tool_scope(None)
 
 
-def _run_step(step: dict[str, str], cancel: threading.Event | None) -> dict[str, Any]:
-    live = LIVE_EMIT
+def _run_step(step: dict[str, str], cancel: threading.Event | None,
+              live: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
+    if live is None:
+        live = _live_emit()
     if live is not None:
         try:
             live({"event": "step", "label": f"{step['role'].capitalize()} agent: {str(step['task'])[:60]}", "name": "team"})
@@ -117,6 +139,7 @@ def review(goal: str, results: list[dict[str, Any]]) -> dict[str, Any]:
     joined = "\n\n".join(f"#{i} [{r['role']}] {r['task']}\n{r['result']}" for i, r in enumerate(results))
     prompt = (
         "You are the reviewer. Check whether the team's results meet the goal. "
+        "The summary may use only facts written in RESULTS. If a result failed, ok is false. "
         "Reply with JSON only: {\"ok\": true|false, \"summary\": \"answer for the user\", "
         "\"redo\": [{\"index\": n, \"task\": \"corrected sub-task\"}]}.\n\n"
         f"GOAL: {goal}\n\nRESULTS:\n{joined}"
@@ -142,12 +165,12 @@ def run_team(goal: str, cancel_event: threading.Event | None = None,
     if not goal:
         return agent_core._err("A goal is required.")
     cfg = settings()
-    emit = on_event or LIVE_EMIT or (lambda _e: None)
+    emit = on_event or _live_emit() or (lambda _e: None)
     steps = plan(goal)
     emit({"event": "team_plan", "steps": steps})
     workers = max(1, int(cfg["max_parallel"] or 1))
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers, thread_name_prefix="team") as pool:
-        results = list(pool.map(lambda s: _run_step(s, cancel_event), steps))
+        results = list(pool.map(lambda s: _run_step(s, cancel_event, emit), steps))
     for r in results:
         emit({"event": "team_result", "role": r["role"], "ok": r["ok"]})
     verdict = {"ok": all(r["ok"] for r in results), "summary": "\n".join(r["result"] for r in results), "redo": []}

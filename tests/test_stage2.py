@@ -220,6 +220,8 @@ class BotTests(_Tmp):
         self.addCleanup(os.environ.pop, "BOTS_DIR", None)
         self.addCleanup(os.environ.pop, "BOT_FILES_DIR", None)
         self.addCleanup(setattr, bots, "engine", None)
+        self.addCleanup(setattr, bots, "lock_for", None)
+        self.addCleanup(bots._jobs.clear)
         self.addCleanup(chat_store.close)
         self.calls = []
 
@@ -396,6 +398,137 @@ class BotTests(_Tmp):
             self.assertEqual(self.bots.list_bots(), [])
         finally:
             chat_app.shutdown(server)
+
+    def test_search_transcript_and_standing_duty(self) -> None:
+        import agent_core
+
+        bot = self._make()
+        self.bots.save_bot({"name": "Writer", "role": ""})
+        self.bots.save_bot({"name": "Mail Clerk", "role": "email digests"})
+        email = self.bots.bot_search("email")
+        names = [row["name"] for row in email["bots"]]
+        self.assertEqual(names[0], "Inbox Helper")
+        self.assertIn("Mail Clerk", names)
+        self.assertNotIn("Writer", names)
+        writer = self.bots.bot_search("writer")
+        self.assertEqual(writer["bots"][0]["name"], "Writer")
+        self.assertEqual(writer["bots"][0]["role"], "")
+        self.assertGreaterEqual(len(self.bots.bot_search("")["bots"]), 3)
+        self.store.add("bot-inbox-helper", "user", "password: hunter2")
+        self.store.add("bot-inbox-helper", "assistant", "Checked the inbox.")
+        transcript = self.bots.bot_transcript("Inbox Helper")
+        dumped = json.dumps(transcript)
+        self.assertNotIn("hunter2", dumped)
+        self.assertIn("[hidden]", dumped)
+        self.assertIn("Checked the inbox.", dumped)
+        before = len(self.bots.get_bot(bot["id"])["tasks"])
+        saved = self.bots.save_standing_duty(
+            "Morning inbox", "Check the inbox and report new mail.", "every day at 8 AM", "Inbox Helper")
+        self.assertTrue(saved["ok"], saved)
+        self.assertEqual(saved["routine"]["target"], "bot")
+        self.assertEqual(saved["routine"]["target_id"], bot["id"])
+        self.assertIn("awake", saved["message"])
+        self.assertEqual(len(self.bots.get_bot(bot["id"])["tasks"]), before)
+        self.assertIn("Morning inbox", self.bots.bot_search("inbox")["bots"][0]["routines"])
+        again = self.bots.save_standing_duty(
+            "Morning inbox", "Check the inbox and report new mail.", "every day at 8 AM", "Inbox Helper")
+        self.assertFalse(again["ok"])
+        self.bots.run_bot(self.bots.get_bot(bot["id"]), "again", [])
+        self.assertIn("save_standing_duty", self.calls[-1]["prompt"])
+        self.assertIn("Earlier in this chat", self.calls[-1]["prompt"])
+        self.assertIn("Checked the inbox.", self.calls[-1]["prompt"])
+        self.assertNotIn("hunter2", self.calls[-1]["prompt"])
+        self.assertIn("bot_search", agent_core.SYSTEM_PROMPT)
+        self.assertIn("save_standing_duty", agent_core.SYSTEM_PROMPT)
+        self.assertIn("no separate computer", agent_core.SYSTEM_PROMPT)
+        open_bot = self.bots.save_bot({"name": "Open"})
+        self.assertIn("save_standing_duty", self.bots._scope_for(open_bot, None, True))
+        self.assertIn("bot_send", self.bots._scope_for(open_bot, None, True))
+        self.assertNotIn("bot_send", self.bots._scope_for(open_bot, None, False))
+
+    def test_send_returns_a_handle_and_await_reads_the_reply(self) -> None:
+        import time
+
+        self._make()
+        self.bots.lock_for = None
+        gate = threading.Event()
+        release = threading.Event()
+
+        def slow(prompt, history, model, **kw):
+            gate.set()
+            if not release.wait(3):
+                return "timed out"
+            if "Which inbox" in prompt:
+                return "Which inbox?"
+            return "finished work"
+
+        self.bots.engine = slow
+        try:
+            out = self.bots.bot_send("Inbox Helper", "check the inbox")
+            self.assertEqual(out["status"], "running")
+            self.assertTrue(out["handle"])
+            self.assertTrue(gate.wait(2))
+            self.assertEqual(self.bots.bot_await(out["handle"])["status"], "running")
+            busy = self.bots.bot_send("Inbox Helper", "check again")
+            self.assertEqual(busy["status"], "running")
+            self.assertEqual(busy["handle"], out["handle"])
+            release.set()
+            done = {}
+            deadline = time.time() + 3
+            while time.time() < deadline:
+                done = self.bots.bot_await(out["handle"])
+                if done.get("status") != "running":
+                    break
+                time.sleep(0.02)
+            self.assertEqual(done.get("status"), "done", done)
+            self.assertEqual(done.get("message"), "finished work")
+            held = threading.Lock()
+            held.acquire()
+            self.bots.lock_for = lambda session: held
+            blocked = self.bots.bot_send("Inbox Helper", "check again")
+            self.assertEqual(blocked["handle"], "")
+            self.assertIn("chat turn", blocked["message"])
+            held.release()
+            self.bots.lock_for = None
+            gate.clear()
+            asked = self.bots.bot_send("Inbox Helper", "Which inbox should I open?")
+            self.assertTrue(gate.wait(2))
+            asked_done = {}
+            deadline = time.time() + 3
+            while time.time() < deadline:
+                asked_done = self.bots.bot_await(asked["handle"])
+                if asked_done.get("status") != "running":
+                    break
+                time.sleep(0.02)
+            self.assertEqual(asked_done.get("status"), "question", asked_done)
+            self.assertFalse(self.bots.bot_await("missing")["ok"])
+        finally:
+            release.set()
+
+    def test_bot_history_keeps_earlier_turns(self) -> None:
+        import chat_app
+
+        session = "bot-memory"
+        for i in range(90):
+            text = "password: hunter2" if i == 1 else f"line {i} about the inbox"
+            role = "user" if i % 2 == 0 else "assistant"
+            self.store.add(session, role, text)
+        contents = chat_app._rebuild_history(session)
+        self.assertEqual(len(contents), 81)
+        first = contents[0].parts[0].text
+        self.assertTrue(first.startswith("Earlier turns you still remember"))
+        self.assertIn("line 0", first)
+        self.assertNotIn("hunter2", first)
+        self.assertIn("[hidden]", first)
+        self.assertIn("line 89", contents[-1].parts[0].text)
+        plain = "notes"
+        for i in range(50):
+            self.store.add(plain, "user", f"plain {i}")
+        plain_contents = chat_app._rebuild_history(plain)
+        self.assertEqual(len(plain_contents), 40)
+        self.assertNotIn("Earlier turns", plain_contents[0].parts[0].text)
+        self.assertIn("plain 10", plain_contents[0].parts[0].text)
+        self.assertIn("plain 49", plain_contents[-1].parts[0].text)
 
 
 class CodeLoopTests(_Tmp):
@@ -851,6 +984,95 @@ class RemoteAccessTests(_Tmp):
         self.assertEqual(self.lp.clamp_fps(99), 30)
         self.assertEqual(self.lp.clamp_fps(0.1), 0.5)
         self.assertEqual(self.lp.clamp_fps("x"), 10)
+
+    def _hold_tunnel_state(self):
+        saved = (self.ra.public_url, self.ra._tunnel, self.ra._tunnel_gen)
+        def restore():
+            self.ra.public_url, self.ra._tunnel, self.ra._tunnel_gen = saved
+        self.addCleanup(restore)
+
+    def test_tunnel_keeps_reading_after_the_url(self) -> None:
+        from unittest import mock
+
+        self._hold_tunnel_state()
+        lines = [
+            "waiting\n",
+            "2026 INF | https://quiet-river-1234.trycloudflare.com |\n",
+            "metrics tick\n",
+            "still writing\n",
+        ]
+        seen: list[str] = []
+
+        class Out:
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                if not lines:
+                    raise StopIteration
+                item = lines.pop(0)
+                seen.append(item)
+                return item
+
+        proc = mock.Mock()
+        proc.stdout = Out()
+        proc.poll.return_value = 0
+        announced: list[str] = []
+        with mock.patch.object(self.ra, "_announce", side_effect=lambda url, token: announced.append(url)), \
+             mock.patch.object(self.ra, "access_token", return_value="tok"):
+            alive = self.ra._follow_tunnel_output(proc)
+        self.assertFalse(alive)
+        self.assertEqual(announced, ["https://quiet-river-1234.trycloudflare.com"])
+        self.assertEqual(len(seen), 4)
+        self.assertEqual(lines, [])
+
+    def test_tunnel_restarts_when_cloudflared_exits(self) -> None:
+        from unittest import mock
+
+        self._hold_tunnel_state()
+        calls = {"n": 0}
+        seen: list[str] = []
+
+        def popen(*_a, **_k):
+            calls["n"] += 1
+            proc = mock.Mock()
+            payload = [
+                f"https://quiet-river-{calls['n']}.trycloudflare.com\n",
+                "after the url\n",
+            ]
+
+            class Out:
+                def __iter__(self):
+                    return self
+
+                def __next__(self):
+                    if not payload:
+                        raise StopIteration
+                    item = payload.pop(0)
+                    seen.append(item)
+                    return item
+
+            proc.stdout = Out()
+            proc.poll.return_value = 0
+
+            def wait(*_a, **_k):
+                if calls["n"] >= 2:
+                    self.ra._tunnel_gen += 1
+                return 0
+
+            proc.wait.side_effect = wait
+            return proc
+
+        sleeps: list[float] = []
+        with mock.patch.object(self.ra.subprocess, "Popen", side_effect=popen), \
+             mock.patch.object(self.ra, "cloudflared_exe", return_value="cloudflared"), \
+             mock.patch.object(self.ra, "_announce"), \
+             mock.patch.object(self.ra, "access_token", return_value="tok"), \
+             mock.patch.object(self.ra.time, "sleep", side_effect=lambda seconds: sleeps.append(seconds)):
+            self.ra.start_tunnel(8766)
+        self.assertEqual(calls["n"], 2)
+        self.assertEqual(sleeps, [2])
+        self.assertEqual(seen.count("after the url\n"), 2)
 
 
 class FakeMouse:

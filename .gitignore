@@ -20,6 +20,7 @@ chroma_db/
 .chroma/
 workspace/
 storage/
+youtube_token.json
 
 # Runtime folders. The empty markers stay so the tree exists after clone.
 logs/*

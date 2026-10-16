@@ -20,7 +20,15 @@ ROOT = Path(__file__).resolve().parent / "workspace"
 _DEFAULT_ROOT = ROOT
 _lock = threading.Lock()
 MARK = re.compile(r"^\[\[card:([0-9a-f]{12})\]\]$")
-_new: list[str] = []          # cards made during the current chat turn (turns run one at a time)
+_turn_cards = threading.local()  # cards made during this chat's turn
+
+
+def _card_ids() -> list[str]:
+    ids = getattr(_turn_cards, "ids", None)
+    if ids is None:
+        ids = []
+        _turn_cards.ids = ids
+    return ids
 
 
 def _path() -> Path:
@@ -47,12 +55,12 @@ def _save(data: dict[str, Any]) -> None:
 
 
 def begin_turn() -> None:
-    _new.clear()
+    _turn_cards.ids = []
 
 
 def take_turn_cards() -> list[dict[str, Any]]:
-    ids = list(_new)
-    _new.clear()
+    ids = list(_card_ids())
+    _turn_cards.ids = []
     data = _load()
     return [data[i] for i in ids if i in data]
 
@@ -61,7 +69,7 @@ def _add(card: dict[str, Any]) -> dict[str, Any]:
     card = {"id": uuid.uuid4().hex[:12], "t": time.strftime("%Y-%m-%d %H:%M:%S"), "status": "open", **card}
     with _lock:
         data = _load(); data[card["id"]] = card; _save(data)
-    _new.append(card["id"])
+    _card_ids().append(card["id"])
     return card
 
 

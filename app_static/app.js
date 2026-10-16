@@ -19,6 +19,27 @@ if (!/PedroAgentApp/.test(navigator.userAgent)) {
 }
 let session = urlSession || localStorage.session || '';
 let running = false;
+const runningSessions = new Set();
+function syncRunningButton() {
+  running = runningSessions.has(session || '');
+  const b = $('#send'); if (!b) return;
+  b.classList.toggle('stop', running);
+  b.innerHTML = running ? '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>'
+    : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
+  const stopBtn = $('#hdr-stop'); if (stopBtn) stopBtn.hidden = !running;
+  if (!running) setLiveStep('');
+  markWorkingChats();
+}
+function markWorkingChats() {
+  document.querySelectorAll('#bots .botitem').forEach((d) => {
+    d.classList.toggle('working', runningSessions.has('bot-' + d.dataset.id));
+  });
+  document.querySelectorAll('#sessions .sess').forEach((d) => {
+    if (d.dataset.session) d.classList.toggle('working', runningSessions.has(d.dataset.session));
+  });
+}
+window.markWorkingChats = markWorkingChats;
+window.chatIsRunning = (id) => runningSessions.has(id);
 let speakOn = false; let speakMode = 'voice';
 // Phone app: the Android shell calls window.__pedroHeard(text) after speech
 // recognition. Wrap whatever it installs so that message is marked as voice.
@@ -144,7 +165,35 @@ function fileChip(f) {
   if (f.kind !== 'image') a.download = f.name;
   const n = document.createElement('span'); n.className = 'n'; n.textContent = '\u{1F4CE} ' + f.name; a.appendChild(n); return a;
 }
-function addUser(text, files) {
+function messageWhen(ts) {
+  const n = Number(ts);
+  const d = n ? new Date(n > 1e12 ? n : n * 1000) : new Date();
+  if (Number.isNaN(d.getTime())) return '';
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const now = new Date();
+  let label = time;
+  if (d.toDateString() !== now.toDateString()) {
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    label = (d.toDateString() === yesterday.toDateString()
+      ? 'Yesterday'
+      : d.toLocaleDateString([], { month: 'short', day: 'numeric' })) + ', ' + time;
+  }
+  return label;
+}
+function stampMessage(row, ts) {
+  if (!row) return;
+  const n = Number(ts);
+  const d = n ? new Date(n > 1e12 ? n : n * 1000) : new Date();
+  if (Number.isNaN(d.getTime())) return;
+  let el = row.querySelector('.msg-time');
+  if (!el) { el = document.createElement('time'); el.className = 'msg-time'; row.appendChild(el); }
+  el.dateTime = d.toISOString();
+  el.textContent = messageWhen(d.getTime());
+  el.title = d.toLocaleString();
+}
+window.messageWhen = messageWhen;
+function addUser(text, files, ts) {
   const row = document.createElement('div'); row.className = 'row user';
   const b = document.createElement('div'); b.className = 'bubble'; b.textContent = text === '(sent attachments)' && files && files.length ? '' : text;
   if (files && files.length) {
@@ -155,19 +204,22 @@ function addUser(text, files) {
     });
     b.appendChild(box);
   }
-  row.appendChild(b); $('#log').appendChild(row); showEmpty(); scrollDown();
+  row.dataset.replyText = text || '';
+  row.appendChild(b); $('#log').appendChild(row); stampMessage(row, ts); showEmpty(); scrollDown();
   if (window.Reactions) Reactions.attach(row);
+  addReply(row);
   return row;
 }
-function addBot() {
+function addBot(ts) {
   const row = document.createElement('div'); row.className = 'row bot msg'; row.dataset.role = 'assistant';
   row.appendChild(botFace());
   const col = document.createElement('div'); col.className = 'bubble';
   const chips = document.createElement('div'); chips.className = 'chips';
   const body = document.createElement('div'); body.className = 'md';
-  col.append(chips, body); row.appendChild(col); $('#log').appendChild(row); showEmpty(); scrollDown();
+  col.append(chips, body); row.appendChild(col); $('#log').appendChild(row); stampMessage(row, ts); showEmpty(); scrollDown();
   if (window.Reactions) Reactions.attach(row);
   addCopy(row);
+  addReply(row);
   return { row, chips, body, text: '' };
 }
 function renderMd(el, text, streaming) {
@@ -222,12 +274,53 @@ function chip(container, name) {
   c.querySelector('b').textContent = name.replace(/_/g, ' ');
   container.appendChild(c); scrollDown(); return c;
 }
+function mediaName(path) {
+  const parts = String(path || '').split(/[\\/]/);
+  return parts[parts.length - 1] || 'camera';
+}
+function addDownload(container, href, name, label) {
+  const a = document.createElement('a');
+  a.className = 'cam-dl';
+  a.href = href;
+  a.download = name;
+  a.textContent = label;
+  container.appendChild(a);
+}
 function addImage(container, path) {
   const img = document.createElement('img'); img.className = 'thumb'; img.alt = 'preview';
   img.src = '/api/image?path=' + encodeURIComponent(path) + '&t=' + Date.now();
   img.onclick = () => { $('#lightbox img').src = img.src; $('#lightbox').classList.add('open'); };
-  container.appendChild(img); scrollDown();
+  container.appendChild(img);
+  const name = mediaName(path);
+  addDownload(container, '/api/image?path=' + encodeURIComponent(path) + '&download=1', name, 'Download image');
+  scrollDown();
 }
+function addVideo(container, path) {
+  const v = document.createElement('video');
+  v.className = 'clip';
+  v.controls = true;
+  v.preload = 'metadata';
+  v.src = '/api/media?path=' + encodeURIComponent(path);
+  container.appendChild(v);
+  const name = mediaName(path);
+  addDownload(container, '/api/media?path=' + encodeURIComponent(path) + '&download=1', name, 'Download video');
+  scrollDown();
+}
+function isCameraMedia(path) {
+  const norm = String(path || '').replace(/\\/g, '/').toLowerCase();
+  return /\/camera\/camera-[^/]+\.(png|jpe?g|mp4|webm)$/.test(norm);
+}
+function addSavedMedia(row, paths) {
+  if (!row) return;
+  const bubble = row.querySelector('.bubble') || row;
+  (paths || []).forEach((path) => {
+    if (!isCameraMedia(path)) return;
+    if (/\.(mp4|webm)$/i.test(path)) addVideo(bubble, path);
+    else addImage(bubble, path);
+  });
+}
+window.addImage = addImage;
+window.addVideo = addVideo;
 function addError(container, text) {
   const e = document.createElement('div'); e.className = 'err'; e.textContent = text; container.appendChild(e); scrollDown();
 }
@@ -260,7 +353,8 @@ function drawSessions() {
     .filter((s) => !q || ((s.title || '') + ' ' + (s.preview || '') + ' ' + (s.session || '')).toLowerCase().includes(q));
   if (!list.length) { const empty = document.createElement('div'); empty.className = 'sess-empty'; empty.textContent = q ? 'No chats match' : 'No chats yet'; box.appendChild(empty); return; }
   list.forEach((s) => {
-    const d = document.createElement('div'); d.className = 'sess' + (s.session === session ? ' active' : '') + (s.pinned ? ' pinned' : '');
+    const d = document.createElement('div'); d.className = 'sess' + (s.session === session ? ' active' : '') + (s.pinned ? ' pinned' : '') + (runningSessions.has(s.session) ? ' working' : '');
+    d.dataset.session = s.session;
     if (s.session === 'telegram') { const t = document.createElement('i'); t.className = 'tag'; t.textContent = 'Telegram'; d.appendChild(t); }
     const main = document.createElement('div'); main.className = 'sess-main';
     const sp = document.createElement('span'); sp.className = 'sess-title'; sp.textContent = s.title || s.session; main.appendChild(sp);
@@ -333,12 +427,13 @@ async function clearAllChats() {
 }
 if ($('#clear-chats')) $('#clear-chats').onclick = clearAllChats;
 async function openSession(s) {
+  if (!keepReply) clearReply();
   session = s; localStorage.session = s; $('#log').innerHTML = '';
   const rows = await api('/api/history?session=' + encodeURIComponent(s));
-  rows.forEach((m) => { if (m.card) { renderCard(m.card); return; } if (/^\[\[card:[0-9a-f]{12}\]\]$/.test(m.text || '')) return; if (m.role === 'user') { const u = addUser(m.text, m.files); if (window.Reactions) Reactions.attach(u, m.id, m.reactions); } else { const t = /^\[\[@([a-z0-9-]+)\]\]\s?/.exec(m.text || ''); const b = addBot(); if (window.Reactions) Reactions.attach(b.row, m.id, m.reactions); if (t && window.markSpeaker) window.markSpeaker(b, t[1]); renderMd(b.body, t ? m.text.slice(t[0].length) : m.text); groupChips(b, m.chips); if (m.writes && m.writes.length) addUndo(b.row, m.writes); } });
-  showEmpty(); loadSessions(); if (window.applyBotHeader) window.applyBotHeader();
+  rows.forEach((m) => { if (m.card) { renderCard(m.card, m.ts); return; } if (/^\[\[card:[0-9a-f]{12}\]\]$/.test(m.text || '')) return; if (m.role === 'user') { const u = addUser(m.text, m.files, m.ts); if (window.Reactions) Reactions.attach(u, m.id, m.reactions); } else { const t = /^\[\[@([a-z0-9-]+)\]\]\s?/.exec(m.text || ''); const b = addBot(m.ts); b.row.dataset.replyText = t ? m.text.slice(t[0].length) : (m.text || ''); if (window.Reactions) Reactions.attach(b.row, m.id, m.reactions); if (t && window.markSpeaker) window.markSpeaker(b, t[1]); renderMd(b.body, t ? m.text.slice(t[0].length) : m.text); groupChips(b, m.chips); if (m.writes && m.writes.length) { addUndo(b.row, m.writes); addSavedMedia(b.row, m.writes); } } });
+  showEmpty(); loadSessions(); syncRunningButton(); if (window.applyBotHeader) window.applyBotHeader();
 }
-$('#new').onclick = () => { session = ''; localStorage.session = ''; $('#log').innerHTML = ''; showEmpty(); loadSessions(); if (window.applyBotHeader) window.applyBotHeader(); $('#t').focus(); };
+$('#new').onclick = () => { session = ''; localStorage.session = ''; $('#log').innerHTML = ''; showEmpty(); loadSessions(); syncRunningButton(); if (window.applyBotHeader) window.applyBotHeader(); $('#t').focus(); };
 
 // ---------- status ----------
 function setStatus(msg, isErr) { const s = $('#status'); s.textContent = msg || ''; s.classList.toggle('err-text', !!isErr); }
@@ -373,13 +468,14 @@ function waveOn(on) {
 }
 
 // ---------- chat ----------
-async function stop() { voiceOpen = false; stopClip(); setMood('idle'); await fetch('/api/stop', { method: 'POST' }); }
+async function stop() {
+  voiceOpen = false; stopClip(); setMood('idle');
+  await fetch('/api/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session: session || '' }) });
+}
 function setRunning(on) {
-  running = on; const b = $('#send'); b.classList.toggle('stop', on);
-  b.innerHTML = on ? '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>'
-    : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
-  const stopBtn = $('#hdr-stop'); if (stopBtn) stopBtn.hidden = !on;
-  if (!on) setLiveStep('');
+  const key = session || '';
+  if (on) runningSessions.add(key); else runningSessions.delete(key);
+  syncRunningButton();
 }
 if ($('#hdr-stop')) $('#hdr-stop').onclick = () => { if (running) stop(); };
 function replyBar(row) {
@@ -401,6 +497,60 @@ function addCopy(row) {
   };
   bar.appendChild(btn);
 }
+let replyTo = null, keepReply = false;
+function clearReply() {
+  replyTo = null;
+  document.querySelectorAll('.row.replying').forEach((r) => r.classList.remove('replying'));
+  const bar = $('#reply-to'); if (bar) bar.hidden = true;
+}
+function chatLabel() {
+  if (session && session.startsWith('bot-')) {
+    const b = (window.pedroBots || []).find((x) => 'bot-' + x.id === session); if (b) return b.name;
+  }
+  if (session && session.startsWith('group-')) {
+    const g = (window.pedroGroups || []).find((x) => 'group-' + x.id === session); if (g) return g.name;
+  }
+  if (!session) return 'This chat';
+  const row = sessionCache.find((s) => s.session === session);
+  const hdr = document.querySelector('.who b');
+  return (row && row.title) || (hdr && hdr.textContent) || 'This chat';
+}
+function messageText(row) {
+  if (row && row.dataset && row.dataset.replyText) return row.dataset.replyText;
+  const md = row && row.querySelector('.md');
+  return md ? md.innerText : '';
+}
+function showReply(row) {
+  const M = window.MentionPick; if (!row || !M) return;
+  document.querySelectorAll('.row.replying').forEach((r) => r.classList.remove('replying'));
+  row.classList.add('replying');
+  const name = (() => {
+    const n = row.querySelector('.speaker-name');
+    if (n && n.textContent) return n.textContent;
+    if (row.classList.contains('user')) return 'You';
+    const hdr = document.querySelector('.who b');
+    return (hdr && hdr.textContent) || 'Pedro';
+  })();
+  const snippet = messageText(row).replace(/\s+/g, ' ').trim().slice(0, 240);
+  const choices = M.replyChats(session || '', chatLabel(), window.pedroBots || [], window.pedroGroups || [], sessionCache);
+  const sel = $('#reply-in'); sel.innerHTML = '';
+  choices.forEach((c) => { const o = document.createElement('option'); o.value = c.id; o.textContent = c.name; sel.appendChild(o); });
+  sel.value = session || '';
+  $('#reply-to-name').textContent = name;
+  $('#reply-to-text').textContent = snippet || '(empty message)';
+  $('#reply-to').hidden = false;
+  replyTo = { name, snippet };
+  $('#t').focus();
+}
+function addReply(row) {
+  if (!row || row.querySelector('.msg-reply')) return;
+  const bar = replyBar(row); if (!bar) return;
+  const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'msg-reply'; btn.textContent = 'Reply';
+  btn.title = 'Reply to this message in a chat you choose';
+  btn.onclick = () => showReply(row);
+  bar.appendChild(btn);
+}
+if ($('#reply-clear')) $('#reply-clear').onclick = () => clearReply();
 function addUndo(row, paths) {
   const list = (paths || []).filter(Boolean);
   if (!row || !list.length || row.querySelector('.msg-undo')) return;
@@ -439,7 +589,7 @@ function groupChips(b, chips) {
   (chips || []).forEach((c) => { const el = chip(b.chips, c.text); el.classList.add(c.kind === 'blocked' ? 'bad' : 'ok', 'gchip'); });
 }
 // 1.4.10: question cards (ask_user) and Approve / Deny cards. Saved in the chat, so they survive reloads.
-function renderCard(c) {
+function renderCard(c, ts) {
   if (!c) return null;
   const old = document.querySelector('.pa-card[data-id="' + c.id + '"]'); if (old) old.closest('.row').remove();
   const row = document.createElement('div'); row.className = 'row bot msg'; row.dataset.role = 'assistant'; row.appendChild(botFace());
@@ -486,18 +636,29 @@ function renderCard(c) {
     if (c.status === 'expired') note('Expired.');
   }
   if (c.status === 'answered') note('Answered');
-  row.appendChild(card); $('#log').appendChild(row); showEmpty(); scrollDown(); return row;
+  row.appendChild(card); $('#log').appendChild(row); stampMessage(row, ts); showEmpty(); scrollDown(); return row;
 }
 async function send(text, isVoice, files) {
-  const turnStarted = performance.now();
-  isVoice = !!isVoice || nextIsVoice; nextIsVoice = false; const talk = willSpeak(isVoice); let clip = null;
+  const quoting = replyTo ? { name: replyTo.name, snippet: replyTo.snippet, session: ($('#reply-in') && $('#reply-in').value) || '' } : null;
+  const target = quoting ? quoting.session : (session || '');
+  if (quoting && target !== (session || '')) {
+    keepReply = true;
+    try { await openSession(target); } finally { keepReply = false; }
+  }
   files = files || []; if (!text && files.length) text = '(sent attachments)';
-  const userRow = addUser(text, files); hands.turnStarted(); setRunning(true); setMood('thinking');
+  const payload = quoting && window.MentionPick ? window.MentionPick.quoteReply(quoting.name, quoting.snippet, text) : text;
+  clearReply();
+  const turnStarted = performance.now();
+  let turnKey = target || '';
+  isVoice = !!isVoice || nextIsVoice; nextIsVoice = false; const talk = willSpeak(isVoice); let clip = null;
+  const userRow = addUser(payload || text, files); hands.turnStarted(); runningSessions.add(turnKey); syncRunningButton(); setMood('thinking');
   let bot = addBot(); rowFace = bot.row.querySelector('.face')._av; rowFace.setState('thinking');
   let act = activity(bot.body.parentNode); const labels = {};
   const chipsByName = {}; let barge = ''; let finalText = ''; let speaking = false;
   try {
-    const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, session, voice: isVoice, files: files.map((f) => f.id) }) });
+    const body = { text: payload, session: turnKey, voice: isVoice, files: files.map((f) => f.id) };
+    if (window.avatarMode && window.avatarMode.wantsVoice()) body.speak = true;
+    const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const rd = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
     while (true) {
       const { value, done } = await rd.read(); if (done) break;
@@ -505,6 +666,13 @@ async function send(text, isVoice, files) {
       while ((i = buf.indexOf('\n\n')) >= 0) {
         const line = buf.slice(0, i); buf = buf.slice(i + 2);
         if (!line.startsWith('data: ')) continue; let ev; try { ev = JSON.parse(line.slice(6)); } catch (e) { continue; }
+        if (ev.event === 'session') {
+          const next = ev.session || turnKey;
+          if (next !== turnKey) { runningSessions.delete(turnKey); turnKey = next; runningSessions.add(turnKey); }
+          session = turnKey; localStorage.session = session; syncRunningButton();
+          continue;
+        }
+        if ((session || '') !== turnKey) continue;
         if (ev.event === 'speaker') {
           if (bot.used) { act.end(); renderMd(bot.body, bot.text || '', false); bot = addBot(); act = activity(bot.body.parentNode); }
           bot.used = true; if (window.markSpeaker) window.markSpeaker(bot, ev.id, ev); act.set((ev.name || 'A bot') + ' is thinking…');
@@ -512,19 +680,19 @@ async function send(text, isVoice, files) {
         }
         if (ev.event === 'group_done') { continue; }
         if (ev.event === 'writes') { addUndo(bot.row, ev.paths); continue; }
-        if (ev.event === 'saved') { if (window.Reactions) Reactions.attach(ev.role === 'user' ? userRow : bot.row, ev.id); continue; }
+        if (ev.event === 'saved') { const row = ev.role === 'user' ? userRow : bot.row; if (window.Reactions) Reactions.attach(row, ev.id); if (ev.ts) stampMessage(row, ev.ts); continue; }
         if (ev.event === 'reactions') { if (window.Reactions) Reactions.update(ev.id, ev.reactions); continue; }
-        if (ev.event === 'done' && ev.speaker) { bot.text = ev.text || ''; renderMd(bot.body, bot.text, false); groupChips(bot, ev.chips); scrollDown(); continue; }
-        if (ev.event === 'session') { session = ev.session; localStorage.session = session; }
-        else if (ev.event === 'step') { act.set(ev.label || 'Working…'); if (ev.name) { labels[ev.name] = ev.label; setMood('working'); } }
+        if (ev.event === 'done' && ev.speaker) { bot.text = ev.text || ''; bot.row.dataset.replyText = bot.text; renderMd(bot.body, bot.text, false); groupChips(bot, ev.chips); scrollDown(); continue; }
+        if (ev.event === 'step') { act.set(ev.label || 'Working…'); if (ev.name) { labels[ev.name] = ev.label; setMood('working'); } }
         else if (ev.event === 'plan') { renderPlan(bot, ev); const next = (ev.steps || []).find((x) => x.status === 'pending'); act.set(next ? 'Step ' + next.number + ': ' + next.text : 'All steps done, checking…'); }
         else if (ev.event === 'team_plan') { act.set('Team is planning ' + ((ev.steps || []).length) + ' tasks'); }
-        else if (ev.event === 'token') { act.set('Writing the reply…'); bot.text += (bot.text ? ' ' : '') + ev.text; renderMd(bot.body, bot.text, true); scrollDown(); if (talk && !speaking) { speaking = true; voiceOpen = true; setMood('speaking'); } }
+        else if (ev.event === 'token') { act.set('Writing the reply…'); bot.text += (bot.text ? ' ' : '') + ev.text; bot.row.dataset.replyText = bot.text; renderMd(bot.body, bot.text, true); scrollDown(); if (talk && !speaking) { speaking = true; voiceOpen = true; setMood('speaking'); } }
         else if (ev.event === 'tool_start') { /* shown by the live activity line */ }
         else if (ev.event === 'tool_end') {
           act.finish(labels[ev.name] || ev.name.replace(/_/g, ' '), ev.ok); act.set('Thinking…'); setMood('thinking');
           if (!ev.ok) { const c = chip(bot.chips, labels[ev.name] || ev.name); c.classList.add('bad'); c.querySelector('.d').textContent = ev.detail || ''; }
           if (ev.image) addImage(bot.chips.parentNode.querySelector('.md').parentNode, ev.image);
+          if (ev.video) addVideo(bot.chips.parentNode.querySelector('.md').parentNode, ev.video);
         }
         else if (ev.event === 'card') { renderCard(ev.card); }
         else if (ev.event === 'model_switch') {
@@ -534,7 +702,9 @@ async function send(text, isVoice, files) {
         else if (ev.event === 'barge') { barge = ev.text; }
         else if (ev.event === 'done') {
           act.end();
-          finalText = ev.text || bot.text; if (!bot.text && finalText) bot.text = finalText;
+          if (ev.text) { bot.text = ev.text; finalText = ev.text; }
+          else finalText = bot.text;
+          bot.row.dataset.replyText = bot.text || '';
           renderMd(bot.body, bot.text || '', false); if (!bot.text) bot.body.innerHTML = '';
           if (talk && bot.text) { voiceOpen = true; setMood('speaking'); } else if (!voiceOpen) setMood('idle');
         }
@@ -544,16 +714,32 @@ async function send(text, isVoice, files) {
     }
   } catch (e) { addError(bot.body.parentNode, 'Connection to the agent failed: ' + (e && e.message || e)); }
   finally {
-    act.end();
-    renderMd(bot.body, bot.text || '', false); if (!bot.text) bot.body.innerHTML = '';
-    if (performance.now() - turnStarted > 8000 && document.hidden) finishPing();
-    if (clip) await playClip(clip);
-    voiceOpen = false; setMood('idle'); rowFace = null; setRunning(false); loadSessions();
-    if (barge) { hands.state.turnRunning = false; send(barge, true); } else hands.turnEnded();
+    runningSessions.delete(turnKey); syncRunningButton();
+    const here = (session || '') === turnKey && bot.row && bot.row.isConnected;
+    if (here) {
+      act.end();
+      renderMd(bot.body, bot.text || '', false); if (!bot.text) bot.body.innerHTML = '';
+      if (performance.now() - turnStarted > 8000 && document.hidden) finishPing();
+      if (clip) await playClip(clip);
+      voiceOpen = false; setMood('idle'); rowFace = null;
+    } else if ((session || '') === turnKey) {
+      openSession(turnKey);
+    } else if (!running) {
+      voiceOpen = false; if (!hands.state.listening) setMood('idle');
+    }
+    loadSessions();
+    const barged = barge && (session || '') === turnKey;
+    if (!barged && window.avatarMode && window.avatarMode.onTurnEnd) window.avatarMode.onTurnEnd();
+    if (barged) { hands.state.turnRunning = false; send(barge, true); } else hands.turnEnded();
   }
 }
 $('#composer').onsubmit = (e) => {
-  e.preventDefault(); if (running) { stop(); return; }
+  e.preventDefault();
+  const target = replyTo && $('#reply-in') ? ($('#reply-in').value || '') : (session || '');
+  if (runningSessions.has(target)) {
+    if (target === (session || '')) stop(); else setStatus('That chat is still replying.', true);
+    return;
+  }
   const text = $('#t').value.trim(); const ready = Attach.ready();
   if (Attach.busy()) { setStatus('Wait for the files to finish uploading.', true); return; }
   if (!text && !ready.length) return; $('#t').value = ''; autosize(); Attach.clear(); send(text, false, ready);
@@ -640,6 +826,15 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeSettings();
 });
 function setHands(on) { $('#hands').classList.toggle('toggled', on); $('#hands2').checked = on; hands.setEnabled(on); }
+window.pedroVoice = {
+  send: (text) => send(text, true),
+  stop: () => stop(),
+  listen: () => { stopClip(); if (running) stop(); if (ON_PC) hands.listen(true); else phoneListen(); },
+  setHands: setHands,
+  handsOn: () => hands.state.enabled,
+  onPc: () => ON_PC,
+  running: () => running,
+};
 $('#hands').onclick = () => setHands(!hands.state.enabled);
 $('#hands2').onchange = (e) => setHands(e.target.checked);
 let wakeTimer = null;
@@ -687,6 +882,22 @@ if (session) openSession(session); else { loadSessions(); showEmpty(); }
 })();
 
 $('#backup-save') && ($('#backup-save').onclick = async () => { const v = $('#backup-key').value.trim(); if (!v) return; const r = await api('/api/setup', { groq_api_key: v }); $('#backup-key').value = ''; $('#backup-msg').textContent = r.ok ? (r.backup_model ? ' Saved.' : ' Not saved.') : (' ' + (r.error || 'Could not save.')); });
+$('#providers-save') && ($('#providers-save').onclick = async () => {
+  const msg = $('#providers-msg');
+  const gemini = ($('#gemini-keys').value || '').split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean).join(',');
+  const body = {};
+  if (gemini) body.gemini_api_keys = gemini;
+  [['openrouter-key', 'openrouter_api_key'], ['cerebras-key', 'cerebras_api_key'], ['nvidia-key', 'nvidia_api_key']].forEach(([id, key]) => {
+    const v = ($(('#' + id)).value || '').trim(); if (v) body[key] = v;
+  });
+  if (!Object.keys(body).length) { msg.textContent = ' Paste a key first.'; return; }
+  const r = await api('/api/setup', body);
+  if (!r.ok) { msg.textContent = ' ' + (r.error || 'Could not save.'); return; }
+  $('#gemini-keys').value = '';
+  ['openrouter-key', 'cerebras-key', 'nvidia-key'].forEach((id) => { $('#' + id).value = ''; });
+  const saved = [r.gemini_keys > 1 ? 'Gemini' : '', r.openrouter ? 'OpenRouter' : '', r.cerebras ? 'Cerebras' : '', r.nvidia ? 'NVIDIA' : ''].filter(Boolean);
+  msg.textContent = saved.length ? (' Saved ' + saved.join(', ') + '.') : ' Not saved.';
+});
 $('#undo-last') && ($('#undo-last').onclick = async () => { const r = await api('/api/undo', {}); const el = $('#undo-msg'); if (el) el.textContent = ' ' + (r.ok ? (r.message || 'Undone.') : (r.error || 'Nothing to undo.')); });
 
 

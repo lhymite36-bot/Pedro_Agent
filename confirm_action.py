@@ -8,6 +8,7 @@ rules.yaml (confirm section).
 from __future__ import annotations
 
 import contextlib
+import contextvars
 import os
 import threading
 from typing import Any, Callable, Iterator
@@ -35,16 +36,30 @@ _NETWORK = {
 
 NEGATIVE = {"no", "nope", "nah", "cancel", "stop", "don't", "dont", "n"}
 
-_pending: dict[str, Any] | None = None
-_granted: dict[str, Any] | None = None
+# One waiting action per chat. Texting a different bot does not cancel this chat's yes.
+_pending_by: dict[str, dict[str, Any]] = {}
+_granted_by: dict[str, dict[str, Any]] = {}
 _done: list[dict[str, Any]] = []      # actions already run after a yes (this conversation turn)
 _turn = threading.local()              # set while the chat layer has already read the user's message
+_chat = contextvars.ContextVar("pedro_confirm_chat", default="")
+
+
+def bind_chat(session: str) -> contextvars.Token:
+    """Later yes/no answers apply only to this chat."""
+    return _chat.set(session or "")
+
+
+def unbind_chat(token: contextvars.Token) -> None:
+    _chat.reset(token)
+
+
+def _bucket() -> str:
+    return _chat.get() or ""
 
 
 def reset() -> None:
-    global _pending, _granted
-    _pending = None
-    _granted = None
+    _pending_by.clear()
+    _granted_by.clear()
     _done.clear()
 
 
@@ -117,6 +132,10 @@ def label_for(name: str, arguments: dict[str, Any]) -> str:
         return f"delete {arguments.get('path') or 'that path'}"
     if name == "gmail_send_message":
         return f"send an email to {arguments.get('to') or arguments.get('recipient') or 'that contact'}"
+    if name == "youtube_upload":
+        title = " ".join(str(arguments.get("title") or "that video").split())
+        privacy = " ".join(str(arguments.get("privacy") or "private").split()) or "private"
+        return f"post {title} on YouTube as {privacy}"
     if name == "send_remote_update":
         return "send a message to your phone"
     if name not in {"kill_process", "shutdown_computer", "manage_windows_and_processes", "network_manager"}:
@@ -135,8 +154,7 @@ def label_for(name: str, arguments: dict[str, Any]) -> str:
 
 
 def remember(name: str, arguments: dict[str, Any], label: str) -> None:
-    global _pending
-    _pending = {
+    _pending_by[_bucket()] = {
         "name": name,
         "arguments": dict(arguments),
         "label": label,
@@ -144,36 +162,37 @@ def remember(name: str, arguments: dict[str, Any], label: str) -> None:
 
 
 def pending() -> dict[str, Any] | None:
-    """The action waiting for a yes, or None."""
-    return dict(_pending) if _pending is not None else None
+    """The action waiting for a yes in this chat, or None."""
+    item = _pending_by.get(_bucket())
+    return dict(item) if item is not None else None
 
 
 def note_user_text(text: str) -> None:
     """A short yes grants the one action that is waiting. Anything else cancels it.
     Ignored while the chat layer already handled this message (nested bot/group prompts)."""
-    global _pending, _granted
     if turn_already_noted():
         return
     folded = " ".join((text or "").casefold().split()).strip(" .!?")
     if not folded:
         return
-    if folded in POSITIVE and _pending is not None:
-        _granted = _pending
-        _pending = None
+    key = _bucket()
+    if folded in POSITIVE and _pending_by.get(key) is not None:
+        _granted_by[key] = _pending_by.pop(key)
         return
-    _pending = None
-    _granted = None
+    _pending_by.pop(key, None)
+    _granted_by.pop(key, None)
     _done.clear()
 
 
 def consume_grant(name: str, arguments: dict[str, Any]) -> bool:
     """True once for the approved action (or the real action a confirm_before yes was about)."""
-    global _granted
-    if _granted is None or not _same(_granted, name, arguments):
+    key = _bucket()
+    granted = _granted_by.get(key)
+    if granted is None or not _same(granted, name, arguments):
         return False
-    if name == "confirm_before" and _granted.get("name") == "confirm_before":
+    if name == "confirm_before" and granted.get("name") == "confirm_before":
         return True   # the model re-checking; keep the grant for the delete/send that follows
-    _granted = None
+    _granted_by.pop(key, None)
     return True
 
 

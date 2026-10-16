@@ -68,7 +68,7 @@ import mouse_controller
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import parse_qs, quote_plus, unquote, urljoin, urlparse
+from urllib.parse import parse_qs, quote, quote_plus, unquote, urljoin, urlparse
 
 import audio_scribe
 import blender_task
@@ -231,6 +231,11 @@ start_menu_override: Path | None = None
 # Tests set these so the real screen, pointer, browser, and webcam stay untouched.
 screenshot_override: Callable[[], dict[str, Any]] | None = None
 webcam_override: Callable[[], dict[str, Any]] | None = None
+# Tests pass a finished clip. None records the real PC camera for the given seconds.
+record_override: Callable[[int], dict[str, Any]] | None = None
+record_process_override: Callable[[list[str]], Any] | None = None
+record_clock: Callable[[], float] | None = None
+record_wait: Callable[[float], None] | None = None
 screen_size_override: tuple[int, int] | None = None
 pointer_override: Callable[[str, dict[str, Any]], None] | None = None
 navigate_override: Callable[[str], None] | None = None
@@ -314,9 +319,59 @@ checkin_idle_minutes_override: float | None = None
 checkin_listener_override: Callable[[], str] | None = None
 checkin_speaker_override: Callable[[str], None] | None = None
 # Cleared at the start of every user turn. An empty request does not gate tools.
+# Each chat thread keeps its own request and plan so two bots can work at once.
+_turn_local = threading.local()
 _turn_request = ""
-_task_plan: dict[str, Any] | None = None
 _turn_is_local = False
+# Tests and same-thread callers still assign these. A chat thread that binds its
+# own value does not see another chat's assignment.
+plan_listener: Any = None
+turn_parts: list[tuple[bytes, str]] = []
+
+
+def _this_request() -> str:
+    if getattr(_turn_local, "request_bound", False):
+        return str(getattr(_turn_local, "request", "") or "")
+    return _turn_request
+
+
+def _task_plan() -> dict[str, Any] | None:
+    return getattr(_turn_local, "plan", None)
+
+
+def _set_turn(request: str, plan: dict[str, Any] | None) -> None:
+    _turn_local.request_bound = True
+    _turn_local.request = request
+    _turn_local.plan = plan
+
+
+def _set_plan(plan: dict[str, Any] | None) -> None:
+    _turn_local.plan = plan
+
+
+def bind_turn_view(listener: Any, parts: list[tuple[bytes, str]] | None) -> None:
+    """Show this thread's plan and attachments in its own chat."""
+    _turn_local.listener_bound = True
+    _turn_local.listener = listener
+    _turn_local.parts_bound = True
+    _turn_local.parts = list(parts or [])
+
+
+def clear_turn_view() -> None:
+    _turn_local.listener_bound = False
+    _turn_local.parts_bound = False
+
+
+def _active_listener() -> Any:
+    if getattr(_turn_local, "listener_bound", False):
+        return getattr(_turn_local, "listener", None)
+    return plan_listener
+
+
+def _active_parts() -> list[tuple[bytes, str]]:
+    if getattr(_turn_local, "parts_bound", False):
+        return list(getattr(_turn_local, "parts", []) or [])
+    return turn_parts
 
 # Names the launcher recognizes before it searches the Start Menu.
 KNOWN_APPS: dict[str, list[str]] = {
@@ -368,6 +423,10 @@ Restrictions:
 - Built-in and not configurable: you do not build malware or tools that attack other people's systems or accounts, you do not make cheats for online games or tamper with anti-cheat, and you do not download pirated software (cracks, keygens, repacks) or bypass a website's CAPTCHA or download gate.
 
 Use the tools for every filesystem or web action. Do not invent a path, a URL, a file list, or a success message. A step worked only when the tool result has ok set to true.
+When you are unsure, say what you have not checked, then look or ask. Do not fill a gap with a likely answer.
+Before a click or a typed answer, name the words you are using and where they came from: the user, the screen, a file, or another bot.
+Quote another bot. Do not rewrite their reply into a new fact.
+If the same action failed, change the control or say you are stuck. Do not report a guess as done. One screen action at a time: read its result before the next click, type, or scroll.
 
 When the user names a mod and does not give a file path or a direct URL, do this:
 1. locate_gta5_directory
@@ -396,7 +455,8 @@ Rules you must follow:
 Desktop and office requests:
 - "Open Excel", "Open Chrome", "Open SSMS", or "Open Power BI" calls launch_application with that app name. Launch the app only. Do not add shell text.
 - "Open YouTube and search for GTA 5 mods" calls search_youtube with the search words.
-- "Open https://..." calls open_website. Only pass an http or https address.
+- A link of any kind, including a YouTube, Vimeo, TikTok, Twitch, or other video link, calls open_website. A bare address such as youtu.be/abc or youtube.com/watch?v=abc is fine. A video file on this PC (.mp4, .webm, .mkv, .mov) calls open_website with that path.
+- "Watch this", "what is this video about", or a video link the user wants explained calls watch_video. It opens the link, reads the title and description, and attaches one picture from the player. Describe only those. Do not invent scenes that are not in the title, the description, or the picture. If the picture is still loading, say so. To see more, call take_screenshot again.
 - "Create a sales report and save it to external drive" calls automate_excel_task. file_path may start with "external/". task_instructions is JSON, not prose, for example {"sheet":"Sales","headers":["Item","Amount"],"rows":[["Hats",12]]}. Do not invent numbers the user did not give you. Ask for the rows or read them with execute_sql_task first.
 - Database requests call execute_sql_task with a sqlite file path or a local SQL Server connection string. Leave allow_changes false for a SELECT. Set allow_changes true only after the user asks to insert, update, delete, or create. Pass output_path when the user wants a CSV or Excel file.
 
@@ -406,7 +466,7 @@ Desktop control on this PC:
 - When you already know the next clicks, typing, and keys, send them together in one perform_actions call. Do not take a screenshot between those steps. Example: [{"action":"click","x":500,"y":400},{"action":"type","text":"hello"},{"action":"press","key":"enter"}]. You may end that list with one screenshot.
 - Several tool calls in the same reply also run immediately, one after another, with no pause.
 - For a form or a menu, prefer press or a shortcut such as ctrl+l before a series of clicks. Type a password or key only when the user explicitly asks you to.
-- scroll direction is up, down, left, or right.
+- scroll direction is up, down, left, or right. Pass x and y on the 0-1000 grid for the list or page. The pointer moves there, then each amount step is one full wheel click.
 - navigate_browser opens one http or https address in the default browser. It does not log in, solve a check, or pass a download gate.
 - browser_download_tool opens a page in Chromium, fills fields, clicks, and can save one file into Downloads, the Desktop, or external drive. A password is the env name BROWSER_PASSWORD. Never put a password, cookie value, or API key in the tool call.
 - Use it when the user asks to open a page they can access and download a file that page serves, such as a data report. Tell them the saved path from the tool result.
@@ -416,8 +476,9 @@ Desktop control on this PC:
 
 Webcam, only when the user wants to be seen:
 - "Look at me", "What am I holding?", or any request to see the person or the room calls capture_webcam_image once. The image comes back with that tool result.
-- The camera opens for one frame and then closes. Do not call it on a timer, in a loop, or during ordinary chat. Do not call it again unless the user asks for another look.
-- A live feed is a different request. Use stream_pc_camera or stream_phone_camera only when the user asks to watch a live camera.
+- The camera opens for one frame and then closes. Do not call it on a timer, in a loop, or during ordinary chat. Do not call it again unless the user asks for another look. The picture can be downloaded from the chat. Use the path the tool returns. Do not invent a link.
+- "Record me for 10 seconds", "take a video with the PC camera", or "film this for 5 seconds" calls record_pc_camera with seconds set to that number. It records this PC's camera for that many seconds, saves the video, and closes the camera. The video can be downloaded from the chat. If the user does not say how long, ask. Do not guess a length. The maximum is 600 seconds.
+- A live feed is a different request. Use stream_pc_camera or stream_phone_camera only when the user asks to watch a live camera. Do not use the live feed when they asked for a file.
 
 Planning and execution:
 - For a goal that needs several actions, plan first (create_task_plan), then keep calling tools until every step is done or truly blocked. Do not stop to ask between steps unless you need information only the user has.
@@ -448,6 +509,12 @@ Phone bridge:
 - Telegram answers only the chat in TELEGRAM_CHAT_ID. Discord webhooks receive alerts and cannot send commands back.
 - If the tool says the phone bridge is not set up, tell the user to set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID, or DISCORD_WEBHOOK_URL. Do not claim the message was sent.
 
+YouTube channel:
+- "Post this on my YouTube" or "upload this to Pedro's channel" calls youtube_upload with the video path and a title. Leave privacy as private unless the user says public or unlisted.
+- If the tool says the channel is not connected, call youtube_connect. That opens Google's sign-in on this PC. The user must choose Pedro's channel. Do not paste the client secret or the token into chat.
+- A video is posted only when the tool result includes a video id. Do not invent a link. Do not say it is public unless the result says public.
+- Community posts and comments are not posted by this tool.
+
 Screen tutor ("what is this?", "explain my screen", "how do I do this step", or a selected/pointed area):
 - Call take_screenshot (or capture_screenshot_file for a selected area) and look before answering. Say what the window/app is, what the pointed area or highlighted control does, and give the next steps as a short numbered list that names the exact buttons/menus you can see (e.g. Power BI: Model view > drag key to key > Edit relationship > Cardinality One to many).
 - Teach; do not click for the user unless they ask you to do it. Never answer graded tests or exams through the tutor.
@@ -464,11 +531,12 @@ How to work (reasoning and checking):
 - Before acting on anything with more than one step, think it through: what the user really wants, what "done" looks like, and the shortest safe path. Write that as create_task_plan steps, each with a checkable result (a file exists, a page shows X, a field says Y).
 - After each step, check the real result, not your intention: take_screenshot or verify_screen with a specific expectation (exact title, file name, or text), or read the file back. A vague expectation ("page loaded") proves nothing.
 - Never claim something is done, saved, sent, complete or "none left" without evidence you saw in this run. If you could not check, say so plainly.
+- To open a program, call launch_application or launch_any_app. Do not say it is launching, opening, or open until that tool says it opened.
 - On a failed step: look at the screen, find out why, try a different approach (another control, keyboard shortcut, direct URL, or a different tool). After 3 different tries, report the exact blocker and what you already finished.
 - When continuing after an interruption, look at the screen and the plan first and resume from the first unfinished step. Do not redo finished steps.
 - To show a local PDF/Word/Excel/picture, use open_local_file (browsers refuse file:// links); do not search the web for a file path.
 - Decisions: when you need Pedro to choose (which product, size, time, option), call ask_user with 2-6 short options (multi_select / allow_other when it fits), then STOP and end your turn. His tapped answer arrives as his next message, starting with (Answer to "..."); continue the task from there. Approvals for send/delete/order/pay show Approve/Deny cards by themselves; just say what is waiting.
-- Routines: when Pedro asks for something on a schedule ("every day at 8 AM ...", "tomorrow 6 PM remind me ...", "in 10 minutes ..."), call create_routine (IST times; bot = the bot/group he names, else empty) and confirm the name, schedule and next run. Use update/pause/resume/list_routines to manage them; delete_routine needs his Approve. During a routine run (message starts with [Routine: ...]) all safety rules still apply: no sending, deleting, ordering or paying without his approval.
+- Routines: when Pedro asks for something on a schedule ("every day at 8 AM ...", "tomorrow 6 PM remind me ...", "in 10 minutes ..."), call create_routine (IST times; bot = the bot/group he names, else empty) and confirm the name, schedule and next run. A job that should keep happening on a bot is save_standing_duty on the bot bot_search already found. Do not make a new bot for a schedule. Use update/pause/resume/list_routines to manage them; delete_routine needs his Approve. During a routine run (message starts with [Routine: ...]) all safety rules still apply: no sending, deleting, ordering or paying without his approval. A routine runs only while Pedro is open and this PC is awake.
 - Orders ("order X on Amazon/Flipkart/Swiggy/Zomato/Blinkit/..."): call start_order, then in Edge search and compare 2-3 matches with read_page_text (price, seller/restaurant, delivery fee, rating, delivery time), pick the closest to what Pedro asked (ask him if it's unclear), add to cart with the right quantity, go to checkout and keep the saved address and saved payment method the site already shows. At the final review page call order_summary with exactly what the page shows, then STOP and end your turn: Pedro taps Approve or Deny. Never click Place Order / Pay / Buy Now yourself; only place_order may, and only after his Approve. Never type passwords, card numbers, CVV, UPI PIN or OTPs, never add a new card or address; if the site asks, stop and tell Pedro to finish that step himself. If not signed in, ask Pedro to sign in himself (Google/Microsoft sign-in only).
 - Attachments: when a message says "[Attached by the user in this message]", the pictures and PDFs are right there in the message: look at them and answer from what you see. Word/Excel/text content is pasted in. Each file is also saved at the listed path, so file tools can use it. Never claim to see an attachment that is not listed.
 - Files: use full paths, save where the user said (Desktop by default), then confirm the file exists and is not empty. Chrome: prefer direct URLs, and scroll to see whole lists. Apps: focus the window first.
@@ -487,6 +555,12 @@ Gmail:
 - Leave subject empty when the user does not give one. The tool writes a short subject from the message.
 - If the result says the address is invalid, the name is missing, or more than one contact matches, ask which address to use. Do not send until the user picks one.
 - Do not pass an app password, a token, or a webhook. Say the email was sent only when the tool result says it was sent.
+
+Connectors:
+- Gmail, Google Calendar, Google Drive, OneDrive, Outlook, Teams, Notion, GitHub, Slack, Linear, and YouTube are connectors. Before you answer about one of them, call list_connectors.
+- If that service is connected, call connector_search with its name and the question. Answer only from the rows it returns. Do not invent a message, a file, an event, or a page.
+- If it is not connected, say so and tell the user to open Connectors and connect it there. Do not ask them to paste a password or a token into the chat.
+- connector_search only reads. Sending mail still uses gmail_send_message and waits for a yes.
 
 Media files:
 - "Convert this video", "compress this audio", or "extract frames" calls process_media. action is convert, compress_audio, or extract_frames. source may start with "external/".
@@ -575,7 +649,8 @@ Network:
 - network_manager action is status, wifi_list, wifi_connect, wifi_disconnect, vpn_connect, vpn_disconnect, or speed. Do not pass your own command string. Connect and disconnect wait for a yes.
 
 Camera:
-- "What is on my desk?", "Read this document", or a question about a physical object calls webcam_vision_tool once. It is the same one-frame camera as capture_webcam_image. The picture comes back with the tool result.
+- "What is on my desk?", "Read this document", or a question about a physical object calls webcam_vision_tool once. It is the same one-frame camera as capture_webcam_image. The picture comes back with the tool result and can be downloaded from the chat.
+- A saved camera video calls record_pc_camera with the number of seconds the user asked for. If they did not say how long, ask before calling it.
 
 Live video:
 - "Show me what your computer camera sees", "Send live PC camera feed", or "What is your computer seeing?" calls stream_pc_camera with action start. action look returns the latest PC frame without opening the camera a second time. action stop closes it.
@@ -583,7 +658,7 @@ Live video:
 - Do not pass an RTMP address, a stream key, a bot token, or a webhook. Those stay in the PC environment.
 - If the result says Mini Apps need https, tell the user to set LIVE_PUBLIC_URL and to open viewer_url. Do not invent a public address.
 - A feed stops by itself. The default is 120 seconds and the maximum is 600. "Stop the camera" or action stop ends it sooner.
-- Do not start a live feed for "look at me" or "what am I holding?". Those stay one frame.
+- Do not start a live feed for "look at me" or "what am I holding?". Those stay one frame. A recording of a set length is record_pc_camera, not this feed.
 
 System health:
 - "What is hogging my memory?" or "Check system temps and background tasks" calls system_diagnostics. It does not close anything. Offer to close one program by name, then use kill_process, which waits for a yes.
@@ -633,9 +708,13 @@ Wake word:
 - A background listener waits for "hey agent", plays a chime, then records the request. You do not call a tool for the wake phrase. The text you receive is the request that followed it.
 
 Custom bots:
-- Each bot has its own notebook (bot_remember, bot_notes), lessons (save_bot_skill, list_bot_skills), and a folder (list_my_files). A scheduled task is given its previous result and the files it wrote.
-- A bot may hand one task to another bot with ask_bot. The bot that receives it cannot hand it on.
+- Each bot has its own notebook (bot_remember, bot_notes), lessons (save_bot_skill, list_bot_skills), and a folder (list_my_files). A scheduled task is given its previous result and the files it wrote. Its chat is kept. After a restart, call bot_transcript to read the older lines.
+- Before you create a bot or hand off work, call bot_search. Match the name and the role. A short role still counts. If one bot already covers that area, use it. If two bots could own the same standing duty, name both, say which you would pick, and ask. Do not assign it in that turn.
+- One-off work on a bot goes through bot_send, then bot_await until the status is done, question, or needs_you. Do not also do that work yourself. An early note is not the result. Quote the bot. Do not invent a file, a click, or a result.
+- A repeating check, report, or reminder is save_standing_duty on that existing bot, with the exact cadence and the exact work. It does not add a second task. It runs only while Pedro is open and this PC is awake. Nothing runs while the window is closed or the PC is asleep. There is no separate computer for the bots. Results land in that bot's chat.
+- ask_bot still waits and returns that bot's reply in the same call. Use it for one short handoff. The bot that receives it cannot hand it on. Use bot_send when the job may take longer.
 - To teach a bot by doing the task on this PC, call teach_bot or record_demonstration with that bot's name, tell the user to do the task, then call stop_demonstration when they say stop. The lesson is saved on that bot. Typed passwords stay on this PC and are not put in the lesson. replay_skill repeats the recorded clicks. Where the lesson typed and the user gave new words, pass them as inputs, one value per line. When the questions or labels on screen are different, call follow_skill. It reads the screen, types the answer that fits, and fixes a step that did not land. It stops for a password or a graded test, quiz, or exam.
+- Never take a graded test, quiz, or exam. Sending, deleting, and paying still wait for a yes.
 
 Memory:
 - Facts listed under "Known facts saved on this computer" are already loaded. Use them. Do not ask again for a name, a preference, or a game path that is listed there.
@@ -2261,6 +2340,55 @@ def launch_application(app_name: str) -> dict[str, Any]:
         return _err(f"launch_application failed: {exc}")
 
 
+def _known_launch_name(name: str) -> str:
+    key = " ".join((name or "").casefold().split())
+    if not key:
+        return ""
+    if key in KNOWN_APPS:
+        return key
+    for known in sorted(KNOWN_APPS, key=len, reverse=True):
+        if key.startswith(known + " "):
+            return known
+    return ""
+
+
+def _finish_claimed_launch(reply: str, emit: Callable[..., None], user_text: str = "") -> str:
+    """Open the app or link a reply claims to be opening, when no open tool has run."""
+    import grounding
+
+    if _wingz_on():
+        return reply
+    link = grounding.claimed_link(reply, user_text)
+    if link and not grounding.launch_done():
+        blob = f"{user_text}\n{reply}".casefold()
+        tool = "watch_video" if re.search(r"\b(watch|watching|context)\b", blob) else "open_website"
+        emit("tool_start", name=tool, arguments={"url": link})
+        result = invoke_tool(tool, {"url": link})
+        emit(
+            "tool_end",
+            name=tool,
+            ok=bool(result.get("ok")),
+            detail=_scrub(str(result.get("message") or result.get("error") or ""))[:400],
+        )
+        grounding.note("open_website", result)
+        if result.get("ok"):
+            return str(result.get("message") or f"Opened {link}.")
+        return str(result.get("error") or f"Could not open {link}.")
+
+    def launch(app: str) -> dict[str, Any]:
+        emit("tool_start", name="launch_application", arguments={"app_name": app})
+        result = invoke_tool("launch_application", {"app_name": app})
+        emit(
+            "tool_end",
+            name="launch_application",
+            ok=bool(result.get("ok")),
+            detail=_scrub(str(result.get("message") or result.get("error") or ""))[:400],
+        )
+        return result
+
+    return grounding.carry_out_launch(reply, _known_launch_name, launch)
+
+
 def _public_http_url(url: str) -> str:
     text = (url or "").strip()
     parsed = urlparse(text)
@@ -2269,14 +2397,206 @@ def _public_http_url(url: str) -> str:
     return text
 
 
-def open_website(url: str) -> dict[str, Any]:
-    """Open an http or https address in the default browser."""
-    try:
-        target = _public_http_url(url)
+_VIDEO_EXTS = {".mp4", ".webm", ".mkv", ".mov", ".avi", ".m4v", ".wmv", ".mpeg", ".mpg"}
+# Tests set these. None uses the real browser, the page, and the screen.
+link_open_override: Callable[[str, str], None] | None = None
+link_text_override: Callable[[str], str] | None = None
+watch_screen_override: Any = None
+
+
+def _openable_link(url: str) -> tuple[str, str]:
+    """A web address, including a video link, or a video file on this PC."""
+    raw = (url or "").strip().strip("<>\"'")
+    if not raw:
+        raise ValueError("Which link?")
+    if len(raw) > 2000:
+        raise ValueError("That link is too long.")
+    lowered = raw.casefold()
+    if lowered.startswith(("javascript:", "data:", "file:", "vbscript:")):
+        raise ValueError("Only an http or https address, or a video file on this PC, can be opened.")
+    path = Path(os.path.expandvars(raw)).expanduser()
+    if path.suffix.casefold() in _VIDEO_EXTS and path.is_file():
+        return "file", str(path)
+    candidate = raw
+    if not re.match(r"https?://", candidate, re.I):
+        if re.match(r"^[A-Za-z0-9.-]+\.[A-Za-z]{2,}([/:?].*)?$", candidate):
+            candidate = "https://" + candidate
+        else:
+            raise ValueError("That is not a link. Pass an https address or a video file on this PC.")
+    parsed = urlparse(candidate)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("Only an http or https address can be opened.")
+    if parsed.username or parsed.password:
+        raise ValueError("The address cannot contain a username or password.")
+    return "web", candidate
+
+
+def _open_on_desktop(kind: str, target: str) -> None:
+    if link_open_override is not None:
+        link_open_override(kind, target)
+        return
+    if kind == "web" and navigate_override is not None:
+        navigate_override(target)
+        return
+    if kind == "web":
         webbrowser.open(target)
-        return _ok(f"Opened {target} in the browser.", url=target)
+        return
+    if os.name == "nt":
+        os.startfile(target)  # A video file the user named, not a shell command.
+        return
+    subprocess.Popen(["xdg-open", target])
+
+
+def _open_link(url: str) -> dict[str, Any]:
+    kind, target = _openable_link(url)
+    _open_on_desktop(kind, target)
+    if kind == "file":
+        return _ok(f"Opened the video file {Path(target).name}.", path=target, kind="file")
+    return _ok(f"Opened {target} in the browser.", url=target, kind="web")
+
+
+def open_website(url: str) -> dict[str, Any]:
+    """Open a web link, a video link, or a video file on this PC."""
+    try:
+        return _open_link(url)
     except Exception as exc:
         return _err(f"open_website failed: {exc}")
+
+
+def _fetch_link_text(url: str) -> str:
+    if link_text_override is not None:
+        return link_text_override(url)
+    import urllib.request
+
+    request = urllib.request.Request(url, headers={"User-Agent": "PedroAgent"})
+    with urllib.request.urlopen(request, timeout=8) as response:
+        return response.read(200_000).decode("utf-8", "replace")
+
+
+def _meta_content(html: str, key: str) -> str:
+    import html as html_lib
+
+    patterns = (
+        rf"<meta[^>]+(?:property|name)=[\"']{re.escape(key)}[\"'][^>]+content=[\"'](.*?)[\"']",
+        rf"<meta[^>]+content=[\"'](.*?)[\"'][^>]+(?:property|name)=[\"']{re.escape(key)}[\"']",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, html or "", re.I | re.S)
+        if match:
+            return " ".join(html_lib.unescape(re.sub(r"<[^>]+>", " ", match.group(1))).split())[:800]
+    return ""
+
+
+def _read_link_context(text: str) -> dict[str, str]:
+    raw = (text or "").strip()
+    if raw.startswith("{"):
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            data = {}
+        if isinstance(data, dict) and (data.get("title") or data.get("author_name")):
+            return {
+                "title": " ".join(str(data.get("title") or "").split())[:200],
+                "by": " ".join(str(data.get("author_name") or "").split())[:120],
+                "description": " ".join(str(data.get("description") or "").split())[:800],
+            }
+    title = _meta_content(raw, "og:title") or _meta_content(raw, "title")
+    if not title:
+        match = re.search(r"<title[^>]*>(.*?)</title>", raw, re.I | re.S)
+        if match:
+            import html as html_lib
+
+            title = " ".join(html_lib.unescape(re.sub(r"<[^>]+>", " ", match.group(1))).split())[:200]
+    return {
+        "title": title,
+        "by": _meta_content(raw, "author")[:120],
+        "description": _meta_content(raw, "og:description") or _meta_content(raw, "description"),
+    }
+
+
+def _link_context(kind: str, target: str) -> dict[str, str]:
+    if kind == "file":
+        path = Path(target)
+        size = path.stat().st_size if path.is_file() else 0
+        return {
+            "title": path.name,
+            "by": "",
+            "description": f"Video file on this PC, {size / (1024 * 1024):.1f} MB.",
+        }
+    host = (urlparse(target).hostname or "").casefold()
+    try:
+        if "youtube.com" in host or host == "youtu.be":
+            page = _fetch_link_text(
+                "https://www.youtube.com/oembed?format=json&url=" + quote(target, safe="")
+            )
+        else:
+            page = _fetch_link_text(target)
+    except Exception:
+        page = ""
+    info = _read_link_context(page)
+    if ("youtube.com" in host or host == "youtu.be") and not info.get("description"):
+        try:
+            extra = _read_link_context(_fetch_link_text(target))
+        except Exception:
+            extra = {}
+        if not info.get("title"):
+            info["title"] = extra.get("title") or ""
+        info["description"] = extra.get("description") or ""
+        if not info.get("by"):
+            info["by"] = extra.get("by") or ""
+    return info
+
+
+def _look_for_video() -> dict[str, Any] | None:
+    if watch_screen_override is False:
+        return None
+    if callable(watch_screen_override):
+        shot = watch_screen_override()
+        return shot if isinstance(shot, dict) else None
+    return take_screenshot()
+
+
+def watch_video(url: str) -> dict[str, Any]:
+    """Open a video link or file, then return its title, description, and one picture."""
+    try:
+        opened = _open_link(url)
+    except Exception as exc:
+        return _err(f"watch_video failed: {exc}")
+    if not opened.get("ok"):
+        return opened
+    kind = str(opened.get("kind") or "web")
+    target = str(opened.get("url") or opened.get("path") or "")
+    info = _link_context(kind, target)
+    lines = [str(opened.get("message") or "Opened.")]
+    if info.get("title"):
+        lines.append(f"Title: {info['title']}")
+    if info.get("by"):
+        lines.append(f"By: {info['by']}")
+    if info.get("description"):
+        lines.append(f"Description: {info['description']}")
+    lines.append(
+        "One look after the video opened. This is not the whole video. "
+        "Describe only this title, this description, and the attached picture. "
+        "Do not invent scenes that are not there."
+    )
+    result = _ok(
+        "\n".join(lines),
+        url=str(opened.get("url") or ""),
+        path=str(opened.get("path") or ""),
+        title=info.get("title") or "",
+        by=info.get("by") or "",
+        description=info.get("description") or "",
+        kind=kind,
+    )
+    if kind == "web" and watch_screen_override is not False and link_open_override is None:
+        time.sleep(2)
+    shot = _look_for_video()
+    if isinstance(shot, dict) and shot.get("ok") and shot.get("_screenshot_bytes"):
+        result["_screenshot_bytes"] = shot.get("_screenshot_bytes")
+        result["_screenshot_mime"] = shot.get("_screenshot_mime") or "image/jpeg"
+        if shot.get("path"):
+            result["path"] = str(shot.get("path"))
+    return result
 
 
 def _youtube_search_url(search_query: str) -> str:
@@ -2910,6 +3230,8 @@ SCREENSHOT_MAX_WIDTH = 1280
 SCREENSHOT_JPEG_QUALITY = 80
 # DirectShow can still block inside the driver. The agent stops waiting here.
 WEBCAM_TIMEOUT_SECONDS = 4.0
+RECORD_MAX_SECONDS = 600
+RECORD_FPS = 8
 CLIPBOARD_TEXT_LIMIT = 12000
 MAX_PLAN_STEPS = 8
 MAX_ACTION_BATCH = 12
@@ -3031,17 +3353,19 @@ def _grab_mss_image() -> tuple[Any, int, int]:
 def take_screenshot() -> dict[str, Any]:
     """Capture the screen and attach the image for the model."""
     try:
-        if screenshot_override is not None:
-            raw, screen_w, screen_h = _capture_override()
-            if screen_w < 1 or screen_h < 1:
-                return _err("The screen size is not available.")
-            data, image_w, image_h, scale, mime = _fit_screenshot(raw, screen_w, screen_h)
-        else:
-            image, screen_w, screen_h = _grab_mss_image()
-            if screen_w < 1 or screen_h < 1:
-                return _err("The screen size is not available.")
-            data, image_w, image_h, mime = _encode_screenshot(image)
-            scale = round(image_w / screen_w, 4) if screen_w else 1.0
+        import desktop_share
+        with desktop_share.hold():
+            if screenshot_override is not None:
+                raw, screen_w, screen_h = _capture_override()
+                if screen_w < 1 or screen_h < 1:
+                    return _err("The screen size is not available.")
+                data, image_w, image_h, scale, mime = _fit_screenshot(raw, screen_w, screen_h)
+            else:
+                image, screen_w, screen_h = _grab_mss_image()
+                if screen_w < 1 or screen_h < 1:
+                    return _err("The screen size is not available.")
+                data, image_w, image_h, mime = _encode_screenshot(image)
+                scale = round(image_w / screen_w, 4) if screen_w else 1.0
         folder = WORKSPACE / "screenshots"
         folder.mkdir(parents=True, exist_ok=True)
         png_path = folder / "latest.png"
@@ -3181,6 +3505,70 @@ def _grab_webcam_jpeg() -> tuple[bytes, int, int]:
     return data, int(width), int(height)
 
 
+def _camera_dir() -> Path:
+    folder = WORKSPACE / "camera"
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def _unique_camera_file(suffix: str) -> Path:
+    """A new file under workspace/camera. Older shots stay downloadable."""
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    ms = int((time.time() % 1) * 1000)
+    folder = _camera_dir()
+    candidate = folder / f"camera-{stamp}-{ms:03d}{suffix}"
+    extra = 0
+    while candidate.exists():
+        extra += 1
+        candidate = folder / f"camera-{stamp}-{ms:03d}-{extra}{suffix}"
+    return candidate
+
+
+def _copy_camera_still(data: bytes) -> Path:
+    path = _unique_camera_file(".jpg")
+    path.write_bytes(data)
+    return path
+
+
+def _record_length(seconds: Any) -> int | None:
+    """Whole seconds from 1 to 600. Missing or out of range records nothing."""
+    if seconds is None or isinstance(seconds, bool):
+        return None
+    if isinstance(seconds, str):
+        text = seconds.strip()
+        if not text:
+            return None
+        try:
+            number = float(text)
+        except ValueError:
+            return None
+    elif isinstance(seconds, (int, float)):
+        number = float(seconds)
+    else:
+        return None
+    if number != number or number in (float("inf"), float("-inf")):
+        return None
+    length = int(round(number))
+    if length < 1 or length > RECORD_MAX_SECONDS:
+        return None
+    return length
+
+
+def _record_now() -> float:
+    if record_clock is not None:
+        return float(record_clock())
+    return time.monotonic()
+
+
+def _record_wait(delay: float) -> None:
+    if delay <= 0:
+        return
+    if record_wait is not None:
+        record_wait(delay)
+        return
+    time.sleep(delay)
+
+
 def capture_webcam_image() -> dict[str, Any]:
     """Snap one webcam frame, save it, and close the camera before returning.
 
@@ -3202,14 +3590,17 @@ def capture_webcam_image() -> dict[str, Any]:
             data, image_w, image_h = _grab_webcam_jpeg()
             mime = "image/jpeg"
             path = WORKSPACE / "vision_capture.jpg"
+        download = _copy_camera_still(data)
         return _ok(
             (
                 "Captured one webcam frame and closed the camera. "
                 f"Image is {image_w}x{image_h}. "
+                "The picture is saved and can be downloaded from the chat. "
                 "Describe what is visible. "
                 "Do not capture again unless the user asks for another look."
             ),
             path=str(path),
+            download_path=str(download),
             image_width=image_w,
             image_height=image_h,
             _screenshot_bytes=data,
@@ -3219,6 +3610,269 @@ def capture_webcam_image() -> dict[str, Any]:
         raise
     except Exception as exc:
         return _err(f"capture_webcam_image failed: {exc}")
+
+
+def _video_result(path: Path, seconds: int, poster: bytes, width: int, height: int) -> dict[str, Any]:
+    extra: dict[str, Any] = {
+        "path": str(path),
+        "download_path": str(path),
+        "video": str(path),
+        "seconds": seconds,
+        "image_width": width,
+        "image_height": height,
+    }
+    if poster:
+        extra["_screenshot_bytes"] = poster
+        extra["_screenshot_mime"] = "image/jpeg"
+    unit = "second" if seconds == 1 else "seconds"
+    return _ok(
+        (
+            f"Recorded {seconds} {unit} from the PC camera and closed it. "
+            "The video is saved and can be downloaded from the chat. "
+            "Describe only the attached picture. Do not invent a download link."
+        ),
+        **extra,
+    )
+
+
+def _save_camera_video(seconds: int, video: bytes, poster: bytes, width: int, height: int) -> dict[str, Any]:
+    path = _unique_camera_file(".mp4")
+    path.write_bytes(video)
+    return _video_result(path, seconds, poster, width, height)
+
+
+def _record_from_override(seconds: int) -> dict[str, Any]:
+    if record_override is None:
+        raise RuntimeError("The camera recorder is not set.")
+    captured = record_override(seconds)
+    if not isinstance(captured, dict):
+        return _err("The camera returned no video.")
+    raw = captured.get("mp4") or captured.get("video")
+    if not isinstance(raw, (bytes, bytearray)) or len(raw) < 16:
+        return _err("The camera returned no video.")
+    poster = captured.get("jpeg") or captured.get("image") or b""
+    if not isinstance(poster, (bytes, bytearray)):
+        poster = b""
+    width = int(captured.get("width") or 0)
+    height = int(captured.get("height") or 0)
+    return _save_camera_video(seconds, bytes(raw), bytes(poster), width, height)
+
+
+def _fit_record_frame(cv2: Any, frame: Any, width: int | None, height: int | None) -> tuple[Any, int, int]:
+    shape = getattr(frame, "shape", None)
+    if not shape or len(shape) < 2:
+        raise RuntimeError("Failed to grab a frame from the webcam.")
+    frame_h, frame_w = int(shape[0]), int(shape[1])
+    if width is None or height is None:
+        width, height = frame_w, frame_h
+        if width > SCREENSHOT_MAX_WIDTH and hasattr(cv2, "resize"):
+            width = SCREENSHOT_MAX_WIDTH - (SCREENSHOT_MAX_WIDTH % 2)
+            height = max(2, round(frame_h * (width / frame_w)))
+            height -= height % 2
+        width = max(2, width - (width % 2))
+        height = max(2, height - (height % 2))
+    if hasattr(cv2, "resize") and (frame_w != width or frame_h != height):
+        frame = cv2.resize(frame, (width, height))
+    elif frame_w != width or frame_h != height:
+        frame = frame[0:height, 0:width]
+    return frame, width, height
+
+
+def _record_ffmpeg_command(width: int, height: int, dest: Path) -> list[str]:
+    executable = media_ffmpeg.find_ffmpeg()
+    if executable is None:
+        raise RuntimeError(
+            "ffmpeg is not installed. Install ffmpeg or set FFMPEG_EXECUTABLE. "
+            "Nothing was recorded."
+        )
+    return [
+        str(executable),
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        "bgr24",
+        "-s",
+        f"{width}x{height}",
+        "-r",
+        str(RECORD_FPS),
+        "-i",
+        "pipe:0",
+        "-an",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+        str(dest),
+    ]
+
+
+def _spawn_record_ffmpeg(command: list[str]) -> Any:
+    if record_process_override is not None:
+        return record_process_override(command)
+    flags: dict[str, Any] = {}
+    if os.name == "nt":
+        flags["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    return subprocess.Popen(
+        command,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        shell=False,
+        **flags,
+    )
+
+
+def _write_record_frame(proc: Any, frame: Any) -> None:
+    stdin = getattr(proc, "stdin", None)
+    if stdin is None:
+        raise RuntimeError("ffmpeg did not accept the camera frames.")
+    raw = frame.tobytes() if hasattr(frame, "tobytes") else bytes(frame)
+    stdin.write(raw)
+    flush = getattr(stdin, "flush", None)
+    if flush is not None:
+        flush()
+
+
+def _poster_jpeg(cv2: Any, frame: Any) -> bytes:
+    encoder = getattr(cv2, "imencode", None)
+    if encoder is None:
+        return b""
+    try:
+        ok, encoded = encoder(".jpg", frame)
+    except Exception:
+        return b""
+    if not ok or encoded is None:
+        return b""
+    if hasattr(encoded, "tobytes"):
+        return bytes(encoded.tobytes())
+    return bytes(encoded)
+
+
+def _record_directshow(seconds: int) -> dict[str, Any]:
+    """Open the PC camera, write an mp4 for the given seconds, and release it."""
+    try:
+        import cv2
+    except ImportError as exc:
+        raise RuntimeError(
+            "opencv-python is not installed. From the project folder run: "
+            ".\\.venv\\Scripts\\python.exe -m pip install opencv-python"
+        ) from exc
+    camera = cv2.VideoCapture()
+    proc = None
+    dest = _unique_camera_file(".mp4")
+    saved = False
+    try:
+        timeout_ms = int(WEBCAM_TIMEOUT_SECONDS * 1000)
+        _set_camera_prop(camera, getattr(cv2, "CAP_PROP_OPEN_TIMEOUT_MSEC", None), timeout_ms)
+        _set_camera_prop(camera, getattr(cv2, "CAP_PROP_READ_TIMEOUT_MSEC", None), timeout_ms)
+        opened = camera.open(0, _webcam_backend(cv2))
+        if not opened or not camera.isOpened():
+            raise RuntimeError(
+                "Could not access the webcam. It may be in use by another app "
+                "or blocked by Windows privacy settings."
+            )
+        _set_camera_prop(camera, getattr(cv2, "CAP_PROP_BUFFERSIZE", None), 1)
+        ok, first = camera.read()
+        if not ok or first is None:
+            raise RuntimeError("Failed to grab a frame from the webcam.")
+        first, width, height = _fit_record_frame(cv2, first, None, None)
+        command = _record_ffmpeg_command(width, height, dest)
+        proc = _spawn_record_ffmpeg(command)
+        poster = _poster_jpeg(cv2, first)
+        _write_record_frame(proc, first)
+        frames = 1
+        deadline = _record_now() + seconds
+        gap = 1.0 / RECORD_FPS
+        _record_wait(gap)
+        while _record_now() < deadline:
+            ok, frame = camera.read()
+            if not ok or frame is None:
+                break
+            frame, _width, _height = _fit_record_frame(cv2, frame, width, height)
+            _write_record_frame(proc, frame)
+            frames += 1
+            _record_wait(gap)
+        stdin = getattr(proc, "stdin", None)
+        if stdin is not None:
+            stdin.close()
+        wait = getattr(proc, "wait", None)
+        code = wait(timeout=20) if wait is not None else 0
+        if code not in (0, None):
+            raise RuntimeError("ffmpeg did not save the video.")
+        if not dest.is_file() or dest.stat().st_size < 16:
+            raise RuntimeError("The recording was empty.")
+        saved = True
+        recorded = max(1, int(round(frames / RECORD_FPS)))
+        if recorded > seconds:
+            recorded = seconds
+        return _video_result(dest, recorded, poster, width, height)
+    finally:
+        try:
+            camera.release()
+        except Exception:
+            pass
+        if proc is not None and getattr(proc, "poll", lambda: 0)() is None:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+        if not saved:
+            try:
+                if dest.is_file():
+                    dest.unlink()
+            except OSError:
+                pass
+
+
+def _record_on_camera(seconds: int) -> dict[str, Any]:
+    """Record on a side thread so a stuck driver cannot freeze the agent past the clip."""
+    box: dict[str, Any] = {}
+
+    def worker() -> None:
+        try:
+            box["value"] = _record_directshow(seconds)
+        except Exception as exc:
+            box["error"] = exc
+
+    worker_thread = threading.Thread(target=worker, name="webcam-record", daemon=True)
+    worker_thread.start()
+    worker_thread.join(float(seconds) + WEBCAM_TIMEOUT_SECONDS + 25.0)
+    if worker_thread.is_alive():
+        raise TimeoutError(
+            "The webcam did not respond in time. It may be in use by another "
+            "app or blocked by Windows privacy settings."
+        )
+    if "error" in box:
+        raise box["error"]
+    return box["value"]
+
+
+def record_pc_camera(seconds: Any = None) -> dict[str, Any]:
+    """Record the PC webcam for the given seconds and save a downloadable mp4.
+
+    A missing length records nothing. This is a file, not the live feed.
+    """
+    length = _record_length(seconds)
+    if length is None:
+        return _err(
+            "Say how many seconds to record, from 1 to 600. Nothing was recorded."
+        )
+    try:
+        if record_override is not None:
+            return _record_from_override(length)
+        return _record_on_camera(length)
+    except AssertionError:
+        raise
+    except Exception as exc:
+        return _err(f"record_pc_camera failed: {exc}")
 
 
 def click_element(
@@ -3253,19 +3907,42 @@ def click_element(
             "button": button_name,
             "clicks": click_count,
         }
-        if pointer_override is not None:
-            pointer_override("click", details)
-        else:
-            mouse_controller.instant_click(
-                _desktop(), pixel_x, pixel_y, click_count, button_name
-            )
-        return _ok(
-            (
-                f"Clicked {button_name} at pixel {pixel_x},{pixel_y} "
-                f"from grid {shown_x},{shown_y}."
-            ),
-            **details,
+        gate_say = ""
+        if pointer_override is None:
+            import bot_mind
+
+            gate = bot_mind.before_click(pixel_x, pixel_y)
+            if gate is not None:
+                if not gate.get("ok"):
+                    return _err(str(gate.get("error") or "The judge said no."))
+                if gate.get("pixel_x") is not None and gate.get("pixel_y") is not None:
+                    pixel_x = int(gate["pixel_x"])
+                    pixel_y = int(gate["pixel_y"])
+                    details["x"] = pixel_x
+                    details["y"] = pixel_y
+                gate_say = str(gate.get("say") or "")
+        import desktop_share
+        with desktop_share.hold():
+            import bot_cursors
+
+            bot_cursors.mark(pixel_x, pixel_y)
+            if pointer_override is not None:
+                pointer_override("click", details)
+            else:
+                mouse_controller.instant_click(
+                    _desktop(), pixel_x, pixel_y, click_count, button_name
+                )
+        if pointer_override is None:
+            import bot_mind
+
+            bot_mind.after_click(pixel_x, pixel_y)
+        message = (
+            f"Clicked {button_name} at pixel {pixel_x},{pixel_y} "
+            f"from grid {shown_x},{shown_y}."
         )
+        if gate_say:
+            message = f"{message} {gate_say}"
+        return _ok(message, mind=gate_say, **details)
     except AssertionError:
         raise
     except Exception as exc:
@@ -3363,13 +4040,25 @@ def type_text(text: str) -> dict[str, Any]:
             return _err(f"type_text is limited to {type_cap} characters (limits.type_text_max_chars).")
         if rules.limit("refuse_secret_text") and _memory_is_secret(text):
             return _err("Refusing to type a password, API key, or token.")
+        if pointer_override is None:
+            import bot_mind
+
+            owner = bot_mind.bot_id()
+            if owner:
+                drafted = bot_mind.keep_draft(
+                    bot_mind.screen_text() or "The question on screen.", text, owner
+                )
+                if not drafted.get("ok"):
+                    return _err(str(drafted.get("error") or "The answer was not saved."))
         import order_flow
         blocked = order_flow.blocked_typing(text)
         if blocked:
             return _err(blocked, hand_over=True)
         if any(ord(char) < 32 or ord(char) == 127 for char in text):
             return _err("type_text accepts visible characters only.")
-        _type_into_focused_window(text)
+        import desktop_share
+        with desktop_share.hold():
+            _type_into_focused_window(text)
         return _ok(f"Typed {len(text)} character(s).", length=len(text))
     except AssertionError:
         raise
@@ -3391,23 +4080,73 @@ def _scroll_amount(amount: Any) -> int:
     return value
 
 
-def scroll(direction: str, amount: Any = 3) -> dict[str, Any]:
-    """Scroll the window under the pointer."""
+def _window_center() -> tuple[int, int] | None:
+    """Middle of this chat's window, so a scroll hits the page and not the desktop."""
+    if os.name != "nt":
+        return None
+    import desktop_share
+
+    hwnd = desktop_share.window_for()
+    if not hwnd:
+        return None
+    import ctypes
+    from ctypes import wintypes
+
+    rect = wintypes.RECT()
+    user32 = ctypes.windll.user32
+    if not user32.GetWindowRect(int(hwnd), ctypes.byref(rect)):
+        return None
+    if rect.left < -1000 or rect.top < -1000:
+        return None
+    width = int(rect.right) - int(rect.left)
+    height = int(rect.bottom) - int(rect.top)
+    if width < 40 or height < 40:
+        return None
+    return (int(rect.left) + width // 2, int(rect.top) + height // 2)
+
+
+def scroll(direction: str, amount: Any = 3, x: Any = None, y: Any = None) -> dict[str, Any]:
+    """Scroll the page at a grid point. One amount step is one full wheel click."""
     try:
         name = (direction or "").strip().casefold()
         if name not in {"up", "down", "left", "right"}:
             return _err("direction must be up, down, left, or right.")
         steps = _scroll_amount(amount)
-        details = {"direction": name, "amount": steps}
-        if pointer_override is not None:
-            pointer_override("scroll", details)
-        else:
-            desktop = _desktop()
-            signed = steps if name in {"up", "right"} else -steps
-            if name in {"up", "down"}:
-                desktop.scroll(signed)
+        given_x = x not in (None, "")
+        given_y = y not in (None, "")
+        if given_x != given_y:
+            return _err("Pass both x and y to aim the scroll, on the 0-1000 grid.")
+        pixel: tuple[int, int] | None = None
+        details: dict[str, Any] = {"direction": name, "amount": steps}
+        if given_x:
+            norm_x = _grid_value(x, "x")
+            norm_y = _grid_value(y, "y")
+            width, height = _screen_size()
+            if width < 1 or height < 1:
+                return _err("The screen size is not available.")
+            pixel = mouse_controller.norm_to_pixel(norm_x, norm_y, width, height)
+            details["norm_x"] = _shown_grid(norm_x)
+            details["norm_y"] = _shown_grid(norm_y)
+            details["x"] = pixel[0]
+            details["y"] = pixel[1]
+        signed = steps if name in {"up", "right"} else -steps
+        import desktop_share
+        with desktop_share.hold():
+            if pointer_override is not None:
+                pointer_override("scroll", details)
             else:
-                desktop.hscroll(signed)
+                aim = pixel if pixel is not None else _window_center()
+                if aim is not None:
+                    import bot_cursors
+
+                    bot_cursors.mark(aim[0], aim[1])
+                mouse_controller.scroll_wheel(
+                    _desktop(),
+                    signed,
+                    horizontal=name in {"left", "right"},
+                    x=None if aim is None else aim[0],
+                    y=None if aim is None else aim[1],
+                )
         return _ok(f"Scrolled {name} by {steps}.", **details)
     except AssertionError:
         raise
@@ -3430,10 +4169,12 @@ def press_keys(keys: str) -> dict[str, Any]:
     """Press tab, enter, arrows, or a shortcut in the focused window."""
     try:
         steps = mouse_controller.parse_key_steps(keys)
-        if pointer_override is not None:
-            pointer_override("keys", {"steps": steps})
-        else:
-            mouse_controller.press_key_steps(_desktop(), steps)
+        import desktop_share
+        with desktop_share.hold():
+            if pointer_override is not None:
+                pointer_override("keys", {"steps": steps})
+            else:
+                mouse_controller.press_key_steps(_desktop(), steps)
         shown = ",".join("+".join(step) for step in steps)
         return _ok(f"Pressed {shown}.", steps=steps)
     except AssertionError:
@@ -3446,14 +4187,12 @@ def press_keys(keys: str) -> dict[str, Any]:
 
 
 def navigate_browser(url: str) -> dict[str, Any]:
-    """Open an http or https address in the default browser on this PC."""
+    """Open a web link or a video link in the browser, or a video file on this PC."""
     try:
-        target = _browser_http_url(url)
-        if navigate_override is not None:
-            navigate_override(target)
-        else:
-            webbrowser.open(target)
-        return _ok(f"Opened {target} in the default browser.", url=target)
+        opened = _open_link(url)
+        if opened.get("kind") == "web":
+            opened["message"] = f"Opened {opened.get('url')} in the default browser."
+        return opened
     except AssertionError:
         raise
     except Exception as exc:
@@ -3484,7 +4223,12 @@ def _run_batch_step(step: dict[str, Any]) -> dict[str, Any]:
     if name in {"press", "press_keys", "key", "hotkey"}:
         return press_keys(str(step.get("key") or step.get("keys") or ""))
     if name == "scroll":
-        return scroll(str(step.get("direction") or ""), step.get("amount", 3))
+        aimed: dict[str, Any] = {}
+        if step.get("x") not in (None, ""):
+            aimed["x"] = step.get("x")
+        if step.get("y") not in (None, ""):
+            aimed["y"] = step.get("y")
+        return scroll(str(step.get("direction") or ""), step.get("amount", 3), **aimed)
     if name in {"navigate", "navigate_browser"}:
         return navigate_browser(str(step.get("url") or ""))
     if name in {"screenshot", "take_screenshot"}:
@@ -3509,6 +4253,17 @@ def perform_actions(actions: Any) -> dict[str, Any]:
     completed: list[dict[str, Any]] = []
     image: bytes | None = None
     mime: str | None = None
+    import desktop_share
+    with desktop_share.hold():
+        return _perform_held(actions, completed, image, mime)
+
+
+def _perform_held(
+    actions: list[Any],
+    completed: list[dict[str, Any]],
+    image: bytes | None,
+    mime: str | None,
+) -> dict[str, Any]:
     for index, raw_step in enumerate(actions):
         step = _action_dict(raw_step)
         if step is None:
@@ -3556,7 +4311,7 @@ _COMPUTER_ACTIONS: dict[str, tuple[Callable[..., dict[str, Any]], tuple[str, ...
     "hotkey": (press_keys, ("keys",)),
     "type_text": (type_text, ("text",)),
     "type": (type_text, ("text",)),
-    "scroll": (scroll, ("direction", "amount")),
+    "scroll": (scroll, ("direction", "amount", "x", "y")),
     "navigate_browser": (navigate_browser, ("url",)),
     "navigate": (navigate_browser, ("url",)),
     "perform_actions": (perform_actions, ("actions",)),
@@ -3616,12 +4371,12 @@ _PLAN_FAMILIES: tuple[tuple[str, ...], ...] = (
 
 def begin_task_turn(user_text: str) -> None:
     """Start a user turn. A new request does not inherit the previous plan."""
-    global _turn_request, _task_plan, _turn_is_local
+    global _turn_request, _turn_is_local
     _turn_request = user_text or ""
-    _task_plan = None
+    _set_turn(_turn_request, None)
     _turn_is_local = False
-    emotion.note_user(_turn_request)
-    confirm_action.note_user_text(_turn_request)   # no-op when the chat layer already read the user's words
+    emotion.note_user(_this_request())
+    confirm_action.note_user_text(_this_request())   # no-op when the chat layer already read the user's words
     if voice_mode_active:
         voice_checkin.note_activity()
 
@@ -3658,9 +4413,9 @@ def _plan_blocks(name: str) -> dict[str, Any] | None:
         return None
     if not rules.limit("require_plan_for_multistep"):
         return None
-    if not _request_needs_plan(_turn_request):
+    if not _request_needs_plan(_this_request()):
         return None
-    if _task_plan is not None:
+    if _task_plan() is not None:
         return None
     return _err(
         "This request has several parts. Call create_task_plan with a numbered "
@@ -3724,16 +4479,14 @@ def _plan_steps(raw: Any) -> list[str] | None:
     return steps
 
 
-plan_listener: Any = None  # chat_app sets this to stream the live checklist
-
-
 def _log_plan(kind: str) -> None:
-    plan = _task_plan
+    plan = _task_plan()
     if not plan:
         return
-    if plan_listener is not None:
+    listener = _active_listener()
+    if listener is not None:
         try:
-            plan_listener({"event": "plan", "kind": kind, "goal": plan["goal"], "steps": _public_steps()})
+            listener({"event": "plan", "kind": kind, "goal": plan["goal"], "steps": _public_steps()})
         except Exception:
             pass
     print(f"[plan] {kind}: {plan['goal']}", flush=True)
@@ -3744,7 +4497,7 @@ def _log_plan(kind: str) -> None:
 
 
 def _public_steps() -> list[dict[str, Any]]:
-    plan = _task_plan or {}
+    plan = _task_plan() or {}
     return [
         {
             "number": step["number"],
@@ -3757,12 +4510,13 @@ def _public_steps() -> list[dict[str, Any]]:
 
 
 def _plan_item(step: Any) -> dict[str, Any]:
-    if _task_plan is None:
+    plan = _task_plan()
+    if plan is None:
         return _err("No plan is active. Call create_task_plan first.")
     number = _plan_number(step)
     if number is None:
         return _err("step must be a plan number.")
-    for item in _task_plan["steps"]:
+    for item in plan["steps"]:
         if item["number"] == number:
             return item
     return _err(f"Step {number} is not in the plan.")
@@ -3770,7 +4524,6 @@ def _plan_item(step: Any) -> dict[str, Any]:
 
 def create_task_plan(goal: str, steps: Any) -> dict[str, Any]:
     """Store this turn's checklist. Later tools run only after this exists."""
-    global _task_plan
     goal_text = _brief(goal, 300)
     if not goal_text:
         return _err("A plan needs a goal.")
@@ -3782,13 +4535,13 @@ def create_task_plan(goal: str, steps: Any) -> dict[str, Any]:
     plan_cap = rules.cap("max_plan_steps", MAX_PLAN_STEPS)
     if plan_cap is not None and len(parsed) > plan_cap:
         return _err(f"A plan can have at most {plan_cap} steps (limits.max_plan_steps).")
-    _task_plan = {
+    _set_plan({
         "goal": goal_text,
         "steps": [
             {"number": index, "text": text, "status": "pending", "note": ""}
             for index, text in enumerate(parsed, 1)
         ],
-    }
+    })
     _log_plan("plan")
     return _ok(f"Plan ready with {len(parsed)} steps.", goal=goal_text, steps=_public_steps())
 
@@ -3808,14 +4561,15 @@ def complete_plan_step(step: Any, result: str = "", note: str = "") -> dict[str,
     if written:
         item["note"] = written
     print(f"[plan] done {item['number']}. {item['text']}", flush=True)
-    if plan_listener is not None:
+    listener = _active_listener()
+    if listener is not None:
         try:
-            plan_listener({"event": "plan", "kind": "step", "goal": (_task_plan or {}).get("goal", ""), "steps": _public_steps()})
+            listener({"event": "plan", "kind": "step", "goal": (_task_plan() or {}).get("goal", ""), "steps": _public_steps()})
         except Exception:
             pass
     pending = [
         entry["number"]
-        for entry in (_task_plan or {"steps": []})["steps"]
+        for entry in (_task_plan() or {"steps": []})["steps"]
         if entry["status"] == "pending"
     ]
     if already:
@@ -3842,7 +4596,7 @@ def revise_task_plan(step: Any, reason: str, remaining_steps: Any) -> dict[str, 
     note = _brief(reason)
     if not note:
         return _err("A pivot needs a reason.")
-    plan = _task_plan
+    plan = _task_plan()
     if plan is None:
         return _err("No plan is active. Call create_task_plan first.")
     prefix = [entry for entry in plan["steps"] if entry["number"] <= item["number"]]
@@ -3896,6 +4650,13 @@ def get_clipboard_text() -> dict[str, Any]:
         return _err(f"get_clipboard_text failed: {exc}")
 
 
+def allow_bot_trap(reason: str = "") -> dict[str, Any]:
+    """The user said yes after a timer, a grade, or a submit that cannot be undone."""
+    import bot_mind
+
+    return bot_mind.allow_trap(reason)
+
+
 TOOLS: dict[str, Callable[..., dict[str, Any]]] = {
     "locate_gta5_directory": locate_gta5_directory,
     "search_and_find_mod_download": search_and_find_mod_download,
@@ -3907,6 +4668,7 @@ TOOLS: dict[str, Callable[..., dict[str, Any]]] = {
     "integrate_custom_assets": integrate_custom_assets,
     "launch_application": launch_application,
     "open_website": open_website,
+    "watch_video": watch_video,
     "search_youtube": search_youtube,
     "automate_excel_task": automate_excel_task,
     "execute_sql_task": execute_sql_task,
@@ -3953,8 +4715,14 @@ TOOLS: dict[str, Callable[..., dict[str, Any]]] = {
     "job_scheduler": task_schedule.job_scheduler,
     "routine_macro_engine": routine_macros.routine_macro_engine,
     "stream_pc_camera": live_video.stream_pc_camera,
+    "record_pc_camera": record_pc_camera,
     "stream_phone_camera": live_video.stream_phone_camera,
     "gmail_send_message": gmail_mail.gmail_send_message,
+    "list_connectors": __import__("connectors").list_connectors,
+    "connector_search": __import__("connectors").connector_search,
+    "youtube_connect": __import__("youtube_channel").youtube_connect,
+    "youtube_status": __import__("youtube_channel").youtube_status,
+    "youtube_upload": __import__("youtube_channel").youtube_upload,
     "people_contact_search": gmail_mail.people_contact_search,
     "shutdown_computer": power_control.shutdown_computer,
     "find_on_screen": screen_vision.find_on_screen,
@@ -3962,6 +4730,7 @@ TOOLS: dict[str, Callable[..., dict[str, Any]]] = {
     "write_text_file": file_tools.write_text_file,
     "delete_path": file_tools.delete_path,
     "delete_app_item": __import__("app_items").delete_app_item,
+    "allow_bot_trap": allow_bot_trap,
 }
 
 TOOL_DECLARATIONS = [
@@ -4176,13 +4945,36 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "open_website",
-        "description": "Open one http or https address in the default web browser.",
+        "description": (
+            "Open a link in the browser, including a video link such as YouTube, "
+            "youtu.be, Vimeo, TikTok, Twitch, or a direct video address. A bare "
+            "address is fine. A video file on this PC opens in the video player."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
                 "url": {
                     "type": "string",
-                    "description": "Full http or https address to open.",
+                    "description": "Web link, video link, or path of a video file on this PC.",
+                }
+            },
+            "required": ["url"],
+        },
+    },
+    {
+        "name": "watch_video",
+        "description": (
+            "Open a video link or a video file, read its title and description, "
+            "and look at one picture from it. Use this when the user wants context "
+            "or wants the video watched. Describe only the title, the description, "
+            "and the picture. Do not invent the rest of the video."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "Video link or path of a video file on this PC.",
                 }
             },
             "required": ["url"],
@@ -4313,7 +5105,8 @@ TOOL_DECLARATIONS = [
         "name": "capture_webcam_image",
         "description": (
             "Open the default webcam with DirectShow, save one frame, and "
-            "close the camera immediately. Use this only when the user asks "
+            "close the camera immediately. The picture can be downloaded from "
+            "the chat. Use this only when the user asks "
             "you to look at them, the room, or an object they are holding. "
             "The image comes back with this result. If the camera is busy or "
             "blocked, this returns an error instead of waiting. Do not call "
@@ -4326,7 +5119,9 @@ TOOL_DECLARATIONS = [
         "description": (
             "Jump to a point on the 0-1000 screen grid and click immediately. "
             "0,0 is the top-left and 1000,1000 is the bottom-right. Do not "
-            "send image pixels. button is left, right, or middle. clicks is 1 or 2."
+            "send image pixels. button is left, right, or middle. clicks is 1 or 2. "
+            "Another chat may use the PC at the same time. Focus your own window "
+            "first. Later clicks and typing from this chat return to that window."
         ),
         "parameters": {
             "type": "object",
@@ -4390,8 +5185,9 @@ TOOL_DECLARATIONS = [
     {
         "name": "scroll",
         "description": (
-            "Scroll the window under the pointer. direction is up, down, left, "
-            "or right. amount is a wheel step from 1 to 10."
+            "Scroll the list or page at x, y on the 0-1000 grid. The pointer "
+            "moves there first. direction is up, down, left, or right. amount "
+            "is full wheel clicks from 1 to 10, not pixels. Default 3."
         ),
         "parameters": {
             "type": "object",
@@ -4402,7 +5198,15 @@ TOOL_DECLARATIONS = [
                 },
                 "amount": {
                     "type": "integer",
-                    "description": "Wheel steps from 1 to 10. Default 3.",
+                    "description": "Full wheel clicks from 1 to 10. Default 3. Not pixels.",
+                },
+                "x": {
+                    "type": "integer",
+                    "description": "0-1000 grid point over the list or page. Pass with y.",
+                },
+                "y": {
+                    "type": "integer",
+                    "description": "0-1000 grid point over the list or page. Pass with x.",
                 },
             },
             "required": ["direction"],
@@ -4591,7 +5395,10 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "focus_window",
-        "description": "Bring a visible window to the front by part of its title.",
+        "description": (
+            "Bring a visible window to the front by part of its title. "
+            "This chat keeps that window while another chat uses the PC."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
@@ -5067,6 +5874,29 @@ TOOL_DECLARATIONS.append(
 )
 TOOL_DECLARATIONS.append(
     {
+        "name": "record_pc_camera",
+        "description": (
+            "Record this PC's webcam for the number of seconds given, save "
+            "an mp4, and close the camera. seconds is required and is from "
+            "1 to 600. If the user did not say how long, do not call this. "
+            "Ask them. The video can be downloaded from the chat. This is "
+            "not a live feed. Use capture_webcam_image for one picture and "
+            "stream_pc_camera only when they ask to watch it live."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "seconds": {
+                    "type": "integer",
+                    "description": "How many seconds to record, from 1 to 600.",
+                },
+            },
+            "required": ["seconds"],
+        },
+    }
+)
+TOOL_DECLARATIONS.append(
+    {
         "name": "stream_phone_camera",
         "description": (
             "Open a phone camera page, or return the latest frame that page "
@@ -5146,6 +5976,78 @@ TOOL_DECLARATIONS.append(
 )
 TOOL_DECLARATIONS.append(
     {
+        "name": "list_connectors",
+        "description": (
+            "List Gmail, Google Calendar, Google Drive, OneDrive, Outlook, "
+            "Teams, Notion, GitHub, Slack, Linear, and YouTube, and whether "
+            "each one is connected. This returns no password and no token."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    }
+)
+TOOL_DECLARATIONS.append(
+    {
+        "name": "connector_search",
+        "description": (
+            "Read one connected service. name is gmail, gcalendar, gdrive, "
+            "onedrive, outlook, teams, notion, github, slack, linear, or youtube. "
+            "query is the search text. This does not send, delete, or post. "
+            "Describe only the rows it returns."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Connector id from list_connectors."},
+                "query": {"type": "string", "description": "What to look for."},
+            },
+            "required": ["name"],
+        },
+    }
+)
+TOOL_DECLARATIONS.append(
+    {
+        "name": "youtube_connect",
+        "description": (
+            "Open Google's sign-in on this PC so Pedro can post videos to the "
+            "YouTube channel the user picks. Call this when youtube_upload says "
+            "the channel is not connected. Do not pass a client secret or a token."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    }
+)
+TOOL_DECLARATIONS.append(
+    {
+        "name": "youtube_status",
+        "description": (
+            "Check whether this PC is signed in to a YouTube channel. "
+            "This does not post anything and does not return a token."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    }
+)
+TOOL_DECLARATIONS.append(
+    {
+        "name": "youtube_upload",
+        "description": (
+            "Upload one video file to the signed-in YouTube channel. "
+            "privacy stays private unless the user said public or unlisted. "
+            "Do not call this for a comment or a community post."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Full path of the video file on this PC."},
+                "title": {"type": "string", "description": "Title shown on YouTube."},
+                "description": {"type": "string", "description": "Optional description."},
+                "privacy": {"type": "string", "description": "private, unlisted, or public. Default private."},
+                "tags": {"type": "string", "description": "Optional comma-separated tags."},
+            },
+            "required": ["path", "title"],
+        },
+    }
+)
+TOOL_DECLARATIONS.append(
+    {
         "name": "shutdown_computer",
         "description": (
             "Shut down this PC. Call it when the user asks to shut down, "
@@ -5165,6 +6067,7 @@ TOOL_DECLARATIONS.append(
 # already manage their own background jobs.
 _NO_TIMEOUT_TOOLS = {
     "speak_response", "listen_to_microphone", "stream_pc_camera", "stream_phone_camera",
+    "record_pc_camera",
 }
 tool_timeout_override: float | None = None
 
@@ -5293,7 +6196,7 @@ def invoke_tool(name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
     blocked = _plan_blocks(name)
     if blocked is not None:
         return blocked
-    if wingz_turn and name in WINGZ_BLOCKED_TOOLS:
+    if _wingz_on() and name in WINGZ_BLOCKED_TOOLS:
         return _err("Wingz work happens in the web portal in Chrome. Desktop apps are blocked for this task; "
                     "use navigate_browser/open_website with https://wingz.itvedant.com/ instead.",
                     blocked_by_rules=True)
@@ -5406,11 +6309,28 @@ def _execute_logged_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]
     return result
 
 
+def gemini_api_keys() -> list[str]:
+    """Primary Gemini key, then extra keys from other Google accounts. Blanks are dropped."""
+    keys: list[str] = []
+    primary = os.environ.get("GEMINI_API_KEY", "").strip()
+    if primary:
+        keys.append(primary)
+    for part in re.split(r"[\s,;]+", os.environ.get("GEMINI_API_KEYS", "")):
+        part = part.strip()
+        if part and part not in keys:
+            keys.append(part)
+    return keys
+
+
 def _scrub(text: str) -> str:
     """Remove API keys, bot tokens, and the live-stream key from text."""
     if not text:
         return text
-    secrets = [os.environ.get("GEMINI_API_KEY", "")]
+    secrets = list(gemini_api_keys()) or [os.environ.get("GEMINI_API_KEY", "")]
+    for name in ("GROQ_API_KEY", "OPENROUTER_API_KEY", "CEREBRAS_API_KEY", "NVIDIA_API_KEY"):
+        value = os.environ.get(name, "")
+        if len(value) >= 8:
+            secrets.append(value)
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     stream_key = os.environ.get("TELEGRAM_STREAM_KEY", "")
     if len(token) >= 8:
@@ -5426,6 +6346,9 @@ def _scrub(text: str) -> str:
     app_password = os.environ.get("GMAIL_APP_PASSWORD", "")
     if len(app_password) >= 8:
         secrets.append(app_password)
+    youtube_secret = os.environ.get("YOUTUBE_CLIENT_SECRET", "")
+    if len(youtube_secret) >= 8:
+        secrets.append(youtube_secret)
     for secret in secrets:
         if secret:
             text = text.replace(secret, "[redacted]")
@@ -5460,7 +6383,8 @@ def _quota_message(exc: BaseException) -> str:
         if wait:
             parts.append(f"It resets in about {wait}.")
     parts.append(
-        "Another API key in the same Google project does not raise this limit. "
+        "Saved keys for another Gemini account, OpenRouter, Cerebras, and NVIDIA NIM are tried when they are set. "
+        "Another key in the same Google project does not raise this limit. "
         "You can wait for the reset, or turn on billing in Google AI Studio."
     )
     return " ".join(parts)
@@ -5727,7 +6651,7 @@ def _thinking_rejected(exc: BaseException) -> bool:
 
 def _undo_path(result: dict[str, Any]) -> str:
     """A file path safe to show on an Undo button. Secret files are omitted."""
-    raw = str(result.get("path") or result.get("file") or "")
+    raw = str(result.get("download_path") or result.get("path") or result.get("file") or "")
     if not raw:
         return ""
     name = Path(raw).name.casefold()
@@ -5736,12 +6660,33 @@ def _undo_path(result: dict[str, Any]) -> str:
     return raw
 
 
-def _result_image(result: dict[str, Any]) -> str | None:
-    """A screenshot/webcam/image path in a tool result, for the chat preview."""
-    path = str(result.get("path") or result.get("image_path") or "")
-    if path.casefold().endswith((".png", ".jpg", ".jpeg")):
+def _result_video(result: dict[str, Any]) -> str | None:
+    """A camera recording path, for the chat player and download."""
+    path = str(result.get("video") or "")
+    if path.casefold().endswith((".mp4", ".webm")):
         return path
     return None
+
+
+def _result_image(result: dict[str, Any]) -> str | None:
+    """A screenshot or webcam still, for the chat preview. A video has its own player."""
+    if _result_video(result):
+        return None
+    for key in ("download_path", "path", "image_path"):
+        path = str(result.get(key) or "")
+        if path.casefold().endswith((".png", ".jpg", ".jpeg")):
+            return path
+    return None
+
+
+def _turn_models(order: list[str], current: str, skipped: set[str]) -> list[str]:
+    """Models still worth calling. The one that just answered stays first."""
+    names: list[str] = []
+    for name in [current, *order]:
+        name = str(name or "").strip()
+        if name and name not in skipped and name not in names:
+            names.append(name)
+    return names
 
 
 def model_candidates(first: str | None = None) -> list[str]:
@@ -5771,6 +6716,17 @@ def _spent_models() -> set[str]:
         return set(extras148.exhausted_models())
     except Exception:
         return set()
+
+
+def _switch_providers(user_text: str, history: list[Any], types: Any, on_event: Callable[[dict[str, Any]], None] | None, kind: str) -> str | None:
+    """Answer with the next saved free provider. None when none are set or all decline."""
+    import cloud_fallback
+
+    reply = cloud_fallback.run_chain(user_text, on_event=on_event, kind=kind)
+    if not reply:
+        return None
+    history.append(types.Content(role="model", parts=[types.Part.from_text(text=reply)]))
+    return reply
 
 
 def _use_quota_backup(user_text: str, history: list[Any], types: Any, on_event: Callable[[dict[str, Any]], None] | None) -> str | None:
@@ -5896,6 +6852,13 @@ WINGZ_BLOCKED_TOOLS = frozenset({"launch_application", "launch_any_app"})
 wingz_turn = False
 
 
+def _wingz_on() -> bool:
+    """True for this chat thread. Other chats do not inherit it."""
+    if getattr(_turn_local, "wingz_bound", False):
+        return bool(getattr(_turn_local, "wingz", False))
+    return bool(wingz_turn)
+
+
 def _note_usage(model: str, ok: bool, error: str = "") -> None:
     if genai_client_override is not None:  # tests use fake clients; never pollute real usage
         return
@@ -5919,7 +6882,7 @@ def could_not_verify(user_text: str, used_tools: set[str]) -> str:
 
 def needs_evidence(user_text: str, reply: str, used_tools: set[str]) -> bool:
     """True when a task reply claims completion but no screen check ran this turn."""
-    if (wingz_turn or re.search(r"\bwingz|syllabus\b", user_text or "", re.I)) and _DONE_CLAIM.search(reply or "") \
+    if (_wingz_on() or re.search(r"\bwingz|syllabus\b", user_text or "", re.I)) and _DONE_CLAIM.search(reply or "") \
             and not used_tools & {"scroll", "read_page_text", "wingz_scan"}:
         return True  # a syllabus can only be judged after scrolling it in this turn
     if used_tools & EVIDENCE_TOOLS:
@@ -5941,8 +6904,9 @@ turn_parts: list[tuple[bytes, str]] = []
 
 def _user_parts(types: Any, user_text: str) -> list[Any]:
     parts = [types.Part.from_text(text=user_text)]
-    if turn_parts and not str(user_text).startswith("[resume]"):
-        parts += [types.Part.from_bytes(data=data, mime_type=mime) for data, mime in turn_parts]
+    attached = _active_parts()
+    if attached and not str(user_text).startswith("[resume]"):
+        parts += [types.Part.from_bytes(data=data, mime_type=mime) for data, mime in attached]
     return parts
 
 
@@ -5954,10 +6918,10 @@ def run_agent(user_text: str, history: list[Any], model: str, **kwargs: Any) -> 
     voice = bool(kwargs.get("voice"))
     cancel_event = kwargs.get("cancel_event")
     on_event = kwargs.get("on_event")
-    global wingz_turn
     text = user_text
     if not str(user_text).startswith("[resume]"):
-        wingz_turn = bool(re.search(r"\bwingz|itvedant\b", user_text or "", re.I))
+        _turn_local.wingz_bound = True
+        _turn_local.wingz = bool(re.search(r"\bwingz|itvedant\b", user_text or "", re.I))
     for attempt in range(AUTO_RESUMES + 1):
         try:
             return _run_agent_core(text, history, model, **kwargs)
@@ -5997,6 +6961,8 @@ def _run_agent_core(
     on one blocking request with no output cap.
     """
     begin_task_turn(user_text)
+    import grounding
+    grounding.begin()
     if local_llm.use_local_first(user_text):
         return local_llm.local_llm_fallback(
             user_text,
@@ -6012,17 +6978,18 @@ def _run_agent_core(
             "folder run: .\\.venv\\Scripts\\Activate.ps1"
         ) from exc
 
-    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if not api_key:
+    keys = gemini_api_keys()
+    if not keys:
         raise RuntimeError(
             "GEMINI_API_KEY is not set. Add it to .env or the environment. "
             "See README.md."
         )
+    key_at = 0
     _capture_user_memory(user_text)
     if genai_client_override is not None:
-        client = genai_client_override(api_key)
+        client = genai_client_override(keys[0])
     else:
-        client = genai.Client(api_key=api_key)
+        client = genai.Client(api_key=keys[0])
     config, voice_plain = _model_configs(voice)
     active_config = config
     history.append(types.Content(role="user", parts=_user_parts(types, user_text)))
@@ -6040,18 +7007,35 @@ def _run_agent_core(
 
     used_tools: set[str] = set()
     evidence_nudges = 0
+    skipped: set[str] = set()
+    saw_quota = False
+    chosen = model
     for _round in range(rounds):
         delays = (5, 15, 30)
         response = None
         quota_error: BaseException | None = None
-        for index, active_model in enumerate(model_order):
+        reason = ""
+        order = _turn_models(model_order, chosen, skipped)
+        if not order:
+            switched = _switch_providers(user_text, history, types, on_event, "quota" if saw_quota else "busy")
+            if switched is not None:
+                return switched
+            raise RuntimeError("Gemini did not return a response.")
+        for index, active_model in enumerate(order):
             if index:
-                print(
-                    f"[quota] {model_order[index - 1]} is out of free requests. "
-                    f"Switching to {active_model}.",
-                    flush=True,
-                )
-                agent_log.event("model_switch", frm=model_order[index - 1], to=active_model)
+                previous = order[index - 1]
+                if reason == "quota":
+                    print(
+                        f"[quota] {previous} is out of free requests. "
+                        f"Switching to {active_model}.",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        f"[net] {previous} dropped the connection. Switching to {active_model}.",
+                        flush=True,
+                    )
+                agent_log.event("model_switch", frm=previous, to=active_model)
                 _emit("model_switch", model=active_model)
             for delay in (*delays, None):
                 spoke = {"yes": False}
@@ -6099,7 +7083,10 @@ def _run_agent_core(
                     if _is_daily_quota(exc):
                         if spoke["yes"]:
                             raise RuntimeError(_quota_message(exc)) from exc
+                        skipped.add(active_model)
+                        saw_quota = True
                         quota_error = exc
+                        reason = "quota"
                         response = None
                         break
                     if (
@@ -6114,17 +7101,17 @@ def _run_agent_core(
                         time.sleep(delay)
                         continue
                     if _transient_network_error(exc) and not spoke["yes"] and not voice:
-                        if index < len(model_order) - 1:
+                        skipped.add(active_model)
+                        reason = "net"
+                        if index < len(order) - 1:
                             response = None
                             break
                         import cloud_fallback
-                        if cloud_fallback.available():
-                            print("[busy] All Gemini models are busy. Using the backup model.", flush=True)
-                            reply = cloud_fallback.run(user_text, on_event=on_event)
-                            history.append(
-                                types.Content(role="model", parts=[types.Part.from_text(text=reply)])
-                            )
-                            return reply
+                        if cloud_fallback.providers_for("busy"):
+                            print("[busy] All Gemini models are busy. Trying a saved backup provider.", flush=True)
+                            switched = _switch_providers(user_text, history, types, on_event, "busy")
+                            if switched is not None:
+                                return switched
                         if not local_llm.ollama_reachable():
                             raise RuntimeError(cloud_fallback.NO_BACKUP_MESSAGE) from exc
                     if (
@@ -6151,9 +7138,24 @@ def _run_agent_core(
                     raise RuntimeError(_scrub(str(exc))) from exc
             if response is not None:
                 model = active_model
+                chosen = active_model
                 break
         if response is None:
             if quota_error is not None:
+                if key_at + 1 < len(keys):
+                    key_at += 1
+                    nxt = keys[key_at]
+                    client = genai_client_override(nxt) if genai_client_override is not None else genai.Client(api_key=nxt)
+                    print("[quota] This Gemini key is out of free requests. Trying the next saved key.", flush=True)
+                    agent_log.event("model_switch", frm="gemini-key", to="next-gemini-key")
+                    skipped.clear()
+                    saw_quota = False
+                    chosen = model_order[0]
+                    quota_error = None
+                    continue
+                switched = _switch_providers(user_text, history, types, on_event, "quota")
+                if switched is not None:
+                    return switched
                 raise RuntimeError(_quota_message(quota_error)) from quota_error
             raise RuntimeError("Gemini did not return a response.")
 
@@ -6175,8 +7177,14 @@ def _run_agent_core(
         history.append(candidate.content)
         if not calls:
             if voice:
-                return "\n".join(voice_lines) or "Gemini returned no text."
-            text = _text_from(response)
+                said = _finish_claimed_launch(
+                    "\n".join(voice_lines) or "Gemini returned no text.", _emit, user_text
+                )
+                return grounding.ground_reply(user_text, said)
+            raw = _finish_claimed_launch(_text_from(response), _emit, user_text)
+            text = grounding.ground_reply(user_text, raw)
+            if text != (raw or "").strip():
+                _emit("step", label="Dropped a claim no tool confirmed.", name="reason")
             if evidence_nudges >= 2 and needs_evidence(user_text, text, used_tools):
                 text = could_not_verify(user_text, used_tools)
                 _emit("final", text=text)
@@ -6193,23 +7201,45 @@ def _run_agent_core(
         preamble = voice_lines[-1] if voice and voice_lines else _text_from(response)
         if preamble and not voice:
             print(preamble, flush=True)
+            short = " ".join(preamble.split())[:180]
+            if short:
+                _emit("step", label=short, name="reason")
         response_parts = []
+        acted = False
         for call in calls:
             name = call.name or ""
             arguments = dict(call.args or {})
             used_tools.add(name)
             _emit("tool_start", name=name, arguments=_redacted_tool_arguments(name, arguments))
-            result = _execute_logged_tool(name, arguments)
+            if acted and name in grounding.ACTION_TOOLS:
+                result = {
+                    "ok": False,
+                    "held": True,
+                    "error": (
+                        "Held. One screen action already ran in this step. "
+                        "Read that result, then choose the next action. This one did not run."
+                    ),
+                }
+            else:
+                result = grounding.repeat_error(name, arguments)
+                if result is None:
+                    result = _execute_logged_tool(name, arguments)
+                if name in grounding.ACTION_TOOLS:
+                    acted = True
+            grounding.note(name, result)
             _emit(
                 "tool_end",
                 name=name,
                 ok=bool(result.get("ok")),
                 detail=_scrub(str(result.get("message") or result.get("error") or ""))[:400],
                 image=_result_image(result),
+                video=_result_video(result),
                 path=_undo_path(result) if result.get("ok") else "",
             )
+            shown = dict(result)
+            shown["ground"] = grounding.stamp(result)
             response_parts.append(
-                _function_response(name, result, getattr(call, "id", None))
+                _function_response(name, shown, getattr(call, "id", None))
             )
         history.append(types.Content(role="user", parts=response_parts))
         if cancel_event is not None and cancel_event.is_set():

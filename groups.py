@@ -246,6 +246,12 @@ DEFAULT_LIMITS = {"max_turns": 40, "max_minutes": 30}
 ASSIGN = re.compile(r"^\s*\**\s*ASSIGN\s+@?([A-Za-z0-9_\-]+)\s*\**\s*[:\-]\s*(.+)$", re.I | re.M)
 DONE_RE = re.compile(r"^\s*\**\s*PROJECT\s+(DONE|COMPLETE)\b", re.I | re.M)
 ASK_RE = re.compile(r"^\s*\**\s*ASK\s+USER\s*[:\-]\s*(.+)$", re.I | re.M)
+_WORK_VERB = (
+    r"(?:do|handle|take|write|open|check|build|make|draft|research|save|fix|find|run|"
+    r"click|type|look|read|send|create|prepare|edit|search|download|answer|fill|scroll)"
+)
+_LATER = re.compile(r"\b(later|maybe|might)\b", re.I)
+_NEG_WORD = re.compile(r"\b(not|never|don't|do not|won't|will not|cannot|can't)\b", re.I)
 
 
 def limits() -> dict[str, Any]:
@@ -255,6 +261,66 @@ def limits() -> dict[str, Any]:
         return rules.section("groups", DEFAULT_LIMITS)
     except Exception:
         return dict(DEFAULT_LIMITS)
+
+
+def _member_labels(group: dict[str, Any], speaker: str) -> list[tuple[str, str]]:
+    """Other members as (id, name). The speaker is left out so a bot cannot hand a job to itself."""
+    rows: list[tuple[str, str]] = []
+    for mid in [MAIN] + list(group.get("members") or []):
+        if mid == speaker:
+            continue
+        rows.append((mid, str(display(mid)["name"])))
+    return rows
+
+
+def _name_pattern(mid: str, label: str) -> str:
+    tokens = {label, label.split()[0]}
+    if mid == MAIN:
+        tokens.update({"Pedro", "Pedro_Agent"})
+    parts = [re.escape(token) for token in tokens if token]
+    parts.append("@" + re.escape(mid))
+    return "(?:" + "|".join(f"@?{part}" if not part.startswith("@") else part for part in parts) + ")"
+
+
+def _clean_task(task: str, sentence: str) -> str:
+    body = " ".join((task or "").replace("*", " ").split()).strip(" .:-")
+    body = re.sub(r"(?i)^(to|and then)\s+", "", body).strip()
+    if body.casefold() in {"", "this", "that", "it", "the job", "the task", "the work"}:
+        body = " ".join(sentence.split())
+    return body[:300]
+
+
+def promised_job(text: str, group: dict[str, Any], speaker: str) -> tuple[str, str] | None:
+    """A plain sentence that hands a job to another member, or None.
+
+    'I'll assign Writer to draft the notes' and 'Let Editor check it' count.
+    A refusal, a maybe, or a later does not.
+    """
+    for sentence in re.split(r"[\n.!?]+", text or ""):
+        raw = " ".join(sentence.split()).strip()
+        if not raw or _LATER.search(raw):
+            continue
+        for mid, label in _member_labels(group, speaker):
+            name = _name_pattern(mid, label)
+            found = re.search(name, raw, re.I)
+            if not found:
+                continue
+            if _NEG_WORD.search(raw[:found.start()]):
+                continue
+            patterns = (
+                rf"(?i)\b(?:i'll|i will|i'm going to|i am going to|let me)\s+"
+                rf"(?:assign|hand(?: over)?|give|ask|tell|let|have|get)\s+"
+                rf"(?:(?:this|it|the job|the task|the work)\s+)?(?:to\s+)?(?:the\s+)?{name}\b"
+                rf"\s*[:\-]?\s*(?:to\s+)?(?P<task>.*)$",
+                rf"(?i)\b(?:let|have|ask|tell|get)\s+(?:the\s+)?{name}\s+(?P<task>{_WORK_VERB}\b.*)$",
+                rf"(?i)(?:^|\s){name}\s*,\s*(?:could you|can you|please|will you)\s+(?P<task>.+)$",
+                rf"(?i)\b{name}\s+will\s+(?P<task>{_WORK_VERB}\b.*)$",
+            )
+            for pattern in patterns:
+                match = re.search(pattern, raw)
+                if match:
+                    return mid, _clean_task(match.group("task"), raw)
+    return None
 
 
 def _roster(group: dict[str, Any]) -> str:
@@ -277,6 +343,7 @@ def _leader_prompt(group: dict[str, Any], leader: str, transcript: list[str]) ->
             f"You are {display(leader)['name']}, the LEADER. Run the project to the end without asking the user unless you must.\n"
             "Each reply: briefly review the latest result (check it is real and correct), then give EXACTLY ONE directive line:\n"
             "  ASSIGN @member: <one concrete subtask with everything they need>   (you may assign @pedro or yourself too)\n"
+            "  A plain line does the same thing at once: 'I'll let Writer draft the intro.' The named member runs then. Do not only announce it.\n"
             "  PROJECT DONE: <final summary for the user, with the full path of every file made>\n"
             "  ASK USER: <question>   (only if truly blocked, e.g. missing info or a needed yes)\n"
             "As leader you plan, delegate and review: do NOT do the members' work yourself in this turn. Give each subtask to "
@@ -294,13 +361,17 @@ def _worker_prompt(group: dict[str, Any], worker: str, task: str, transcript: li
             f"{task}\nDo it NOW for real with your tools: don't discuss, don't ask questions, don't just describe a plan. "
             "To build an app/script use build_local_program (or write_text_file); for documents use make_document. "
             "Pick sensible defaults yourself. Save files where the task says, else on the Desktop, and give the full path of every file. "
-            "End with a line starting 'DONE:' and the result, or 'BLOCKED:' and why. Never write 'PROJECT DONE' (only the leader does).]\n\nRecent project log:\n"
+            "End with a line starting 'DONE:' and the result, or 'BLOCKED:' and why. Never write 'PROJECT DONE' (only the leader does). "
+            "If another member must do the next part, say 'I'll let Name do the job.' That member runs immediately. Do not only announce it. "
+            "A DONE line may repeat only a tool result from this turn. If the tool failed, start with BLOCKED and quote the error. "
+            "Do not invent a path.]\n\nRecent project log:\n"
             + _tail(transcript, 8))
 
 
 def _direct_prompt(group: dict[str, Any], who: str, text: str, transcript: list[str]) -> str:
     return (f"[Group room '{group['name']}'. The user addressed YOU ({display(who)['name']}) directly with @mention. "
-            "Answer or do it yourself with your tools; don't hand it to anyone else. "
+            "Answer or do it yourself with your tools. "
+            "If you say another member will do a job, that member runs immediately, so name them only when they should take it now. "
             "Save files where asked, else on the Desktop, and give full paths.]\n\nUser: " + text +
             "\n\nRecent room log:\n" + _tail(transcript[:-1] or [], 6))
 
@@ -379,10 +450,15 @@ def run_group(group: dict[str, Any], text: str, history: list[Any], emit: Callab
                 prompt = _room_prompt(group, speaker, transcript, False)
             else:   # the user picked this member: it handles the message itself, with its tools
                 prompt = _direct_prompt(group, speaker, text, transcript)
-            say(speaker, prompt, f"{display(speaker)['name']} is working on your message")
+            reply = say(speaker, prompt, f"{display(speaker)['name']} is working on your message")
             if _pending_confirmation():
                 _notice(emit, store, session, f"Waiting for your yes to {_pending_confirmation()}. Reply 'yes' to continue.")
                 break
+            job = promised_job(reply, group, speaker)
+            if job and not stopped():
+                other, task = job
+                say(other, _worker_prompt(group, other, task, transcript),
+                    f"{display(other)['name']} is working on: {task[:80]}")
         return done
 
     if not project:   # small talk or a vague message: the leader just answers, no invented project
@@ -432,21 +508,32 @@ def run_group(group: dict[str, Any], text: str, history: list[Any], emit: Callab
             who = _names(group).get(_slug(m.group(1))) or _names(group).get(_slug(m.group(1)).replace("-", ""))
             task = m.group(2).strip()
         else:
-            named = [x for x in mentions(lead, group) if x != leader]
-            if not named:   # no directive
-                if project and not nudged:   # a real job: insist on a directive instead of chatting
-                    nudged = True
-                    transcript.append("System: this is a real task. Reply with exactly one 'ASSIGN @member: ...' "
-                                      "or 'PROJECT DONE: ...' line; don't discuss.")
-                    continue
-                break
-            who, task = named[0], lead.strip()
+            job = promised_job(lead, group, leader)
+            if job:
+                who, task = job
+            else:
+                named = [x for x in mentions(lead, group) if x != leader]
+                if not named:   # no directive
+                    if project and not nudged:   # a real job: insist on a directive instead of chatting
+                        nudged = True
+                        transcript.append("System: this is a real task. Reply with exactly one 'ASSIGN @member: ...' "
+                                          "or 'PROJECT DONE: ...' line; don't discuss.")
+                        continue
+                    break
+                who, task = named[0], lead.strip()
         if not who:
             transcript.append(f"System: @{m.group(1)} is not in this group. Members: {_roster(group)}.")
             continue
         reply = say(who, _worker_prompt(group, who, task, transcript), f"{display(who)['name']} is working on: {task[:80]}")
         worked = worked or bool(re.search(r"\bDONE\s*:", reply))
         turns += 1
+        hop = promised_job(reply, group, who)
+        if hop and not stopped() and not _pending_confirmation():
+            other, hop_task = hop
+            reply = say(other, _worker_prompt(group, other, hop_task, transcript),
+                        f"{display(other)['name']} is working on: {hop_task[:80]}")
+            worked = worked or bool(re.search(r"\bDONE\s*:", reply))
+            turns += 1
         waiting = _pending_confirmation()
         if waiting:
             _notice(emit, store, session, f"Waiting for your yes to {waiting}. Reply 'yes' to continue.")

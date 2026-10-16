@@ -102,6 +102,47 @@ def instant_click(desktop: Any, x: int, y: int, clicks: int, button: str) -> Non
     desktop.click(x, y, clicks=clicks, button=button)
 
 
+# One wheel notch. Windows mouse_event needs this many units or the page barely moves.
+WHEEL_DELTA = 120
+WHEEL_FLAG = 0x0800
+HWHEEL_FLAG = 0x1000
+
+
+def wheel_delta(notches: int) -> int:
+    """Convert a wheel-click count into the units Windows actually scrolls by."""
+    return int(notches) * WHEEL_DELTA
+
+
+def scroll_wheel(
+    desktop: Any,
+    notches: int,
+    *,
+    horizontal: bool = False,
+    x: int | None = None,
+    y: int | None = None,
+) -> None:
+    """Scroll at a pixel. One notch is one full wheel click, not a fraction of one.
+
+    pyautogui on Windows sends the notch count as the raw wheel value, so a
+    scroll of 3 barely moves. Its horizontal scroll is sent as a vertical
+    wheel. This sends a real vertical or horizontal wheel and does not jump
+    the pointer.
+    """
+    count = int(notches)
+    if count == 0:
+        return
+    if x is not None and y is not None:
+        desktop.moveTo(int(x), int(y), duration=0)
+    if sys.platform != "win32":
+        if horizontal:
+            desktop.hscroll(count)
+        else:
+            desktop.scroll(count)
+        return
+    flag = HWHEEL_FLAG if horizontal else WHEEL_FLAG
+    ctypes.windll.user32.mouse_event(flag, 0, 0, wheel_delta(count), 0)
+
+
 def _normalize_key(token: str) -> str:
     name = _KEY_ALIASES.get(token, token)
     if name in _MODIFIERS or name in _NAV_KEYS:

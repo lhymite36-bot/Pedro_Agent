@@ -1,8 +1,9 @@
-"""Backup cloud model used only when every Gemini model is busy (503 / high demand).
+"""Backup cloud models for when Gemini is busy or out of free requests.
 
-Default provider is Groq (free tier, OpenAI-compatible, supports tool calls).
-It needs the user's own key in GROQ_API_KEY (Settings -> Backup model key).
-Nothing is sent anywhere unless that key is set. Tests set transport_override.
+Groq is used when Gemini is busy (503 / high demand), not for a daily quota error.
+OpenRouter, Cerebras, and NVIDIA NIM are used, in that order, when their keys are
+saved and the current provider cannot answer. Nothing is sent unless that key is set.
+Tests set transport_override.
 """
 
 from __future__ import annotations
@@ -17,12 +18,25 @@ DEFAULT_URL = "https://api.groq.com/openai/v1/chat/completions"
 DEFAULT_MODEL = "openai/gpt-oss-120b"   # llama-3.3-70b-versatile was retired on Groq
 _TIMEOUT = 90
 transport_override: Callable[[dict[str, Any]], dict[str, Any]] | None = None
+providers_override: list[dict[str, Any]] | None = None
+
+# quota False: Groq stays off the daily-quota path. The others are tried after Gemini keys.
+PROVIDERS: tuple[dict[str, Any], ...] = (
+    {"id": "groq", "env": "GROQ_API_KEY", "url": DEFAULT_URL, "model": DEFAULT_MODEL,
+     "model_env": "BACKUP_MODEL", "quota": False},
+    {"id": "openrouter", "env": "OPENROUTER_API_KEY", "url": "https://openrouter.ai/api/v1/chat/completions",
+     "model": "openrouter/free", "model_env": "OPENROUTER_MODEL", "quota": True},
+    {"id": "cerebras", "env": "CEREBRAS_API_KEY", "url": "https://api.cerebras.ai/v1/chat/completions",
+     "model": "qwen-3.8-27b", "model_env": "CEREBRAS_MODEL", "quota": True},
+    {"id": "nvidia", "env": "NVIDIA_API_KEY", "url": "https://integrate.api.nvidia.com/v1/chat/completions",
+     "model": "openai/gpt-oss-20b", "model_env": "NVIDIA_MODEL", "quota": True},
+)
 
 NO_BACKUP_MESSAGE = (
     "All Gemini models are busy right now (Google says 503 / high demand), and no backup "
     "model is set up, so I stopped. Your progress is kept: ask me to continue in a few "
-    "minutes. To keep working when Gemini is busy, paste a free Groq API key "
-    "(console.groq.com/keys) in Settings -> Backup model key."
+    "minutes. To keep working when Gemini is busy or out of free requests, add another "
+    "Gemini key, or a free OpenRouter, Cerebras, NVIDIA NIM, or Groq key, in Settings."
 )
 
 
@@ -44,22 +58,60 @@ def model_name() -> str:
     return os.environ.get("BACKUP_MODEL", "").strip() or DEFAULT_MODEL
 
 
-def _post(body: dict[str, Any]) -> dict[str, Any]:
+def _provider_model(provider: dict[str, Any]) -> str:
+    chosen = os.environ.get(str(provider.get("model_env") or ""), "").strip()
+    return chosen or str(provider["model"])
+
+
+def _provider_url(provider: dict[str, Any]) -> str:
+    if provider["id"] == "groq":
+        return os.environ.get("BACKUP_MODEL_URL", "").strip() or str(provider["url"])
+    return str(provider["url"])
+
+
+def providers_for(kind: str) -> list[dict[str, Any]]:
+    """Providers that have a saved key. Daily quota never selects Groq."""
+    if providers_override is not None:
+        rows = list(providers_override)
+    else:
+        rows = []
+        for item in PROVIDERS:
+            if item["id"] == "groq" and transport_override is not None and kind != "quota":
+                rows.append(item)
+                continue
+            if os.environ.get(str(item["env"]), "").strip():
+                rows.append(item)
+    if kind == "quota":
+        return [item for item in rows if item.get("quota")]
+    return rows
+
+
+def _post(body: dict[str, Any], provider: dict[str, Any] | None = None) -> dict[str, Any]:
     if transport_override is not None:
         return transport_override(body)
+    chosen = provider or PROVIDERS[0]
+    key = os.environ.get(str(chosen["env"]), "").strip()
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {key}",
+               "User-Agent": "PedroAgent/1.4.13 (+https://github.com/lhymite36-bot/Pedro_Agent)"}  # Groq's Cloudflare blocks the urllib default (error 1010)
+    if chosen["id"] == "openrouter":
+        headers["X-Title"] = "Pedro Agent"
     req = urllib.request.Request(
-        os.environ.get("BACKUP_MODEL_URL", "").strip() or DEFAULT_URL,
+        _provider_url(chosen),
         data=json.dumps(body).encode("utf-8"),
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key()}",
-                 "User-Agent": "PedroAgent/1.4.12 (+https://github.com/lhymite36-bot/Pedro_Agent)"},  # Groq's Cloudflare blocks the urllib default (error 1010)
+        headers=headers,
         method="POST",
     )
     try:
         with urllib.request.urlopen(req, timeout=_TIMEOUT) as r:
             return json.loads(r.read().decode("utf-8"))
     except Exception as exc:  # never echo the key
-        if getattr(exc, "code", None) == 413:
+        code = getattr(exc, "code", None)
+        if code == 413:
             raise _TooLarge("request too large for the backup model") from exc
+        if isinstance(code, int) and code >= 400:
+            raise _Switch(f"{chosen['id']} returned {code}") from exc
+        if isinstance(exc, (TimeoutError, OSError)):
+            raise _Switch(f"{chosen['id']} unreachable") from exc
         raise RuntimeError(f"The backup model could not be reached: {type(exc).__name__}.") from exc
 
 
@@ -90,12 +142,23 @@ class _TooLarge(RuntimeError):
     pass
 
 
-def run(user_text: str, *, on_event: Callable[[dict[str, Any]], None] | None = None,
-        max_rounds: int = 40) -> str:
-    """Run the tool loop on the backup model. Same tools and safety checks as Gemini."""
+class _Switch(RuntimeError):
+    """This provider cannot take the turn. Try the next saved one."""
+
+
+def _request_body(provider: dict[str, Any], messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> dict[str, Any]:
+    body: dict[str, Any] = {"model": _provider_model(provider), "messages": messages, "tools": tools}
+    if provider["id"] == "cerebras":
+        body["reasoning_effort"] = "none"
+    return body
+
+
+def _run_one(provider: dict[str, Any], user_text: str, *, on_event: Callable[[dict[str, Any]], None] | None = None,
+             max_rounds: int = 40) -> str:
+    """Run the tool loop on one backup provider. Same tools and safety checks as Gemini."""
     agent = _agent()
     emit = on_event or (lambda e: None)
-    emit({"event": "model_switch", "model": f"backup:{model_name()}"})
+    emit({"event": "model_switch", "model": f"backup:{_provider_model(provider)}"})
     prompt = agent._scrub(agent.system_prompt())
     sizes = [(24, 220, 6000), (12, 160, 3000), (6, 120, 1500)]   # shrink until the free tier accepts it
     level = 0
@@ -106,10 +169,10 @@ def run(user_text: str, *, on_event: Callable[[dict[str, Any]], None] | None = N
     tools = _tools(user_text, *sizes[0][:2])
     for _ in range(max_rounds):
         try:
-            data = _post({"model": model_name(), "messages": messages, "tools": tools})
+            data = _post(_request_body(provider, messages, tools), provider)
         except _TooLarge:
             if level >= len(sizes) - 1:
-                raise RuntimeError("The backup model could not take this request (too large for its free tier).")
+                raise _Switch(f"{provider['id']} request too large")
             level += 1
             tools = _tools(user_text, *sizes[level][:2])
             messages[0]["content"] = prompt[:sizes[level][2]]
@@ -134,8 +197,33 @@ def run(user_text: str, *, on_event: Callable[[dict[str, Any]], None] | None = N
             emit({"event": "tool_start", "name": name, "arguments": args})
             result = agent._execute_logged_tool(name, args)
             emit({"event": "tool_end", "name": name, "ok": bool(result.get("ok", True)),
-                  "path": agent._undo_path(result) if result.get("ok") else ""})
+                  "path": agent._undo_path(result) if result.get("ok") else "",
+                  "image": agent._result_image(result),
+                  "video": agent._result_video(result)})
             public = {k: v for k, v in result.items() if not str(k).startswith("_")}
             messages.append({"role": "tool", "tool_call_id": call.get("id") or name,
                              "content": agent._scrub(json.dumps(public, default=str))[:4000]})
     return f"Stopped after {max_rounds} tool rounds on the backup model. Ask me to continue."
+
+
+def run(user_text: str, *, on_event: Callable[[dict[str, Any]], None] | None = None,
+        max_rounds: int = 40) -> str:
+    """Groq tool loop. A provider limit is reported without the key."""
+    try:
+        return _run_one(PROVIDERS[0], user_text, on_event=on_event, max_rounds=max_rounds)
+    except _Switch as exc:
+        raise RuntimeError(f"The backup model could not be reached: {type(exc).__name__}.") from exc
+
+
+def run_chain(user_text: str, *, on_event: Callable[[dict[str, Any]], None] | None = None,
+              kind: str = "quota", max_rounds: int = 40) -> str | None:
+    """Try each saved provider until one answers. None when none are saved or all decline."""
+    chosen = providers_for(kind)
+    if not chosen:
+        return None
+    for item in chosen:
+        try:
+            return _run_one(item, user_text, on_event=on_event, max_rounds=max_rounds)
+        except (_Switch, _TooLarge):
+            print(f"[backup] {item['id']} could not take this turn. Trying the next saved provider.", flush=True)
+    return None

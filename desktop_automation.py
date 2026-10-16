@@ -55,36 +55,43 @@ def desktop_ui_automation(
         if not app_name and not title and not parsed:
             return agent._err("Say which app, window, or steps to run.")
         notes: list[str] = []
-        if app_name:
-            opened = agent.launch_application(app_name)
-            if not opened.get("ok"):
-                return opened
-            notes.append(str(opened.get("message") or f"Opened {app_name}."))
-        if title:
-            import window_control
+        import desktop_share
 
-            focused = window_control.focus_window(title)
-            if not focused.get("ok"):
-                return focused
-            notes.append(str(focused.get("message") or f"Focused {title}."))
-        image = None
-        mime = None
-        if parsed:
-            ran = agent.perform_actions(parsed)
-            if not ran.get("ok"):
-                return ran
-            notes.append(str(ran.get("message") or "Ran the steps."))
-            image = ran.get("_screenshot_bytes")
-            mime = ran.get("_screenshot_mime")
-        payload = agent._ok(" ".join(notes), app=app_name, window_title=title, steps=len(parsed))
-        if isinstance(image, (bytes, bytearray)) and image:
-            payload["_screenshot_bytes"] = bytes(image)
-            payload["_screenshot_mime"] = mime or "image/jpeg"
-        return payload
+        with desktop_share.hold(claim=False):
+            return _run_desktop(agent, app_name, title, parsed, notes)
     except AssertionError:
         raise
     except Exception as exc:
         return agent._err(f"desktop_ui_automation failed: {exc}")
+
+
+def _run_desktop(agent: Any, app_name: str, title: str, parsed: list[dict[str, Any]], notes: list[str]) -> dict[str, Any]:
+    if app_name:
+        opened = agent.launch_application(app_name)
+        if not opened.get("ok"):
+            return opened
+        notes.append(str(opened.get("message") or f"Opened {app_name}."))
+    if title:
+        import window_control
+
+        focused = window_control.focus_window(title)
+        if not focused.get("ok"):
+            return focused
+        notes.append(str(focused.get("message") or f"Focused {title}."))
+    image = None
+    mime = None
+    if parsed:
+        ran = agent.perform_actions(parsed)
+        if not ran.get("ok"):
+            return ran
+        notes.append(str(ran.get("message") or "Ran the steps."))
+        image = ran.get("_screenshot_bytes")
+        mime = ran.get("_screenshot_mime")
+    payload = agent._ok(" ".join(notes), app=app_name, window_title=title, steps=len(parsed))
+    if isinstance(image, (bytes, bytearray)) and image:
+        payload["_screenshot_bytes"] = bytes(image)
+        payload["_screenshot_mime"] = mime or "image/jpeg"
+    return payload
 
 
 DECLARATIONS = [

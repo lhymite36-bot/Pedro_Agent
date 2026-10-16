@@ -215,7 +215,13 @@ def focus_window(window_title: str) -> dict[str, Any]:
             chosen = matches[0]
             if getattr(chosen, "isMinimized", False):
                 chosen.restore()
-            chosen.activate()
+            import desktop_share
+
+            with desktop_share.hold(claim=False):
+                chosen.activate()
+                hwnd = int(getattr(chosen, "_hWnd", 0) or 0)
+                if hwnd:
+                    desktop_share.remember(hwnd)
             return agent._ok(
                 f"Brought {chosen.title} to the front.",
                 title=str(chosen.title),
@@ -224,7 +230,11 @@ def focus_window(window_title: str) -> dict[str, Any]:
         if not matches:
             return agent._err(f"No window title contains {title}.")
         hwnd, shown = matches[0]
-        _focus_hwnd(hwnd)
+        import desktop_share
+
+        with desktop_share.hold(claim=False):
+            _focus_hwnd(hwnd)
+            desktop_share.remember(hwnd)
         return agent._ok(f"Brought {shown} to the front.", title=shown)
     except AssertionError:
         raise

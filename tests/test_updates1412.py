@@ -187,10 +187,11 @@ class InterfaceTests(unittest.TestCase):
         css = (root / "app.css").read_text(encoding="utf-8")
         for token in ("live-size", "live-resize", "live-ctl-on"):
             self.assertIn(token, html)
-        for token in ("msg-copy", "addCopy", "replyBar", "/api/pin", "finishPing", "togglePin", "document.hidden"):
+        for token in ("msg-copy", "msg-reply", "addCopy", "replyBar", "reply-in", "/api/pin", "finishPing", "togglePin", "document.hidden"):
             self.assertIn(token, js)
         self.assertIn("containedPoint", live)
         self.assertIn("narrowScreen", live)
+        self.assertIn("placePhonePicture", live)
         self.assertIn("img.style.width = n + '%'", live)
         remote = (ROOT / "remote_access.py").read_text(encoding="utf-8")
         self.assertIn("live_pc.local_control(self._body())", remote)

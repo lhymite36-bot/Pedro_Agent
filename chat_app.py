@@ -56,6 +56,7 @@ STATIC_FILES = {
     "reactions.js": "application/javascript; charset=utf-8",
     "markdown.js": "application/javascript; charset=utf-8",
     "avatar.js": "application/javascript; charset=utf-8",
+    "avatar_mode.js": "application/javascript; charset=utf-8",
     "handsfree.js": "application/javascript; charset=utf-8",
     "bots_ui.js": "application/javascript; charset=utf-8",
     "groups_ui.js": "application/javascript; charset=utf-8",
@@ -64,6 +65,7 @@ STATIC_FILES = {
     "phone_ui.js": "application/javascript; charset=utf-8",
     "favicon.ico": "image/x-icon",
     "live_ui.js": "application/javascript; charset=utf-8",
+    "connectors_ui.js": "application/javascript; charset=utf-8",
     "sw.js": "application/javascript; charset=utf-8",
     "manifest.webmanifest": "application/manifest+json",
     "icon-192.png": "image/png",
@@ -71,22 +73,40 @@ STATIC_FILES = {
 }
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
 _IMAGE_EXTS = {".png", ".jpg", ".jpeg"}
+_MEDIA_EXTS = {".png", ".jpg", ".jpeg", ".mp4", ".webm"}
+_MEDIA_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+}
 
 
-def safe_image_path(raw: str) -> Path | None:
-    """Only images inside the agent workspace / storage folder are served."""
+def _stored_file(raw: str, suffixes: set[str]) -> Path | None:
+    """A file under the agent workspace or storage folder, or None."""
     import agent_config
 
     try:
         target = Path(raw).expanduser().resolve()
     except (OSError, ValueError):
         return None
-    if target.suffix.casefold() not in _IMAGE_EXTS or not target.is_file():
+    if target.suffix.casefold() not in suffixes or not target.is_file():
         return None
     roots = [(Path(__file__).resolve().parent / "workspace").resolve(), agent_config.storage_dir().resolve()]
     if any(root == target.parent or root in target.parents for root in roots):
         return target
     return None
+
+
+def safe_image_path(raw: str) -> Path | None:
+    """Only images inside the agent workspace / storage folder are served."""
+    return _stored_file(raw, _IMAGE_EXTS)
+
+
+def safe_media_path(raw: str) -> Path | None:
+    """Images and camera videos inside the workspace or storage folder."""
+    return _stored_file(raw, _MEDIA_EXTS)
 
 
 def remote_control_allowed() -> bool:
@@ -119,9 +139,9 @@ def status_payload(state: "AppState") -> dict[str, Any]:
         level = None
         mic_level = None
     return {
-        "busy": state.busy.locked(),
+        "busy": state.any_busy(),
         "listening": state.mic_lock.locked(),
-        "speaking": state.pipeline is not None and not state.busy.locked(),
+        "speaking": state.is_speaking(),
         "speech_level": level if isinstance(level, (int, float)) else None,
         "mic_level": mic_level if isinstance(mic_level, (int, float)) else None,
         "telegram": telegram,
@@ -187,7 +207,8 @@ def tts_file(clip: str) -> Path | None:
 
 
 
-SETUP_KEYS = ("GEMINI_API_KEY", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "GROQ_API_KEY")
+SETUP_KEYS = ("GEMINI_API_KEY", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "GROQ_API_KEY",
+              "OPENROUTER_API_KEY", "CEREBRAS_API_KEY", "NVIDIA_API_KEY")
 
 
 def _env_path() -> Path:
@@ -195,9 +216,21 @@ def _env_path() -> Path:
 
 
 def setup_status() -> dict:
-    return {"needs_setup": not os.environ.get("GEMINI_API_KEY", "").strip(),
+    seen: list[str] = []
+    primary = os.environ.get("GEMINI_API_KEY", "").strip()
+    if primary:
+        seen.append(primary)
+    for part in os.environ.get("GEMINI_API_KEYS", "").split(","):
+        part = part.strip()
+        if part and part not in seen:
+            seen.append(part)
+    return {"needs_setup": not primary,
             "telegram": bool(os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()),
-            "backup_model": bool(os.environ.get("GROQ_API_KEY", "").strip())}
+            "backup_model": bool(os.environ.get("GROQ_API_KEY", "").strip()),
+            "gemini_keys": len(seen),
+            "openrouter": bool(os.environ.get("OPENROUTER_API_KEY", "").strip()),
+            "cerebras": bool(os.environ.get("CEREBRAS_API_KEY", "").strip()),
+            "nvidia": bool(os.environ.get("NVIDIA_API_KEY", "").strip())}
 
 
 def save_setup(data: dict) -> dict:
@@ -205,9 +238,25 @@ def save_setup(data: dict) -> dict:
     import re as _re
 
     values = {k: str(data.get(k.lower()) or "").strip() for k in SETUP_KEYS}
+    raw_list = str(data.get("gemini_api_keys") or "").strip()
+    if raw_list:
+        extra: list[str] = []
+        for piece in _re.split(r"[\s,;]+", raw_list):
+            piece = piece.strip()
+            if not piece:
+                continue
+            if len(piece) > 200 or _re.search(r"[=\s\"']", piece):
+                return {"ok": False, "error": "A Gemini key doesn't look right."}
+            if piece not in extra:
+                extra.append(piece)
+        if len(extra) > 8:
+            return {"ok": False, "error": "Save up to 8 extra Gemini keys."}
+        values["GEMINI_API_KEYS"] = ",".join(extra)
     if not values["GEMINI_API_KEY"] and setup_status()["needs_setup"]:
         return {"ok": False, "error": "Paste your Gemini API key (free at aistudio.google.com/apikey)."}
     for k, v in values.items():
+        if k == "GEMINI_API_KEYS":
+            continue
         if v and (len(v) > 300 or _re.search(r"[\s\r\n=\"']", v)):
             return {"ok": False, "error": f"{k} doesn't look right."}
     path = _env_path()
@@ -250,14 +299,65 @@ def _saved_model() -> str:
         return ""
 
 
-def _save_model(model: str) -> None:
+VOICE_STYLES = {
+    "andrew": "en-US-AndrewNeural",
+    "brian": "en-US-BrianNeural",
+    "guy": "en-US-GuyNeural",
+    "jenny": "en-US-JennyNeural",
+    "aria": "en-US-AriaNeural",
+}
+
+
+def _ui_load() -> dict:
+    try:
+        data = json.loads(_ui_settings_path().read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _ui_save(data: dict) -> None:
     try:
         path = _ui_settings_path()
-        data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-        data["model"] = model
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(data), encoding="utf-8")
     except Exception:
         pass
+
+
+def _save_model(model: str) -> None:
+    data = _ui_load()
+    data["model"] = model
+    _ui_save(data)
+
+
+def current_voice_style() -> str:
+    saved = str(_ui_load().get("voice_style") or "").strip().casefold()
+    if saved in VOICE_STYLES:
+        return saved
+    env = os.environ.get("EDGE_TTS_VOICE", "").strip()
+    for key, name in VOICE_STYLES.items():
+        if name == env:
+            return key
+    return "andrew"
+
+
+def apply_voice_style(key: str) -> str:
+    """Save one allowlisted neural voice. An unknown name changes nothing."""
+    name = str(key or "").strip().casefold()
+    if name not in VOICE_STYLES:
+        return ""
+    os.environ["EDGE_TTS_VOICE"] = VOICE_STYLES[name]
+    data = _ui_load()
+    data["voice_style"] = name
+    _ui_save(data)
+    return name
+
+
+def apply_saved_voice() -> None:
+    saved = str(_ui_load().get("voice_style") or "").strip().casefold()
+    if saved in VOICE_STYLES:
+        os.environ["EDGE_TTS_VOICE"] = VOICE_STYLES[saved]
 
 class AppState:
     @property
@@ -273,6 +373,10 @@ class AppState:
         self.histories: dict[str, list[Any]] = {}
         self.cancel = threading.Event()
         self.busy = threading.Lock()
+        self._session_guard = threading.Lock()
+        self._session_locks: dict[str, threading.Lock] = {}
+        self._session_cancels: dict[str, threading.Event] = {}
+        self._session_pipes: dict[str, Any] = {}
         self.speak_mode = default_speak_mode()
         self.pipeline: Any = None
         self.pipeline_factory: Any = None  # tests inject a fake speech pipeline
@@ -284,15 +388,107 @@ class AppState:
             self.histories[session] = _rebuild_history(session)
         return self.histories[session]
 
+    def session_lock(self, session: str) -> threading.Lock:
+        with self._session_guard:
+            lock = self._session_locks.get(session)
+            if lock is None:
+                lock = threading.Lock()
+                self._session_locks[session] = lock
+            return lock
+
+    def session_cancel(self, session: str) -> threading.Event:
+        with self._session_guard:
+            ev = self._session_cancels.get(session)
+            if ev is None:
+                ev = threading.Event()
+                self._session_cancels[session] = ev
+            return ev
+
+    def any_busy(self) -> bool:
+        with self._session_guard:
+            return any(lock.locked() for lock in self._session_locks.values())
+
+    def is_speaking(self) -> bool:
+        with self._session_guard:
+            for sess, pipe in self._session_pipes.items():
+                lock = self._session_locks.get(sess)
+                if pipe is not None and (lock is None or not lock.locked()):
+                    return True
+        return False
+
+    def remember_pipe(self, session: str, pipe: Any) -> None:
+        with self._session_guard:
+            if pipe is None:
+                self._session_pipes.pop(session, None)
+            else:
+                self._session_pipes[session] = pipe
+
+    def cancel_session(self, session: str) -> None:
+        self.session_cancel(session).set()
+        with self._session_guard:
+            pipe = self._session_pipes.get(session)
+        if pipe is not None:
+            try:
+                pipe.abort()
+            except Exception:
+                pass
+
+    def cancel_all(self) -> None:
+        self.cancel.set()
+        with self._session_guard:
+            events = list(self._session_cancels.values())
+            pipes = list(self._session_pipes.values())
+        for ev in events:
+            ev.set()
+        for pipe in pipes:
+            try:
+                pipe.abort()
+            except Exception:
+                pass
+
+
+def _clip_saved_line(text: str) -> str:
+    flat = " ".join(str(text or "").split())
+    if not flat:
+        return ""
+    try:
+        import agent_core
+
+        if agent_core._memory_is_secret(flat):
+            return "[hidden]"
+    except Exception:
+        pass
+    return flat[:160]
+
 
 def _rebuild_history(session: str) -> list[Any]:
-    """Restore the model context from saved text after a restart."""
+    """Restore the model context from saved text after a restart.
+
+    A bot chat keeps the last 80 turns, plus up to 30 older lines in one note.
+    Other chats stay at the last 40 turns.
+    """
     try:
         from google.genai import types
     except ImportError:
         return []
+    bot_chat = str(session or "").startswith("bot-")
+    rows = chat_store.history(session, limit=110 if bot_chat else 40)
+    earlier: list[dict[str, Any]] = []
+    recent = rows
+    if bot_chat and len(rows) > 80:
+        earlier, recent = rows[:-80][-30:], rows[-80:]
     out: list[Any] = []
-    for row in chat_store.history(session, limit=40):
+    if earlier:
+        lines = []
+        for row in earlier:
+            who = "User" if row.get("role") == "user" else "You"
+            shown = _clip_saved_line(str(row.get("text") or ""))
+            if shown:
+                lines.append(f"{who}: {shown}")
+        if lines:
+            note = "Earlier turns you still remember:\n" + "\n".join(lines)
+            out.append(types.Content(role="user", parts=[types.Part.from_text(text=note)]))
+    for row in recent:
         role = "user" if row["role"] == "user" else "model"
         out.append(types.Content(role=role, parts=[types.Part.from_text(text=row["text"])]))
     return out
@@ -407,9 +603,19 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
         raw_emit(ev)
 
     emit = step_labels.wrap_emit(watch)
-    team_agent.LIVE_EMIT = emit
+    import confirm_action as _confirm
+    chat_token = _confirm.bind_chat(session)
+    import desktop_share
+    desk_token = desktop_share.bind(session)
+    team_agent.bind_live_emit(emit)
+    agent.bind_turn_view(emit, [])
     emit({"event": "step", "label": "Thinking…", "name": ""})
-    state.cancel.clear()
+    import bot_mind
+    bot_mind.hear(text)
+    say_token = bot_mind.bind_announce(lambda label: emit({"event": "step", "label": label[:180], "name": "mind"}))
+    cancel = state.session_cancel(session)
+    cancel.clear()
+    state.cancel = cancel
     pipeline = None
     reply = ""
     spoke = {"any": False}
@@ -421,7 +627,7 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
         import attachments
         files = [f for f in (files or []) if attachments.get(f)][:10]
         user_id = chat_store.add(session, "user", attachments.message_with_marker(text, files))
-        emit({"event": "saved", "role": "user", "id": user_id})
+        emit({"event": "saved", "role": "user", "id": user_id, "ts": chat_store.message_time(user_id)})
         turn_parts: list = []
         if files:   # pictures/PDFs go to the model as parts; other files as their text
             text, turn_parts = attachments.build_turn(text, files)
@@ -433,7 +639,7 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
                 chat_store.remember_writes(mid, wrote)
                 emit({"event": "writes", "id": mid, "paths": list(wrote)})
                 wrote.clear()
-            emit({"event": "saved", "role": role, "id": mid})
+            emit({"event": "saved", "role": role, "id": mid, "ts": chat_store.message_time(mid)})
             emit({"event": "reactions", "id": user_id,
                   "reactions": chat_store.reactions_for([user_id]).get(user_id, [])})
             return mid
@@ -443,10 +649,11 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
         # PC window: play on the PC speakers. Phone/remote: send an mp3 to the client.
         pipeline = _new_pipeline(state) if (want and not client_audio) else None
         state.pipeline = pipeline
+        state.remember_pipe(session, pipeline)
 
         def on_text(chunk: str) -> None:
             emit({"event": "token", "text": chunk})
-            if pipeline is not None and not state.cancel.is_set():
+            if pipeline is not None and not cancel.is_set():
                 spoke["any"] = True
                 try:
                     pipeline.submit(chunk)
@@ -455,16 +662,12 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
 
         if pipeline is not None:
             _pause_wake()
-        with state.busy:
+        with state.session_lock(session):
             try:
-                agent.turn_parts = turn_parts
+                agent.bind_turn_view(emit, turn_parts)
             except Exception:
                 pass
             try:
-                try:
-                    agent.plan_listener = emit
-                except Exception:
-                    pass
                 bot = bots.bot_for_session(session)
                 group = groups.group_for_session(session)
                 import confirm_action
@@ -484,7 +687,7 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
                 elif group is not None:
                     def group_emit(e: dict) -> None:   # speak each member's finished reply in turn
                         emit(e)
-                        if pipeline is not None and e.get("event") == "done" and e.get("text") and not state.cancel.is_set():
+                        if pipeline is not None and e.get("event") == "done" and e.get("text") and not cancel.is_set():
                             spoke["any"] = True
                             try:
                                 pipeline.submit(str(e["text"]))
@@ -497,18 +700,18 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
                                                     chat_store.react_last_user(sess, e, who),
                                                     emit({"event": "reactions", "id": user_id,
                                                           "reactions": chat_store.reactions_for([user_id]).get(user_id, [])})),
-                                                cancel_event=state.cancel, on_event=group_emit)
+                                                cancel_event=cancel, on_event=group_emit)
                     reply = said[-1][1] if said else ""
                 elif bot is not None:
                     with confirm_action.user_turn(text):
                         reply = bots.run_bot(
                             bot, text, history, model=state.model,
-                            cancel_event=state.cancel, on_text=on_text, on_event=emit,
+                            cancel_event=cancel, on_text=on_text, on_event=emit,
                         )
                 else:
                     reply = agent.run_agent(
                         text, history, state.model,
-                        cancel_event=state.cancel, on_text=on_text, on_event=emit,
+                        cancel_event=cancel, on_text=on_text, on_event=emit,
                     ) or ""
             except Exception as exc:  # RuntimeError for quota, key, network
                 emit({"event": "error", "text": agent._scrub(str(exc))})
@@ -520,7 +723,7 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
         emit({"event": "group_done"} if session.startswith(groups.SESSION_PREFIX) else {"event": "done", "text": reply})
         if pipeline is not None:
             _finish_speech(state, pipeline, reply, spoke["any"], emit)
-        elif want and client_audio and reply and not state.cancel.is_set():
+        elif want and client_audio and reply and not cancel.is_set():
             try:
                 emit({"event": "step", "label": "Getting my voice ready…", "name": ""})
                 clip = synth_client_audio(reply)
@@ -539,12 +742,16 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
     finally:
         try:
             import team_agent
-            team_agent.LIVE_EMIT = None
-            agent.plan_listener = None
-            agent.turn_parts = []
+            team_agent.clear_live_emit()
+            agent.clear_turn_view()
+            _confirm.unbind_chat(chat_token)
+            desktop_share.unbind(desk_token)
+            bot_mind.unbind_announce(say_token)
         except Exception:
             pass
-        state.pipeline = None
+        state.remember_pipe(session, None)
+        if state.pipeline is pipeline:
+            state.pipeline = None
         if pipeline is not None:
             _resume_wake()
 
@@ -637,6 +844,18 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             self.end_headers()
             self.wfile.write(body)
 
+        def _send_saved(self, body: bytes, kind: str, name: str, download: bool) -> None:
+            self.send_response(200)
+            self.send_header("Content-Type", kind)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Cache-Control", "private, max-age=3600")
+            if download:
+                from urllib.parse import quote
+                self.send_header("Content-Disposition", "attachment; filename*=UTF-8''" + quote(name))
+            self.end_headers()
+            self.wfile.write(body)
+
         def _json(self, data: Any, code: int = 200) -> None:
             self._send(code, json.dumps(data, default=str).encode("utf-8"))
 
@@ -685,7 +904,7 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     after = int(query.get("after", ["0"])[0])
                 except ValueError:
                     after = 0
-                self._json({"items": live_pc.activity(after), "busy": state.busy.locked(),
+                self._json({"items": live_pc.activity(after), "busy": state.any_busy(),
                             "now": live_pc.busy_text(), "remote": self.remote,
                             "local": not self.remote,
                             "control": remote_control_allowed()})
@@ -733,7 +952,14 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     self._send(404, b"{}")
                 else:
                     kind = "image/png" if found.suffix.casefold() == ".png" else "image/jpeg"
-                    self._send(200, found.read_bytes(), kind)
+                    self._send_saved(found.read_bytes(), kind, found.name, query.get("download", ["0"])[0] == "1")
+            elif url.path == "/api/media":
+                found = safe_media_path(query.get("path", [""])[0])
+                if found is None:
+                    self._send(404, b"{}")
+                else:
+                    kind = _MEDIA_TYPES.get(found.suffix.casefold(), "application/octet-stream")
+                    self._send_saved(found.read_bytes(), kind, found.name, query.get("download", ["0"])[0] == "1")
             elif url.path == "/api/bots":
                 self._json({"bots": bots.list_bots(), "tools": sorted(_agent().TOOLS)})
             elif url.path == "/api/sessions":
@@ -811,11 +1037,16 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     self._send(404, b"{}")
                 else:
                     self._send(200, found.read_bytes(), "audio/mpeg")
+            elif url.path == "/api/connectors":
+                import connectors
+                self._json({"connectors": connectors.catalog()})
             elif url.path == "/api/settings":
                 self._json({"model": state.model, "speak": state.speak, "speak_mode": state.speak_mode,
                             "wake": state.wake_on,
                             "wake_phrase": _wake_phrase(),
-                            "models": _agent().model_candidates(state.model)})
+                            "models": _agent().model_candidates(state.model),
+                            "voice_style": current_voice_style(),
+                            "voice_styles": list(VOICE_STYLES)})
             else:
                 self._send(404, b"{}")
 
@@ -907,12 +1138,11 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     wake_word.stop_wake_word_listener()
                 self._json({"ok": True, "wake": state.wake_on, "phrase": _wake_phrase()})
             elif url.path == "/api/stop":
-                state.cancel.set()
-                if state.pipeline is not None:
-                    try:
-                        state.pipeline.abort()
-                    except Exception:
-                        pass
+                stopped = str(data.get("session") or "")
+                if stopped:
+                    state.cancel_session(stopped)
+                else:
+                    state.cancel_all()
                 try:
                     _agent().stop_agent_speech()
                 except Exception:
@@ -924,7 +1154,21 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     self._json({"ok": True, "path": str(path)})
                 except Exception as exc:
                     self._json({"ok": False, "error": str(exc)}, 400)
+            elif url.path == "/api/connectors":
+                import connectors
+                action = str(data.get("action") or "")
+                if action in {"connect", "disconnect"} and self.remote:
+                    self._json({"ok": False, "error": "Connect on the PC."}, 403)
+                elif action == "connect":
+                    self._json(connectors.connect(str(data.get("id") or ""), data))
+                elif action == "disconnect":
+                    self._json(connectors.disconnect(str(data.get("id") or "")))
+                else:
+                    self._json({"ok": False, "error": "Unknown connector action."}, 400)
             elif url.path == "/api/settings":
+                if "voice_style" in data and not apply_voice_style(str(data.get("voice_style") or "")):
+                    self._json({"ok": False, "error": "Pick one of the saved voice styles."}, 400)
+                    return
                 if data.get("model"):
                     state.model = str(data["model"]).strip()
                     _save_model(state.model)
@@ -933,7 +1177,8 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 if str(data.get("speak_mode") or "") in SPEAK_MODES:
                     state.speak_mode = str(data["speak_mode"])
                 self._json({"ok": True, "model": state.model, "speak": state.speak,
-                            "speak_mode": state.speak_mode})
+                            "speak_mode": state.speak_mode,
+                            "voice_style": current_voice_style()})
             elif url.path == "/api/bots":
                 try:
                     bot = bots.save_bot(data)
@@ -1012,6 +1257,7 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 text = "(sent attachments)"
             session = str(data.get("session") or uuid.uuid4().hex[:12])
             from_voice = bool(data.get("voice"))
+            force_speak = True if data.get("speak") is True else None
             # Remote (phone) always plays on the client; the PC window may ask for it too.
             client_audio = bool(self.remote or data.get("play_here"))
             if not text:
@@ -1023,8 +1269,8 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             self.end_headers()
             events: queue.Queue = queue.Queue()
             worker = threading.Thread(
-                target=lambda: (stream_turn(state, session, text, events.put, from_voice=from_voice,
-                                           client_audio=client_audio, files=files), events.put(None)),
+                target=lambda: (stream_turn(state, session, text, events.put, speak=force_speak,
+                                           from_voice=from_voice, client_audio=client_audio, files=files), events.put(None)),
                 daemon=True,
             )
             worker.start()
@@ -1034,7 +1280,7 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 if item is None:
                     break
                 if not self._write(item):
-                    state.cancel.set()
+                    state.cancel_session(session)
                     break
 
         def _write(self, item: dict[str, Any]) -> bool:
@@ -1149,7 +1395,13 @@ def start_routines(state: "AppState") -> None:
 
 
 def serve(model: str, port: int = 8765) -> tuple[ThreadingHTTPServer, AppState]:
+    apply_saved_voice()
     state = AppState(model)
+    import bot_mind
+    bot_mind.live_read = True
+    bot_mind.busy_hook = state.any_busy
+    bot_mind.freeze_hook = state.cancel_all
+    bots.lock_for = state.session_lock
     server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(state))
     server.daemon_threads = True
     return server, state
@@ -1157,6 +1409,7 @@ def serve(model: str, port: int = 8765) -> tuple[ThreadingHTTPServer, AppState]:
 
 def shutdown(server: Any) -> None:
     """Stop everything the app started (also used by tests)."""
+    bots.lock_for = None
     try:
         import remote_access
 

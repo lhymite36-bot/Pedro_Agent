@@ -745,6 +745,45 @@ class AgentToolTests(unittest.TestCase):
         script = agent_core.open_website("javascript:alert(1)")
         self.assertFalse(script["ok"])
 
+    def test_video_links_open_and_watch_returns_the_context(self) -> None:
+        opened: list[tuple[str, str]] = []
+        agent_core.link_open_override = lambda kind, target: opened.append((kind, target))
+        agent_core.watch_screen_override = False
+        agent_core.link_text_override = lambda url: json.dumps({
+            "title": "How gears work",
+            "author_name": "Ada",
+            "description": "A short look at gears.",
+        })
+        self.addCleanup(setattr, agent_core, "link_open_override", None)
+        self.addCleanup(setattr, agent_core, "watch_screen_override", None)
+        self.addCleanup(setattr, agent_core, "link_text_override", None)
+
+        web = agent_core.open_website("youtu.be/abcdefghijk")
+        self.assertTrue(web["ok"], web)
+        self.assertEqual(opened[0], ("web", "https://youtu.be/abcdefghijk"))
+        bare = agent_core.open_website("youtube.com/watch?v=abcdefghijk")
+        self.assertTrue(bare["ok"], bare)
+        self.assertTrue(str(bare["url"]).startswith("https://youtube.com/watch"))
+        self.assertTrue(agent_core.open_website("https://vimeo.com/12345")["ok"])
+        clip = self.root / "clip.mp4"
+        clip.write_bytes(b"not-a-real-video")
+        local = agent_core.open_website(str(clip))
+        self.assertTrue(local["ok"], local)
+        self.assertEqual(local["kind"], "file")
+        watched = agent_core.watch_video("https://www.youtube.com/watch?v=abcdefghijk")
+        self.assertTrue(watched["ok"], watched)
+        self.assertIn("How gears work", watched["message"])
+        self.assertIn("Ada", watched["message"])
+        self.assertIn("gears", watched["message"])
+        self.assertIn("Do not invent", watched["message"])
+        page = agent_core._read_link_context(
+            "<title>Ignored</title>"
+            "<meta property=\"og:title\" content=\"Page title\">"
+            "<meta property=\"og:description\" content=\"The page says hello.\">"
+        )
+        self.assertEqual(page["title"], "Page title")
+        self.assertIn("hello", page["description"])
+
     def test_excel_task_saves_on_pedro_and_blocks_formulas(self) -> None:
         drive = self.root / "pedrodrive"
         drive.mkdir()
@@ -1794,6 +1833,14 @@ class AgentToolTests(unittest.TestCase):
 
             wheeled = agent_core.computer_action("scroll", direction="down", amount=2)
             self.assertTrue(wheeled["ok"], wheeled)
+            aimed = agent_core.scroll("down", 2, x=500, y=400)
+            self.assertTrue(aimed["ok"], aimed)
+            self.assertEqual((aimed["norm_x"], aimed["norm_y"]), (500, 400))
+            self.assertEqual((aimed["x"], aimed["y"]), (1000, 400))
+            half = agent_core.scroll("left", 1, x=0)
+            self.assertFalse(half["ok"])
+            self.assertEqual(mouse_controller.wheel_delta(3), 360)
+            self.assertEqual(mouse_controller.wheel_delta(-1), -120)
             sideways = agent_core.scroll("sideways")
             self.assertFalse(sideways["ok"])
             too_far = agent_core.scroll("up", 50)
@@ -1844,13 +1891,15 @@ class AgentToolTests(unittest.TestCase):
         )
         self.assertEqual(
             [kind for kind, _ in actions],
-            ["click", "click", "type", "type", "scroll", "keys", "keys"],
+            ["click", "click", "type", "type", "scroll", "scroll", "keys", "keys"],
         )
         self.assertEqual(actions[2][1]["text"], "hello")
         self.assertEqual(actions[3][1]["text"], "café")
         self.assertEqual(actions[4][1], {"direction": "down", "amount": 2})
-        self.assertEqual(actions[5][1]["steps"], [["tab"], ["enter"]])
-        self.assertEqual(actions[6][1]["steps"], [["ctrl", "l"]])
+        self.assertEqual(actions[5][1]["direction"], "down")
+        self.assertEqual(actions[5][1]["x"], 1000)
+        self.assertEqual(actions[6][1]["steps"], [["tab"], ["enter"]])
+        self.assertEqual(actions[7][1]["steps"], [["ctrl", "l"]])
         self.assertEqual(opened, ["https://example.com/mods"])
         self.assertEqual(sent, [2])
 
@@ -2109,7 +2158,7 @@ class AgentToolTests(unittest.TestCase):
         self.assertEqual(kept["steps"][1]["text"], "Fix the file")
         rejected = agent_core.create_task_plan("Only one", ["Just open Excel"])
         self.assertFalse(rejected["ok"])
-        self.assertEqual(agent_core._task_plan["goal"], "Two jobs")
+        self.assertEqual(agent_core._task_plan()["goal"], "Two jobs")
 
         agent_core.begin_task_turn("Open Excel")
         agent_core.pointer_override = record
@@ -5476,8 +5525,8 @@ class AgentToolTests(unittest.TestCase):
                 self.assertFalse(refused["ok"])
                 self.assertIn("Bad arguments", refused["error"])
                 names = [item["name"] for item in agent_core.TOOL_DECLARATIONS]
-                self.assertEqual(names[48], "desktop_ui_automation")
-                self.assertEqual(names[53], "routine_macro_engine")
+                self.assertEqual(names[49], "desktop_ui_automation")
+                self.assertEqual(names[54], "routine_macro_engine")
                 self.assertNotIn("gmail_send_message", agent_core._PLAN_FREE_TOOLS)
                 self.assertIn("gmail_send_message", agent_core.SYSTEM_PROMPT)
                 self.assertIn("people_contact_search", agent_core.SYSTEM_PROMPT)
@@ -5485,7 +5534,13 @@ class AgentToolTests(unittest.TestCase):
                 agent_core.gmail_transport_override = None
                 os.environ.pop("GMAIL_ADDRESS", None)
                 os.environ.pop("GMAIL_APP_PASSWORD", None)
-                quiet = mail.gmail_send_message(to="sarah@example.com", body="hi")
+                import connectors
+                held_store = connectors.store_override
+                connectors.store_override = {}
+                try:
+                    quiet = mail.gmail_send_message(to="sarah@example.com", body="hi")
+                finally:
+                    connectors.store_override = held_store
                 self.assertFalse(quiet["ok"])
                 self.assertIn("not set up", quiet["error"])
                 self.assertEqual(sent, [])

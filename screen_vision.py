@@ -193,6 +193,24 @@ def click_screen_target(
             return agent._err(f"Could not focus '{window_title}': {focused.get('error')}")
         time.sleep(settle)
     last_error = ""
+    import bot_mind
+
+    if bot_mind.bot_id():
+        place = bot_mind.lookup(text)
+        if place is not None and place.get("grid_x") is not None and place.get("grid_y") is not None:
+            token = bot_mind.bind_target(text, trusted=True)
+            try:
+                clicked = agent.click_element(
+                    place["grid_x"], place["grid_y"], clicks=2 if double_click else 1
+                )
+            finally:
+                bot_mind.unbind_target(token)
+            if clicked.get("ok"):
+                return agent._ok(
+                    f"Clicked the saved place '{place.get('name') or text}'. {clicked.get('mind') or ''}".strip(),
+                    x=place["grid_x"], y=place["grid_y"], attempts=1, via="map",
+                    ms=int((time.monotonic() - started) * 1000),
+                )
     for attempt in range(1, attempts + 1):
         try:
             found = _locate(text, control_name, window_title)
@@ -210,9 +228,16 @@ def click_screen_target(
                 before, _ = _shot()
             except Exception:
                 before = None
-        clicked = agent.click_element(found["x"], found["y"], clicks=2 if double_click else 1)
+        token = bot_mind.bind_target(text, trusted=False)
+        try:
+            clicked = agent.click_element(found["x"], found["y"], clicks=2 if double_click else 1)
+        finally:
+            bot_mind.unbind_target(token)
         if not clicked.get("ok"):
             last_error = clicked.get("error", "click failed")
+            folded = last_error.casefold()
+            if "judge said no" in folded or "reply yes" in folded or "other plan" in folded:
+                return agent._err(last_error)
             continue
         time.sleep(settle)
         changed = None
@@ -222,8 +247,14 @@ def click_screen_target(
                 changed = fast_screen.pixel_changed(before, after)
             except Exception:
                 pass
+        if bot_mind.bot_id():
+            bot_mind.remember_place(text, grid_x=int(found["x"]), grid_y=int(found["y"]), screen=bot_mind.screen_text())
+        mind = str(clicked.get("mind") or "")
+        message = f"Clicked '{text}' at grid {found['x']},{found['y']} via {found.get('via')} (attempt {attempt})."
+        if mind:
+            message = f"{message} {mind}"
         return agent._ok(
-            f"Clicked '{text}' at grid {found['x']},{found['y']} via {found.get('via')} (attempt {attempt}).",
+            message,
             x=found["x"], y=found["y"], attempts=attempt, screen_changed=changed,
             via=found.get("via"), ms=int((time.monotonic() - started) * 1000),
         )

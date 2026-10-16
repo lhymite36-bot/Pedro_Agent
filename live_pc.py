@@ -268,7 +268,12 @@ def _apply_mouse(kind: str, fields: dict[str, Any]) -> None:
         return
     if kind == "scroll":
         x, y = px(fields["x"], fields["y"])
-        pyautogui.scroll(int(fields.get("steps") or 0), x=x, y=y)
+        import mouse_controller
+
+        mouse_controller.configure_desktop(pyautogui)
+        mouse_controller.scroll_wheel(
+            pyautogui, int(fields.get("steps") or 0), x=x, y=y
+        )
         return
     x, y = px(fields["x"], fields["y"])
     button = fields.get("button") or "left"
@@ -294,6 +299,16 @@ def local_control(data: dict[str, Any] | None) -> dict[str, Any]:
     kind = str(data.get("type") or "").casefold()
     if kind not in _CONTROL_KINDS:
         return {"ok": False, "error": "Unknown control."}
+    try:
+        import desktop_share
+
+        with desktop_share.hold(claim=False):
+            return _control_held(kind, data)
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _control_held(kind: str, data: dict[str, Any]) -> dict[str, Any]:
     try:
         if kind == "type":
             value = _ascii_type(str(data.get("text") or ""))

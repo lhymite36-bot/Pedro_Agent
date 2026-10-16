@@ -247,10 +247,33 @@ def _interpret(to: str, subject: str, body: str, request: str) -> dict[str, Any]
 
 def _configured() -> tuple[str, str] | None:
     address = os.environ.get("GMAIL_ADDRESS", "").strip()
-    password = os.environ.get("GMAIL_APP_PASSWORD", "").strip()
+    password = "".join(os.environ.get("GMAIL_APP_PASSWORD", "").split())
     if valid_email(address) and len(password) >= 8:
         return address, password
-    return None
+    try:
+        import connectors
+
+        return connectors.gmail_login()
+    except Exception:
+        return None
+
+
+def _mail_drop(exc: BaseException) -> bool:
+    """True when Gmail closed the connection and another try can still send."""
+    import smtplib
+
+    if isinstance(exc, smtplib.SMTPAuthenticationError):
+        return False
+    code = getattr(exc, "smtp_code", None)
+    if isinstance(code, int) and code not in {421, 450, 451, 452}:
+        return False
+    text = str(exc).casefold()
+    if any(token in text for token in (
+        "unexpectedly closed", "connection reset", "timed out", "timeout",
+        "connection aborted", "disconnected", "connection refused", "eof occurred",
+    )):
+        return True
+    return isinstance(exc, (TimeoutError, ConnectionError))
 
 
 def _smtp_send(sender: str, password: str, recipient: str, subject: str, body: str) -> None:
@@ -292,12 +315,25 @@ def _deliver(recipient: str, subject: str, body: str) -> dict[str, Any]:
         )
     account, password = setup
     payload["from"] = account
-    try:
-        _smtp_send(account, password, recipient, subject, body)
-    except AssertionError:
-        raise
-    except Exception as exc:
-        return _err(f"The email was not sent. {_safe(str(exc))}")
+    import smtplib
+
+    last: BaseException | None = None
+    for _attempt in range(3):
+        try:
+            _smtp_send(account, password, recipient, subject, body)
+            last = None
+            break
+        except AssertionError:
+            raise
+        except smtplib.SMTPAuthenticationError as exc:
+            return _err(f"The email was not sent. {_safe(str(exc))}")
+        except Exception as exc:
+            last = exc
+            if _mail_drop(exc):
+                continue
+            return _err(f"The email was not sent. {_safe(str(exc))}")
+    if last is not None:
+        return _err(f"The email was not sent. {_safe(str(last))}")
     return _ok(
         f"Email successfully sent to {recipient}.",
         to=recipient,

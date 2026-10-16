@@ -3,7 +3,7 @@
 (function (root) {
   'use strict';
   function clampFps(v, max) { v = parseFloat(v); if (!(v > 0)) v = 10; return Math.max(0.5, Math.min(max || 30, v)); }
-  function clampSize(v) { v = parseFloat(v); if (!(v >= 40)) v = 62; return Math.max(40, Math.min(100, v)); }
+  function clampSize(v) { v = parseFloat(v); if (!(v >= 40)) v = 100; return Math.max(40, Math.min(100, v)); }
   function normPoint(clientX, clientY, rect) {
     return { x: Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)), y: Math.max(0, Math.min(1, (clientY - rect.top) / rect.height)) };
   }
@@ -49,19 +49,29 @@
       control = true;
       armControl();
       const feedBox = $('#live-feed');
+      const atTop = feedBox.scrollTop < 8;
       (r.items || []).forEach((a) => {
         lastId = Math.max(lastId, a.id);
         const d = document.createElement('div'); d.className = 'feed-item ' + a.kind;
         const b = document.createElement('b'); b.textContent = a.label; const sp = document.createElement('span'); sp.textContent = ' ' + a.text;
         const t = document.createElement('time'); t.textContent = ago(a.t); d.append(b, sp, t); feedBox.prepend(d);
       });
+      if (atTop) feedBox.scrollTop = 0;
       while (feedBox.children.length > 80) feedBox.lastChild.remove();
     } catch (e) { $('#live-now').textContent = 'Offline'; }
+    if (open && narrowScreen()) {
+      const slider = $('#live-size');
+      if (slider) applySize(slider.value);
+    }
   }
   function show(on) {
     open = on; pane.classList.toggle('open', on); document.body.classList.toggle('live-open', on);
     clearInterval(feedTimer);
-    if (on) { armControl(); startView(); feed(); feedTimer = setInterval(feed, 1500); } else stopView();
+    if (on) {
+      armControl(); startView(); feed(); feedTimer = setInterval(feed, 1500);
+      const slider = $('#live-size');
+      if (slider) applySize(slider.value);
+    } else stopView();
     setNav(on ? 'live' : 'chats');
   }
   root.showLive = show;
@@ -71,18 +81,53 @@
   $('#livebtn').onclick = () => show(true);
 
   function narrowScreen() { return window.matchMedia('(max-width: 760px)').matches; }
+  // 0 shows the left of the PC, 1 the right. A phone sizes the picture to the
+  // stage height, so a wide screen sticks out and this slides it sideways.
+  let viewPan = 0.5;
+  function placePhonePicture(img, n) {
+    const stage = img.parentElement;
+    const sw = stage ? stage.clientWidth : 0;
+    const sh = stage ? stage.clientHeight : 0;
+    if (!(sw > 0) || !(sh > 0)) return;
+    const nw = img.naturalWidth > 0 ? img.naturalWidth : 16;
+    const nh = img.naturalHeight > 0 ? img.naturalHeight : 9;
+    const h = Math.max(1, sh * (n / 100));
+    const w = h * (nw / nh);
+    img.style.objectFit = 'fill';
+    img.style.maxWidth = 'none';
+    img.style.maxHeight = 'none';
+    img.style.height = h + 'px';
+    img.style.width = w + 'px';
+    img.style.transform = 'none';
+    img.style.top = Math.max(0, (sh - h) / 2) + 'px';
+    const spare = w - sw;
+    img.style.left = (spare <= 0 ? (sw - w) / 2 : -spare * viewPan) + 'px';
+  }
+  function nudgeView(dx) {
+    const img = $('#live-img');
+    const stage = img && img.parentElement;
+    if (!img || !stage || !narrowScreen()) return;
+    const spare = img.offsetWidth - stage.clientWidth;
+    if (!(spare > 1)) return;
+    viewPan = Math.max(0, Math.min(1, viewPan - dx / spare));
+    const slider = $('#live-size');
+    applySize(slider ? slider.value : 100);
+  }
   function applySize(v) {
     const n = clampSize(v);
     const img = $('#live-img');
     if (img) {
       if (narrowScreen()) {
+        placePhonePicture(img, n);
+      } else {
+        img.style.height = '100%';
+        img.style.maxHeight = '100%';
+        img.style.objectFit = 'contain';
         img.style.width = n + '%';
         img.style.maxWidth = n + '%';
-        img.style.maxHeight = '80vh';
-      } else {
-        img.style.width = '';
-        img.style.maxWidth = '100%';
-        img.style.maxHeight = n + 'vh';
+        img.style.left = '50%';
+        img.style.top = '0';
+        img.style.transform = 'translateX(-50%)';
       }
     }
     const label = $('#live-size-v'); if (label) label.textContent = String(Math.round(n));
@@ -91,7 +136,10 @@
   }
   const sizeSlider = $('#live-size');
   if (sizeSlider) {
-    try { applySize(localStorage.liveSize || sizeSlider.value); } catch (e) { applySize(sizeSlider.value); }
+    try {
+      const saved = localStorage.liveSize;
+      applySize(!saved || saved === '62' ? sizeSlider.value : saved);
+    } catch (e) { applySize(sizeSlider.value); }
     sizeSlider.oninput = () => applySize(sizeSlider.value);
     window.addEventListener('resize', () => applySize(sizeSlider.value));
   }
@@ -99,7 +147,7 @@
   if (resizeHandle) {
     resizeHandle.addEventListener('pointerdown', (e) => {
       e.preventDefault(); e.stopPropagation();
-      const startY = e.clientY, start = clampSize(sizeSlider ? sizeSlider.value : 62);
+      const startY = e.clientY, start = clampSize(sizeSlider ? sizeSlider.value : 100);
       const vh = window.innerHeight || 800;
       function move(ev) { applySize(start + ((ev.clientY - startY) / vh) * 100); }
       function up() { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); }
@@ -140,10 +188,26 @@
   // A signed-in phone uses the same picture gestures as this PC.
   const liveImg = $('#live-img');
   let hold = null;
+  let viewDrag = null;
   const pointers = new Set();
+  const pointerXY = new Map();
   let pinch = null;
+  liveImg.addEventListener('load', () => {
+    if (open && narrowScreen()) {
+      const slider = $('#live-size');
+      if (slider) applySize(slider.value);
+    }
+  });
   liveImg.addEventListener('pointerdown', (e) => {
-    if (!aiming() || e.button > 2) return;
+    pointerXY.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (!aiming() || e.button > 2) {
+      if (!aiming() && narrowScreen() && e.button === 0) {
+        e.preventDefault();
+        viewDrag = { id: e.pointerId, x: e.clientX };
+        try { liveImg.setPointerCapture(e.pointerId); } catch (err) {}
+      }
+      return;
+    }
     pointers.add(e.pointerId);
     if (pointers.size > 1) {
       if (hold && hold.sentDown) sendCtl({ type: 'up', x: hold.x, y: hold.y, button: hold.button });
@@ -159,9 +223,24 @@
     try { liveImg.setPointerCapture(e.pointerId); } catch (err) {}
   });
   liveImg.addEventListener('pointermove', (e) => {
+    const prev = pointerXY.get(e.pointerId);
+    pointerXY.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (viewDrag && e.pointerId === viewDrag.id) {
+      e.preventDefault();
+      nudgeView(e.clientX - viewDrag.x);
+      viewDrag.x = e.clientX;
+      return;
+    }
     if (pointers.size > 1 && pinch && aiming()) {
       e.preventDefault();
-      pinch.acc += e.clientY - pinch.y;
+      const dx = prev ? e.clientX - prev.x : 0;
+      const dy = e.clientY - pinch.y;
+      if (narrowScreen() && dx !== 0 && Math.abs(dx) > Math.abs(dy)) {
+        nudgeView(dx / pointers.size);
+        pinch.y = e.clientY;
+        return;
+      }
+      pinch.acc += dy;
       pinch.y = e.clientY;
       if (Math.abs(pinch.acc) < 28) return;
       sendCtl({ type: 'scroll', x: pinch.x, y: pinch.yNorm, delta: pinch.acc > 0 ? 80 : -80 });
@@ -182,7 +261,11 @@
     sendCtl({ type: 'move', x: p.x, y: p.y });
   });
   function endHold(e) {
-    if (e && e.pointerId != null) pointers.delete(e.pointerId);
+    if (e && e.pointerId != null) {
+      pointers.delete(e.pointerId);
+      pointerXY.delete(e.pointerId);
+      if (viewDrag && viewDrag.id === e.pointerId) viewDrag = null;
+    }
     if (pointers.size < 2) pinch = null;
     if (!hold) return;
     const start = hold; hold = null;

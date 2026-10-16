@@ -507,23 +507,25 @@ def replay_skill(name: str, speed: float = 0.0, cancel_event: threading.Event | 
             last_t = float(event.get("t", 0))
             if gap:
                 sleep(min(gap, 5.0))
-            if index in slot_at:
-                done += _type_text(keys_c, slot_at[index])
-                continue
-            kind = event.get("type")
-            if kind == "click":
-                mouse_c.position = (int(event["x"] * sx), int(event["y"] * sy))
-                button = getattr(Button, str(event.get("button", "left")), None) if Button else event.get("button")
-                (mouse_c.press if event.get("down") else mouse_c.release)(button)
-            elif kind == "scroll":
-                mouse_c.position = (int(event["x"] * sx), int(event["y"] * sy))
-                mouse_c.scroll(int(event.get("dx", 0)), int(event.get("dy", 0)))
-            elif kind == "key":
-                key = _resolve_key(str(event.get("key", "")))
-                if key is None:
+            import desktop_share
+            with desktop_share.hold():
+                if index in slot_at:
+                    done += _type_text(keys_c, slot_at[index])
                     continue
-                (keys_c.press if event.get("down") else keys_c.release)(key)
-            done += 1
+                kind = event.get("type")
+                if kind == "click":
+                    mouse_c.position = (int(event["x"] * sx), int(event["y"] * sy))
+                    button = getattr(Button, str(event.get("button", "left")), None) if Button else event.get("button")
+                    (mouse_c.press if event.get("down") else mouse_c.release)(button)
+                elif kind == "scroll":
+                    mouse_c.position = (int(event["x"] * sx), int(event["y"] * sy))
+                    mouse_c.scroll(int(event.get("dx", 0)), int(event.get("dy", 0)))
+                elif kind == "key":
+                    key = _resolve_key(str(event.get("key", "")))
+                    if key is None:
+                        continue
+                    (keys_c.press if event.get("down") else keys_c.release)(key)
+                done += 1
     finally:
         if escape is not None:
             escape.stop()
@@ -587,6 +589,7 @@ def _follow_prompt(lesson: str, supplied: str, previous: str) -> str:
         "Read what the screen asks and produce the output that fits. "
         "If the previous action missed, click the right control or type a corrected answer. "
         "If you cannot see the whole question, scroll. "
+        "If the question is not on the screen, scroll or stop. Do not invent the question or the answer. "
         "Stop for a password prompt, a graded test, a quiz, or an exam. Do not answer those.\n"
         "Return one JSON object only, with action set to click, type, key, scroll, done, or stop.\n"
         'click needs x and y in image pixels. type needs text. key is enter, tab, escape, or backspace. '
@@ -639,6 +642,13 @@ def _perform_follow(decision: dict[str, Any], mouse_c: Any, keys_c: Any, scale_x
             return {"ok": False, "note": "The type action had no text."}
         if _is_secret(text):
             return {"ok": False, "blocked": True, "note": "Stopped because that step asked for a secret."}
+        import bot_mind
+
+        owner = bot_mind.bot_id()
+        if owner:
+            drafted = bot_mind.keep_draft(bot_mind.screen_text() or "The question on screen.", text, owner)
+            if not drafted.get("ok"):
+                return {"ok": False, "blocked": True, "note": str(drafted.get("error") or "The answer was not saved.")}
         _type_text(keys_c, text)
         return {"ok": True, "kind": "type", "note": f"typed {len(text)} characters"}
     if action == "click":
@@ -695,14 +705,21 @@ def follow_skill(name: str, inputs: Any = None, cancel_event: threading.Event | 
     seen: list[tuple[Any, ...]] = []
     performed: list[str] = []
     invalid = 0
+    import bot_mind
+
+    frames: list[dict[str, Any]] = bot_mind.load_frames(slug)
+    rewound = False
     try:
         for _ in range(max(1, int(limit))):
             if stop.is_set():
                 break
-            frame = _follow_image()
+            import desktop_share
+            with desktop_share.hold():
+                frame = _follow_image()
             if frame is None:
                 return _err("Could not see the screen.")
             blob, scale_x, scale_y = frame
+            seen_words = bot_mind.words(bot_mind.screen_text())
             decision = _decision(llm.text(_follow_prompt(lesson, supplied, previous), [blob]))
             action = decision.get("action")
             if action == "done":
@@ -720,10 +737,16 @@ def follow_skill(name: str, inputs: Any = None, cancel_event: threading.Event | 
                     return _err("Could not decide the next step.", done=len(performed), actions=performed)
                 continue
             if seen.count(signature) >= 2:
+                back = bot_mind.matching_frame(frames, " ".join(seen_words))
+                if back is not None and not rewound:
+                    rewound = True
+                    previous = bot_mind.rewind_note(back)
+                    continue
                 return _err(f"Could not fix '{slug}'. The same step kept failing.",
                             done=len(performed), actions=performed)
             seen.append(signature)
-            outcome = _perform_follow(decision, mouse_c, keys_c, scale_x, scale_y)
+            with desktop_share.hold():
+                outcome = _perform_follow(decision, mouse_c, keys_c, scale_x, scale_y)
             if outcome.get("blocked"):
                 return _err(str(outcome.get("note") or "Stopped."), done=len(performed), actions=performed)
             if not outcome.get("ok"):
@@ -734,6 +757,11 @@ def follow_skill(name: str, inputs: Any = None, cancel_event: threading.Event | 
                 continue
             performed.append(str(outcome["kind"]))
             previous = str(outcome["note"])
+            frames.append({"words": seen_words, "note": previous})
+            bot_mind.remember_frame(slug, seen_words, previous)
+            if outcome.get("kind") == "click" and bot_mind.bot_id():
+                reason = " ".join(str(decision.get("reason") or "that control").split())[:80]
+                bot_mind.remember_place(reason, screen=" ".join(seen_words))
             sleep(0.4)
     finally:
         if escape is not None:

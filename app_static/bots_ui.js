@@ -44,7 +44,7 @@
     const r = await (await fetch('/api/bots')).json(); bots = r.bots || []; root.pedroBots = bots; allTools = r.tools || [];
     const box = $('#bots'); box.innerHTML = '';
     bots.forEach((b) => {
-      const d = document.createElement('div'); d.className = 'sess botitem'; d.dataset.id = b.id;
+      const d = document.createElement('div'); d.className = 'sess botitem' + (window.chatIsRunning && window.chatIsRunning('bot-' + b.id) ? ' working' : ''); d.dataset.id = b.id;
       const face = document.createElement('div'); face.className = 'mini-face'; const l = look(b); createAvatar(face, l);
       const sp = document.createElement('span'); sp.textContent = b.name;
       const ed = document.createElement('button'); ed.type = 'button'; ed.className = 'edit'; ed.title = 'Edit bot'; ed.textContent = '✎';

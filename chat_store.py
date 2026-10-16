@@ -54,6 +54,15 @@ def close() -> None:
     return None
 
 
+def message_time(msg_id: int, path: Path | None = None) -> float:
+    """When one saved message was written. Falls back to now if the id is gone."""
+    with _lock, _session(path) as con:
+        row = con.execute("SELECT ts FROM messages WHERE id=?", (int(msg_id),)).fetchone()
+    if row is None:
+        return time.time()
+    return float(row["ts"])
+
+
 def add(session: str, role: str, text: str, path: Path | None = None) -> int:
     """Save one message; returns its id. [[react:EMOJI]] markers in a reply become reactions on the
     user's latest message (by the speaker) instead of text."""

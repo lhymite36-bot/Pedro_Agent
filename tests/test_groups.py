@@ -246,6 +246,51 @@ class ProjectIntentTests(GroupTests):
         self.assertEqual(groups._done_problem("PROJECT DONE: C:\\nope\\x.py", True), "these files don't exist: C:\\nope\\x.py.")
         self.assertEqual(groups._done_problem("PROJECT DONE: summary", True), "")
 
+    def test_a_plain_assignment_runs_that_bot_now(self):
+        g = groups.save_group({"name": "T", "members": ["writer", "editor"]})
+        lead = iter([
+            "I'll assign Writer to draft 3 facts about owls.",
+            "PROJECT DONE: saved",
+        ])
+        seen = []
+
+        def eng(prompt, history, model, **kw):
+            seen.append(prompt)
+            if "LEADER" in prompt:
+                return next(lead)
+            return "DONE: drafted the facts"
+
+        bots.engine = eng
+        groups.main_engine = eng
+        said = groups.run_group(g, "Make a short note about owls", [], lambda e: None)
+        self.assertEqual([s for s, _ in said], ["pedro", "writer", "pedro"])
+        self.assertIn("draft 3 facts about owls", seen[1])
+
+    def test_a_direct_bot_that_hands_off_runs_the_other_bot(self):
+        g = groups.save_group({"name": "T", "members": ["writer", "editor"]})
+        seen = []
+
+        def eng(prompt, history, model, **kw):
+            seen.append(prompt)
+            if "addressed YOU (Writer)" in prompt:
+                return "I'll let Editor check the rhyme."
+            return "DONE: the rhyme checks out"
+
+        bots.engine = eng
+        groups.main_engine = lambda *a, **k: self.fail("the leader does not take a direct message")
+        said = groups.run_group(g, "@writer write a haiku about owls", [], lambda e: None)
+        self.assertEqual([s for s, _ in said], ["writer", "editor"])
+        self.assertIn("check the rhyme", seen[1])
+
+    def test_a_refusal_or_a_maybe_does_not_hand_off(self):
+        g = groups.save_group({"name": "T", "members": ["writer", "editor"]})
+        self.assertIsNone(groups.promised_job("I will not assign Writer to draft it.", g, "pedro"))
+        self.assertIsNone(groups.promised_job("Maybe Editor could check it later.", g, "pedro"))
+        self.assertIsNone(groups.promised_job("Sounds like a fun project!", g, "pedro"))
+        who, task = groups.promised_job("Let Editor check the file.", g, "writer")
+        self.assertEqual(who, "editor")
+        self.assertEqual(task, "check the file")
+
     def test_at_all_greeting_stays_a_quick_round(self):
         g = groups.save_group({"name": "T", "members": ["writer"]})
         groups.main_engine = lambda p, h, m, **k: "hi" if "LEADER" not in p else self.fail("no loop for hi")

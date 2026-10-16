@@ -8,6 +8,10 @@ session "bot-<id>".
 A bot keeps its own notebook, lessons, and folder. It may hand one task to
 another bot; that second bot cannot hand the task on. Scheduled tasks run
 unattended, so risky actions wait for your yes (confirm rules still apply).
+
+A repeating job is one routine on the bot that already covers that work
+(save_standing_duty). bot_send starts a turn and returns a handle; bot_await
+reads the result. Both run only while Pedro is open and this PC is awake.
 """
 
 from __future__ import annotations
@@ -34,8 +38,14 @@ NO_NESTING = {"run_team"}
 SELF_TOOLS = frozenset({
     "bot_remember", "bot_notes", "save_bot_skill", "list_bot_skills", "list_my_files",
     "teach_bot", "stop_demonstration", "replay_skill", "follow_skill",
+    "save_standing_duty",
 })
 _ctx = threading.local()
+# chat_app sets this to AppState.session_lock so a sent turn does not overlap
+# a chat the user already has open with that bot.
+lock_for: Callable[[str], threading.Lock] | None = None
+_jobs: dict[str, dict[str, Any]] = {}
+_jobs_guard = threading.Lock()
 
 # Tests replace: engine(prompt, history, model, **kwargs) -> str
 engine: Callable[..., str] | None = None
@@ -299,7 +309,105 @@ def note_tool_paths(result: dict[str, Any]) -> None:
             bag.append(short)
 
 
-def _prompt(bot: dict[str, Any], text: str) -> str:
+def _work_sense(bot: dict[str, Any]) -> list[str]:
+    """What this bot should weigh before it acts. Other bots' windows stay out of reach."""
+    lines = [
+        "Reason before you act: what you already checked, the one next tool, and what would prove it worked.",
+        "Say only what the user, a tool, the screen, or another bot said. If it is not there, say you have not checked it.",
+        "To open a program, call launch_application. Do not say you are launching it until that tool says it opened.",
+        "A link, including a video link, is open_website. To watch it and give its context, call watch_video. Describe only the title, the description, and the picture that tool returned.",
+        "A picture from this PC's camera is capture_webcam_image. A video of a set length is record_pc_camera with that many seconds. The chat has the download. If they do not say how long, ask. Do not guess.",
+        "Mail, calendar, Drive, OneDrive, Outlook, GitHub, Notion, or Slack: call list_connectors, then connector_search if that service is connected. Describe only those rows. If it is not connected, say so.",
+        "Talk in short sentences. When you call ask_bot, pass the fact you checked, then quote that bot's reply. Do not turn it into a new fact.",
+        "If two facts disagree, say both and stop. Do not guess a button, a path, a grade, or an answer.",
+        "How you work: for a job with more than one step, name the steps, do one, and read the tool result before the next. A step worked only when ok is true.",
+        "On this PC, call take_screenshot before the first click. When you can describe the control, call click_screen_target instead of guessing a grid point. To scroll a list or page, call scroll with x and y on that list. A small cursor with your name shows at the click, then leaves. Focus your own window when another bot is also here. If a click, scroll, or typed word missed, look once more and fix it. Do not repeat the same point.",
+        "When you learn a fact you will need on a later run, call bot_remember. Never save a password or a key.",
+        "Read the earlier lines in this chat and your notebook before you guess.",
+        "When the user wants this job to repeat, call save_standing_duty with the exact time and the exact work. Do not ask for a new bot. The routine runs only while Pedro is open and this PC is awake.",
+        "Before a click, another bot can say no. Two plans are compared and the one whose words are on the screen is kept.",
+        "A click that worked is a named place. Use that place next time instead of hunting.",
+        "If a lesson step fails, go back to the last screen that still matched. Do not repeat the same point.",
+        "Write the question and the full answer in your folder before you type the answer on the page.",
+        "A timer, a grade, or a submit that cannot be undone stops you until the user says yes. A practice page keeps going.",
+    ]
+    others: list[str] = []
+    for other in list_bots():
+        if other.get("id") == bot.get("id"):
+            continue
+        role = " ".join(str(other.get("role") or "").split())[:80]
+        label = str(other.get("name") or "")
+        if role:
+            label = f"{label} ({role})"
+        if label:
+            others.append(label)
+        if len(others) >= 8:
+            break
+    if others:
+        lines.append("Other bots you can hand one task to: " + "; ".join(others) + ".")
+    import desktop_share
+
+    mine = "bot-" + str(bot.get("id") or "")
+    busy: list[str] = []
+    for owner, hwnd in desktop_share.windows().items():
+        if not owner or owner == mine:
+            continue
+        if owner.startswith(SESSION_PREFIX):
+            who = get_bot(owner[len(SESSION_PREFIX):])
+            name = str(who["name"]) if who else "another bot"
+        else:
+            name = "another chat"
+        title = desktop_share.window_title(int(hwnd))
+        busy.append(f"{name} is using {title}" if title else f"{name} is using a window")
+        if len(busy) >= 6:
+            break
+    if busy:
+        lines.append("Stay out of these windows: " + "; ".join(busy) + ".")
+    wrote = [str(path) for path in (_recent_paths.get(str(bot.get("id") or "")) or []) if str(path).strip()][:8]
+    if wrote:
+        lines.append("Files you wrote last time:\n" + "\n".join(wrote))
+    try:
+        import bot_mind
+
+        plan = bot_mind.latest_plan(str(bot.get("id") or ""))
+    except Exception:
+        plan = ""
+    if plan:
+        lines.append("Plan from your last quiet study:\n" + plan)
+    return lines
+
+
+def _public_line(text: str, limit: int) -> str:
+    flat = " ".join(str(text or "").split())
+    if not flat:
+        return ""
+    if _looks_secret(flat):
+        return "[hidden]"
+    return flat[:limit]
+
+
+def _earlier_chat(bot: dict[str, Any]) -> str:
+    """A short reminder for a turn that was started with an empty history."""
+    try:
+        import chat_store
+
+        rows = chat_store.history(session_for(bot), limit=12)
+    except Exception:
+        return ""
+    if rows and str(rows[-1].get("role") or "") == "user":
+        rows = rows[:-1]
+    lines: list[str] = []
+    for row in rows[-8:]:
+        who = "User" if row.get("role") == "user" else "You"
+        shown = _public_line(str(row.get("text") or ""), 160)
+        if shown:
+            lines.append(f"{who}: {shown}")
+    if not lines:
+        return ""
+    return "Earlier in this chat:\n" + "\n".join(lines)
+
+
+def _prompt(bot: dict[str, Any], text: str, *, earlier: bool = False) -> str:
     role = bot["role"].strip() or f"You are {bot['name']}, a helpful assistant."
     tools = ", ".join(bot["tools"]) if bot["tools"] else "any allowed tool"
     try:
@@ -313,6 +421,7 @@ def _prompt(bot: dict[str, Any], text: str) -> str:
     if folder:
         lines.append(f"Your own folder is {folder}. Save this bot's files there unless the user names another place. list_my_files shows what is already in it.")
     lines.append("Remember a fact the user teaches you with bot_remember. Follow a saved lesson with list_bot_skills when the task matches it.")
+    lines.extend(_work_sense(bot))
     lines.append("You may hand one task to another bot with ask_bot. That bot cannot hand the task on.")
     lines.append("If the user wants to teach you by doing a task on this PC, call teach_bot with a short lesson name, tell them to do it, and wait. When they say stop, call stop_demonstration. replay_skill repeats the recorded clicks. Where the lesson typed and the user gave new words, pass them as inputs, one value per line. When the questions or labels on screen are different, call follow_skill. It reads the screen, types the answer that fits, and fixes a step that did not land. It stops for a password or a graded test, quiz, or exam. Do not store a password.")
     notes = bot.get("notes") or []
@@ -326,6 +435,10 @@ def _prompt(bot: dict[str, Any], text: str) -> str:
             replay = f" Replay name: {skill['replay']}." if skill.get("replay") else ""
             blocks.append(f"### {skill['name']}{replay}\n{body}")
         lines.append("Lessons you were taught. Follow them when the task matches:\n" + "\n".join(blocks))
+    if earlier:
+        remembered = _earlier_chat(bot)
+        if remembered:
+            lines.append(remembered)
     lines.append("]")
     return "\n".join(lines) + f"\n\n{text}"
 
@@ -341,6 +454,7 @@ def _scope_for(bot: dict[str, Any], extra_tools: set[str] | None, handoff: bool)
         scope.add("ask_bot")
     else:
         scope.discard("ask_bot")
+        scope.discard("bot_send")
     return scope - NO_NESTING
 
 
@@ -356,9 +470,13 @@ def run_bot(bot: dict[str, Any], text: str, history: list[Any] | None = None, *,
     agent_core.set_tool_scope(_scope_for(bot, extra_tools, handoff))
     agent_core.set_unattended(unattended)
     prev = _bind(bot["id"], handoff)
+    import desktop_share
+    desk = desktop_share.bind("bot-" + str(bot["id"]))
+    hist = history if history is not None else []
     try:
-        return run(_prompt(bot, text), history if history is not None else [], chosen, **kwargs) or ""
+        return run(_prompt(bot, text, earlier=not hist), hist, chosen, **kwargs) or ""
     finally:
+        desktop_share.unbind(desk)
         with _lock:
             _recent_paths[bot["id"]] = list(getattr(_ctx, "paths", []) or [])
         _restore(prev)
@@ -543,6 +661,9 @@ class Scheduler:
         while not self.stop.wait(self.every):
             try:
                 run_due_tasks()
+                import bot_mind
+
+                bot_mind.study_if_idle()
             except Exception:
                 pass
 
@@ -670,11 +791,25 @@ def ask_bot(name: str, task: str) -> dict[str, Any]:
         return {"ok": False, "error": f"{bot['name']} cannot hand a task to itself."}
     session = session_for(bot)
     _store(session, "user", f"[from another bot] {task}" if caller else f"[from main agent] {task}")
+    try:
+        import grounding
+
+        brief = grounding.handoff_brief()
+    except Exception:
+        brief = ""
+    full = f"{brief}\n\nTask:\n{task}" if brief else task
+    who = str(caller["name"]) if caller else "Pedro"
+    try:
+        import bot_mind
+
+        bot_mind._say(f"{who} asked {bot['name']}: {str(task)[:80]}")
+    except Exception:
+        pass
     box: dict[str, Any] = {}
 
     def work() -> None:  # own thread: keeps the caller's turn state intact
         try:
-            box["reply"] = run_bot(bot, task, [], handoff=False)
+            box["reply"] = run_bot(bot, full, [], handoff=False)
         except Exception as exc:
             box["error"] = str(exc)
 
@@ -685,13 +820,285 @@ def ask_bot(name: str, task: str) -> dict[str, Any]:
         return {"ok": False, "error": f"{bot['name']} failed: {box['error']}"}
     reply = box.get("reply", "")
     _store(session, "assistant", reply)
-    return {"ok": True, "message": reply, "bot": bot["name"]}
+    try:
+        import bot_mind
+
+        bot_mind._say(f"{bot['name']} said: {str(reply)[:120]}")
+    except Exception:
+        pass
+    return {
+        "ok": True,
+        "message": reply,
+        "bot": bot["name"],
+        "ground": "Quote this reply. Do not add a file, a click, or a result that is not in it.",
+    }
 
 
 def list_bots_tool() -> dict[str, Any]:
     rows = [{"name": b["name"], "role": b["role"][:200], "tools": b["tools"],
              "tasks": len(b["tasks"])} for b in list_bots()]
     return {"ok": True, "message": f"{len(rows)} bots.", "bots": rows}
+
+
+def _routine_names(bot_id: str) -> list[str]:
+    try:
+        import routines
+
+        rows = routines._load().get("routines") or []
+    except Exception:
+        return []
+    names: list[str] = []
+    for row in rows:
+        if row.get("target") == "bot" and row.get("target_id") == bot_id:
+            title = str(row.get("name") or "")[:60]
+            if title:
+                names.append(title)
+        if len(names) >= 8:
+            break
+    return names
+
+
+def bot_search(query: str = "") -> dict[str, Any]:
+    """Rank bots by name and role. An empty query lists every bot."""
+    words = [w for w in re.findall(r"[a-z0-9]+", str(query or "").casefold()) if len(w) >= 2]
+    rows: list[dict[str, Any]] = []
+    for bot in list_bots():
+        name = str(bot.get("name") or "")
+        role = " ".join(str(bot.get("role") or "").split())
+        hay = f"{name} {role}".casefold()
+        if words:
+            score = sum(3 if w in name.casefold() else 1 for w in words if w in hay)
+            if score <= 0:
+                continue
+        else:
+            score = 0
+        rows.append({
+            "id": bot["id"],
+            "name": name,
+            "role": role[:200],
+            "tasks": len(bot.get("tasks") or []),
+            "routines": _routine_names(bot["id"]),
+            "score": score,
+        })
+    rows.sort(key=lambda row: (-int(row["score"]), str(row["name"]).casefold()))
+    return {"ok": True, "message": f"{len(rows)} bot(s).", "bots": rows}
+
+
+def bot_transcript(name: str, limit: int = 20) -> dict[str, Any]:
+    """Recent saved lines from one bot's chat. Secrets are not returned."""
+    bot = get_bot(name)
+    if bot is None:
+        return {"ok": False, "error": f"No bot named '{name}'.", "bots": [b["name"] for b in list_bots()]}
+    try:
+        count = max(1, min(int(limit or 20), 40))
+    except (TypeError, ValueError):
+        count = 20
+    try:
+        import chat_store
+
+        rows = chat_store.history(session_for(bot), limit=count)
+    except Exception as exc:
+        return {"ok": False, "error": f"Could not read the chat: {exc}"}
+    lines = []
+    for row in rows:
+        lines.append({
+            "role": row.get("role") or "",
+            "text": _public_line(str(row.get("text") or ""), 240),
+        })
+    return {
+        "ok": True,
+        "bot": bot["name"],
+        "session": session_for(bot),
+        "lines": lines,
+        "message": f"{len(lines)} line(s) from {bot['name']}.",
+    }
+
+
+def save_standing_duty(name: str, prompt: str, when: str, bot: str = "") -> dict[str, Any]:
+    """Save one routine on an existing bot. Does not add a second bot task."""
+    target = _target_bot(bot)
+    if target is None:
+        return {"ok": False, "error": "Say which bot should keep this routine. Search with bot_search first."}
+    import routines
+
+    before = len(target.get("tasks") or [])
+    result = routines.create_routine(name, prompt, when, bot=target["name"])
+    fresh = get_bot(target["id"]) or target
+    if len(fresh.get("tasks") or []) != before:
+        return {"ok": False, "error": "The routine was not saved on the bot's task list."}
+    if result.get("ok"):
+        result["bot"] = target["name"]
+        result["message"] = (
+            str(result.get("message") or "")
+            + " This runs only while Pedro is open and this PC is awake."
+            + " It does not run while Pedro is closed or the PC is asleep."
+        )
+    return result
+
+
+def _running_job(bot_id: str) -> dict[str, Any] | None:
+    with _jobs_guard:
+        for job in _jobs.values():
+            if job.get("bot_id") == bot_id and job.get("status") == "running":
+                return dict(job)
+    return None
+
+
+def _put_job(job: dict[str, Any]) -> None:
+    with _jobs_guard:
+        _jobs[str(job.get("handle") or "")] = job
+        if len(_jobs) <= 40:
+            return
+        finished = [key for key, item in _jobs.items() if item.get("status") != "running"]
+        for key in finished[: len(_jobs) - 40]:
+            _jobs.pop(key, None)
+
+
+def _get_job(handle: str) -> dict[str, Any] | None:
+    with _jobs_guard:
+        job = _jobs.get(handle)
+        return dict(job) if job else None
+
+
+def _turn_status(reply: str) -> str:
+    text = " ".join((reply or "").split())
+    if not text:
+        return "done"
+    tail = text[-180:].casefold()
+    if tail.endswith("?"):
+        return "question"
+    blockers = ("not connected", "could not connect", "needs your", "waiting for you", "reply yes", "say yes")
+    if any(phrase in tail for phrase in blockers):
+        return "needs_you"
+    return "done"
+
+
+def bot_send(name: str, task: str) -> dict[str, Any]:
+    """Start a bot turn and return a handle. The reply comes from bot_await."""
+    if not bool(getattr(_ctx, "handoff", True)):
+        return {"ok": False, "error": "This bot cannot start another bot."}
+    bot = get_bot(name)
+    if bot is None:
+        return {"ok": False, "error": f"No bot named '{name}'.", "bots": [b["name"] for b in list_bots()]}
+    caller = current_bot()
+    if caller is not None and caller["id"] == bot["id"]:
+        return {"ok": False, "error": f"{bot['name']} cannot start a turn on itself."}
+    task_text = " ".join(str(task or "").split())[:2000]
+    if not task_text:
+        return {"ok": False, "error": "Say what the bot should do."}
+    if _looks_secret(task_text):
+        return {"ok": False, "error": "That task looks like a password or a key, so it was not sent."}
+    session = session_for(bot)
+    running = _running_job(bot["id"])
+    if running is not None:
+        return {
+            "ok": True,
+            "status": "running",
+            "handle": running["handle"],
+            "bot": bot["name"],
+            "session": session,
+            "message": f"{bot['name']} is already working. Call bot_await with this handle.",
+        }
+    lock = None
+    if lock_for is not None:
+        try:
+            lock = lock_for(session)
+        except Exception:
+            lock = None
+        if lock is not None and not lock.acquire(blocking=False):
+            return {
+                "ok": True,
+                "status": "running",
+                "handle": "",
+                "bot": bot["name"],
+                "session": session,
+                "message": f"{bot['name']} is already in a chat turn. Wait, then call bot_transcript.",
+            }
+    handle = uuid.uuid4().hex[:8]
+    job = {
+        "handle": handle,
+        "bot_id": bot["id"],
+        "bot": bot["name"],
+        "session": session,
+        "status": "running",
+        "message": "Working.",
+        "reply": "",
+        "error": "",
+    }
+    _put_job(job)
+    _store(session, "user", f"[sent] {task_text}")
+
+    def work() -> None:
+        reply, status, error = "", "done", ""
+        try:
+            reply = run_bot(bot, task_text, [], handoff=False) or ""
+            status = _turn_status(reply)
+        except Exception as exc:
+            reply, status, error = f"{bot['name']} failed: {exc}", "error", str(exc)
+        finally:
+            if lock is not None:
+                try:
+                    lock.release()
+                except RuntimeError:
+                    pass
+        _store(session, "assistant", reply)
+        _put_job({
+            **job,
+            "status": status,
+            "reply": reply,
+            "message": reply if status != "error" else error,
+            "error": error,
+        })
+
+    worker = threading.Thread(target=work, name=f"bot-send-{bot['id']}", daemon=True)
+    try:
+        worker.start()
+    except Exception as exc:
+        if lock is not None:
+            try:
+                lock.release()
+            except RuntimeError:
+                pass
+        _put_job({**job, "status": "error", "message": str(exc), "error": str(exc)})
+        return {"ok": False, "error": str(exc), "handle": handle, "bot": bot["name"], "session": session}
+    return {
+        "ok": True,
+        "status": "running",
+        "handle": handle,
+        "bot": bot["name"],
+        "session": session,
+        "message": f"Sent to {bot['name']}. Call bot_await with this handle. An early note is not the result.",
+    }
+
+
+def bot_await(handle: str) -> dict[str, Any]:
+    """Read a bot_send handle. status running means call this again."""
+    key = str(handle or "").strip()
+    job = _get_job(key)
+    if job is None:
+        return {"ok": False, "error": "No work with that handle. Call bot_send first."}
+    status = str(job.get("status") or "running")
+    reply = str(job.get("reply") or "")
+    if status == "running":
+        message = f"{job.get('bot') or 'The bot'} is still working."
+        ok = True
+    elif status == "error":
+        message = str(job.get("error") or reply or "The bot failed.")
+        ok = False
+    else:
+        message = reply
+        ok = True
+    out = {
+        "ok": ok,
+        "status": status,
+        "handle": key,
+        "bot": job.get("bot") or "",
+        "session": job.get("session") or "",
+        "message": message,
+    }
+    if status == "error":
+        out["error"] = message
+    return out
 
 
 DECLARATIONS = [
@@ -727,10 +1134,39 @@ DECLARATIONS = [
          "name": {"type": "string", "description": "Short lesson name."},
          "bot": {"type": "string", "description": "Bot name. Optional when that bot is speaking."}},
          "required": ["name"]}},
+    {"name": "bot_search",
+     "description": "Search bots by name and role before creating one or handing off work. An empty query lists every bot. A short role can still match by name. Each row includes routines already saved on that bot.",
+     "parameters": {"type": "object", "properties": {
+         "query": {"type": "string", "description": "Words from the job. Empty lists every bot."}}}},
+    {"name": "bot_transcript",
+     "description": "Read the recent saved lines of one bot's chat before deciding. Passwords are hidden.",
+     "parameters": {"type": "object", "properties": {
+         "name": {"type": "string"},
+         "limit": {"type": "integer", "description": "How many lines, up to 40."}},
+         "required": ["name"]}},
+    {"name": "save_standing_duty",
+     "description": "Save a repeating or scheduled job on an existing bot. when is plain words such as 'every day at 8 AM' or 'every 2 hours'. Does not create a bot and does not add a second task. Runs only while Pedro is open and this PC is awake. Results appear in that bot's chat.",
+     "parameters": {"type": "object", "properties": {
+         "name": {"type": "string"},
+         "prompt": {"type": "string", "description": "The exact work, written as an instruction."},
+         "when": {"type": "string"},
+         "bot": {"type": "string", "description": "Bot name. Optional when that bot is speaking."}},
+         "required": ["name", "prompt", "when"]}},
+    {"name": "bot_send",
+     "description": "Start work on a bot and return immediately with a handle. Then call bot_await. If that bot is already working, this does not start a second turn. Do not also do the work yourself.",
+     "parameters": {"type": "object", "properties": {
+         "name": {"type": "string"}, "task": {"type": "string"}},
+         "required": ["name", "task"]}},
+    {"name": "bot_await",
+     "description": "Read a bot_send handle. status running means call this again. status done is the result. status question or needs_you means stop and tell the user. An early note is not the result.",
+     "parameters": {"type": "object", "properties": {"handle": {"type": "string"}}, "required": ["handle"]}},
 ]
 TOOLS = {
     "ask_bot": ask_bot, "list_bots": list_bots_tool,
     "bot_remember": bot_remember, "bot_notes": bot_notes,
     "save_bot_skill": save_bot_skill, "list_bot_skills": list_bot_skills,
     "list_my_files": list_my_files, "teach_bot": teach_bot,
+    "bot_search": bot_search, "bot_transcript": bot_transcript,
+    "save_standing_duty": save_standing_duty,
+    "bot_send": bot_send, "bot_await": bot_await,
 }

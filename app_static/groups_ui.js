@@ -17,7 +17,7 @@
     row.body.parentNode.insertBefore(n, row.body.parentNode.firstChild);
   };
   async function load() {
-    const r = await (await fetch('/api/groups')).json(); groups = r.groups || []; if (r.main) main = r.main;
+    const r = await (await fetch('/api/groups')).json(); groups = r.groups || []; root.pedroGroups = groups; if (r.main) main = r.main;
     const box = $('#groups'); if (!box) return; box.innerHTML = '';
     groups.forEach((g) => {
       const d = document.createElement('div'); d.className = 'sess botitem' + (current() && current().id === g.id ? ' active' : ''); d.dataset.id = g.id;
