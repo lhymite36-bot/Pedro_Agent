@@ -6909,6 +6909,7 @@ def _request_voice_model(
     on_sentence: Callable[[str], None] | None,
     cancel_event: threading.Event | None,
     spoke: dict[str, bool],
+    first: threading.Event | None = None,
 ) -> _StreamedTurn:
     def emit(sentence: str) -> None:
         spoke["yes"] = True
@@ -6922,7 +6923,45 @@ def _request_voice_model(
         contents=history,
         config=config,
     )
+    if first is not None:
+        stream = _mark_first(stream, first)
     return _finish_voice_stream(stream, emit, cancel_event)
+
+
+def _mark_first(chunks: Any, first: threading.Event) -> Any:
+    for chunk in chunks:
+        first.set()
+        yield chunk
+
+
+def _attempt(fn: Callable[[threading.Event], Any], cancel_event: Any, *, streaming: bool) -> Any:
+    """1.4.15: one model attempt. Streaming: the first chunk must arrive within 8 s; otherwise the attempt
+    is dropped (the worker is abandoned) and the caller fails over at once. Stop ends it immediately."""
+    first = threading.Event()
+    box: dict[str, Any] = {}
+    parent = dict(_turn_local.__dict__)
+
+    def runner() -> None:
+        _turn_local.__dict__.update(parent)
+        stop_token.bind(cancel_event)
+        try:
+            box["result"] = fn(first)
+        except BaseException as exc:
+            box["error"] = exc
+
+    worker = threading.Thread(target=runner, name="pb-model", daemon=True)
+    worker.start()
+    limit = ATTEMPT_TIMEOUT_MS / 1000.0 if streaming else NONSTREAM_TIMEOUT_S
+    started = time.monotonic()
+    while worker.is_alive():
+        worker.join(0.05)
+        if cancel_event is not None and cancel_event.is_set() and worker.is_alive():
+            raise stop_token.Stopped("Stopped.")
+        if worker.is_alive() and not first.is_set() and time.monotonic() - started > limit:
+            raise TimeoutError(f"The model did not start answering within {int(limit)} s (timed out).")
+    if "error" in box:
+        raise box["error"]
+    return box.get("result")
 
 
 EVIDENCE_TOOLS = frozenset({"take_screenshot", "scroll", "capture_screenshot_file", "find_on_screen", "read_page_text",
@@ -6971,7 +7010,9 @@ _DONE_CLAIM = re.compile(
 )
 AUTO_RESUMES = 2
 RESUME_WAIT_SECONDS = 3   # 1.4.15: was 60 s; failover is immediate now
-ATTEMPT_TIMEOUT_MS = 8000   # 1.4.15: one model attempt; a slow model fails over instead of hanging
+ATTEMPT_TIMEOUT_MS = 8000   # 1.4.15: time to the first streamed chunk; a slow model fails over instead of hanging
+HTTP_DEADLINE_MS = 60000    # Gemini rejects a server deadline under 10 s, so the 8 s limit is enforced here
+NONSTREAM_TIMEOUT_S = 20.0
 _CLIENTS: dict[str, Any] = {}
 _CONFIG_CACHE: dict[tuple[Any, ...], tuple[Any, Any]] = {}
 FAST_SYSTEM = (
@@ -7012,7 +7053,7 @@ def _gemini_client(genai: Any, key: str) -> Any:
     client = _CLIENTS.get(key)
     if client is None:
         from google.genai import types
-        client = genai.Client(api_key=key, http_options=types.HttpOptions(timeout=ATTEMPT_TIMEOUT_MS))
+        client = genai.Client(api_key=key, http_options=types.HttpOptions(timeout=HTTP_DEADLINE_MS))
         _CLIENTS[key] = client
     return client
 
@@ -7085,9 +7126,9 @@ def _fast_reply(user_text: str, history: list[Any], model: str, *, on_text: Any,
             try:
                 stop_token.checkpoint(cancel_event)
                 started = time.monotonic()
-                resp = stop_token.run(lambda: _request_voice_model(
+                resp = _attempt(lambda first: _request_voice_model(
                     client, name, contents, cfg, on_sentence=gate if on_text else None,
-                    cancel_event=cancel_event, spoke=spoke), cancel_event)
+                    cancel_event=cancel_event, spoke=spoke, first=first), cancel_event, streaming=True)
                 text = str(getattr(resp, "spoken_text", "") or "").strip()
                 _note_usage(name, True)
                 agent_log.event("fast_reply", model=name, ms=int((time.monotonic() - started) * 1000))
@@ -7290,6 +7331,17 @@ def _run_agent_core(
             except Exception:
                 pass
 
+    if not voice and model_order and all(_COOLING.get(m, 0) > time.monotonic() for m in model_order):
+        # 1.4.15: every Gemini model timed out or was busy in the last 5 minutes: go straight to the backup
+        try:
+            import cloud_fallback
+            if cloud_fallback.providers_for("busy"):
+                print("[busy] Gemini models are cooling down. Using the saved backup provider right away.", flush=True)
+                switched = _switch_providers(user_text, history, types, on_event, "busy")
+                if switched is not None:
+                    return switched
+        except stop_token.Stopped:
+            return ""
     used_tools: set[str] = set()
     evidence_nudges = 0
     text_call_nudges = 0
@@ -7343,7 +7395,7 @@ def _run_agent_core(
                 spoke = {"yes": False}
                 try:
                     if stream_text:
-                        response = stop_token.run(lambda: _request_voice_model(
+                        response = _attempt(lambda first: _request_voice_model(
                             client,
                             active_model,
                             history,
@@ -7351,7 +7403,8 @@ def _run_agent_core(
                             on_sentence=on_text,
                             cancel_event=cancel_event,
                             spoke=spoke,
-                        ), cancel_event, "pb-model")
+                            first=first,
+                        ), cancel_event, streaming=True)
                     elif voice:
                         response = _request_voice_model(
                             client,
@@ -7363,11 +7416,11 @@ def _run_agent_core(
                             spoke=spoke,
                         )
                     else:
-                        response = stop_token.run(lambda: client.models.generate_content(
+                        response = _attempt(lambda first: client.models.generate_content(
                             model=active_model,
                             contents=history,
                             config=active_config,
-                        ), cancel_event, "pb-model")
+                        ), cancel_event, streaming=False)
                     _note_usage(active_model, True)
                     break
                 except stop_token.Stopped:
