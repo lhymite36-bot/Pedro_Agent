@@ -687,12 +687,22 @@ def _end_stale_tunnel() -> None:
     if pid <= 0 or pid == os.getpid():
         return
     try:
-        if os.name == "nt":
-            out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"], capture_output=True, text=True,
-                                 timeout=10, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
-            if "cloudflared" in out.casefold():
-                subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True, timeout=10,
-                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        if os.name == "nt":   # ctypes, not tasklist: tasklist /FI needs WMI, which is broken on some PCs
+            import ctypes
+            from ctypes import wintypes
+            k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            k32.OpenProcess.restype = wintypes.HANDLE
+            handle = k32.OpenProcess(0x1000 | 0x0001, False, pid)   # QUERY_LIMITED_INFORMATION | TERMINATE
+            if not handle:
+                return
+            try:
+                buf = ctypes.create_unicode_buffer(1024)
+                size = wintypes.DWORD(1024)
+                if k32.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size)) and \
+                        "cloudflared" in buf.value.casefold():
+                    k32.TerminateProcess(handle, 1)
+            finally:
+                k32.CloseHandle(handle)
         else:
             with open(f"/proc/{pid}/comm", encoding="utf-8") as f:
                 if "cloudflared" in f.read():
