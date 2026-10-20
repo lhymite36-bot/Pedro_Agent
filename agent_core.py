@@ -5794,10 +5794,6 @@ TOOL_DECLARATIONS.extend(idle_tasks.DECLARATIONS)
 TOOL_DECLARATIONS.extend(delegate_agent.DECLARATIONS)
 TOOL_DECLARATIONS.extend(clipboard_context.DECLARATIONS)
 TOOL_DECLARATIONS.extend(desktop_automation.DECLARATIONS)
-import ui_controls  # noqa: E402
-
-TOOL_DECLARATIONS.extend(ui_controls.DECLARATIONS)
-TOOLS.update(ui_controls.TOOLS)
 TOOL_DECLARATIONS.extend(network_manager.DECLARATIONS)
 TOOL_DECLARATIONS.extend(diagnostics.DECLARATIONS)
 TOOL_DECLARATIONS.extend(local_search.RAG_DECLARATIONS)
@@ -6126,6 +6122,11 @@ TOOL_DECLARATIONS.extend([
             "path": {"type": "string"}, "recursive": {"type": "boolean"}}, "required": ["path"]},
     },
 ])
+
+import ui_controls  # noqa: E402
+
+TOOL_DECLARATIONS.extend(ui_controls.DECLARATIONS)
+TOOLS.update(ui_controls.TOOLS)
 
 
 def _tool_timeout_seconds() -> float:
@@ -9057,10 +9058,10 @@ def main(argv: list[str] | None = None) -> int:
         import chat_app
 
         try:
-            import agent_config
+            import agent_config as _agent_config
             import storage_migrate
 
-            moved = storage_migrate.run_at_start(APP_DIR, agent_config.storage_dir())
+            moved = storage_migrate.run_at_start(APP_DIR, _agent_config.storage_dir())
             if moved.get("migrated"):
                 print("[storage] " + str(moved.get("message")), flush=True)
                 if moved.get("env_keys"):

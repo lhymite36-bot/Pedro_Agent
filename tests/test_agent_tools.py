@@ -4529,7 +4529,7 @@ class AgentToolTests(unittest.TestCase):
         agent_core._start_target = lambda target: started.append(str(target))
         agent_core.start_menu_override = self.root / "empty-start"
         too_many = desktop_automation.desktop_ui_automation(
-            steps=[{"action": "press", "key": "enter"} for _ in range(9)]
+            steps=[{"action": "press", "key": "enter"} for _ in range(201)]
         )
         self.assertFalse(too_many["ok"])
         self.assertEqual(pressed, [])

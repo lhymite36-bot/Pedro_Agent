@@ -194,7 +194,7 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("placePhonePicture", live)
         self.assertIn("img.style.width = n + '%'", live)
         remote = (ROOT / "remote_access.py").read_text(encoding="utf-8")
-        self.assertIn("live_pc.local_control(self._body())", remote)
+        self.assertIn("phone_control(self._body())", remote)   # 1.4.14: permission checks first
         self.assertIn("done-flash", css)
         self.assertIn(".sess.pinned", css)
         app = (ROOT / "chat_app.py").read_text(encoding="utf-8")
