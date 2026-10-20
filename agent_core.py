@@ -492,7 +492,8 @@ Planning and execution:
 
 Multi-step work:
 - If the request has several parts (organizing files and then updating a spreadsheet or SQL), call create_task_plan first with the goal and a numbered list of steps.
-- Do the steps in order. After each step succeeds, call complete_plan_step. Say one short sentence about that step.
+- Do the steps in order. After each step succeeds, call complete_plan_step in the SAME response as the next step's action (two calls together), never in a response of its own; every extra model round costs Pedro about 20 seconds. A short task (4 actions or fewer) needs no plan: act directly.
+- To put text in a file, use write_text_file (exact and instant), not typing into Notepad; open the file afterwards only if the user wants to see it. If you do type, check the saved file's text before saying it is done.
 - If a step fails or the approach has to change, call revise_task_plan, tell the user what changed, and continue from the new steps.
 - A single action, such as "Open Excel" or "what did I copy?", does not need a plan.
 
