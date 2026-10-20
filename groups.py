@@ -64,7 +64,7 @@ def normalise(data: dict[str, Any]) -> dict[str, Any]:
     color = str(data.get("color") or "#5b9dff")
     return {"id": _slug(str(data.get("id") or "")) or _slug(name) or uuid.uuid4().hex[:8], "name": name,
             "picture": pic, "color": color if bots.COLOR.fullmatch(color) else "#5b9dff",
-            "avatar": str(data.get("avatar")) if data.get("avatar") in bots.AVATARS else "round",
+            "avatar": bots.avatar_shape(data.get("avatar")),
             "purpose": str(data.get("purpose") or "").strip()[:1000], "members": members,
             "coordinator": coord, "created": float(data.get("created") or time.time())}
 
@@ -237,8 +237,8 @@ def mentions(text: str, group: dict[str, Any]) -> list[str]:
 
 def display(speaker: str) -> dict[str, Any]:
     if speaker == MAIN:
-        return {"id": MAIN, "name": "Ped Bot", "color": "#5b6cff", "avatar": "round"}
-    b = bots.get_bot(speaker) or {"id": speaker, "name": speaker, "color": "#5b6cff", "avatar": "round"}
+        return {"id": MAIN, "name": "Ped Bot", "color": "#5b6cff", "avatar": "circle"}
+    b = bots.get_bot(speaker) or {"id": speaker, "name": speaker, "color": "#5b6cff", "avatar": "circle"}
     return {"id": b["id"], "name": b["name"], "color": b.get("color"), "avatar": b.get("avatar")}
 
 

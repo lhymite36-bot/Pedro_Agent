@@ -355,3 +355,14 @@ def test_review_work_accepts_this_turns_tool_results(tmp_path, monkeypatch):
     finally:
         a._turn_local.tool_notes = []
     assert "Could not verify" not in str(r), r
+
+
+def test_copy_button_on_every_message_and_jump_to_latest():
+    from pathlib import Path
+    js = (Path(__file__).resolve().parents[1] / "app_static" / "app.js").read_text(encoding="utf-8")
+    css = (Path(__file__).resolve().parents[1] / "app_static" / "app.css").read_text(encoding="utf-8")
+    user = js[js.index("function addUser("):js.index("function addBot(")]
+    assert "addCopy(row)" in user                     # Pedro's own messages too
+    assert "Copied" in js and "touchstart" in js       # toast + phone long-press
+    assert "jump-latest" in js and "jl-badge" in js and "pbScrolledUp" in js
+    assert "#jump-latest" in css and "#pb-toast" in css

@@ -169,7 +169,8 @@ function stripStage(t) {
 }
 
 // ---------- rendering ----------
-function scrollDown() { const l = $('#log'); l.scrollTop = l.scrollHeight; }
+// Stay put if Pedro scrolled up to read; the jump-to-latest button takes him back.
+function scrollDown(force) { const l = $('#log'); if (!force && window.pbScrolledUp) return; l.scrollTop = l.scrollHeight; }
 function showEmpty() { $('#empty').classList.toggle('hidden', $('#log').children.length > 0); }
 function fileChip(f) {
   const a = document.createElement('a'); a.className = 'att'; a.href = f.url; a.target = '_blank'; a.rel = 'noopener';
@@ -218,6 +219,7 @@ function addUser(text, files, ts) {
   row.dataset.replyText = text || '';
   row.appendChild(b); $('#log').appendChild(row); stampMessage(row, ts); showEmpty(); scrollDown();
   if (window.Reactions) Reactions.attach(row);
+  addCopy(row);
   addReply(row);
   return row;
 }
@@ -496,19 +498,35 @@ function replyBar(row) {
   if (!bar) { bar = document.createElement('div'); bar.className = 'msg-actions'; bubble.appendChild(bar); }
   return bar;
 }
+const COPY_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+function messageText(row) {
+  if (row.classList.contains('user')) return row.dataset.replyText || '';
+  const md = row.querySelector('.md'); return md ? md.innerText.trim() : '';
+}
+async function copyPlain(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch (e) {
+    const ta = document.createElement('textarea'); ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select(); let ok = false; try { ok = document.execCommand('copy'); } catch (e2) { ok = false; } ta.remove(); return ok;
+  }
+}
+function toast(text) {
+  let t = $('#pb-toast'); if (!t) { t = document.createElement('div'); t.id = 'pb-toast'; t.setAttribute('role', 'status'); document.body.appendChild(t); }
+  t.textContent = text; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 1300);
+}
+window.pbToast = toast;
+async function copyRow(row) { const ok = await copyPlain(messageText(row)); toast(ok ? 'Copied' : 'Could not copy'); return ok; }
 function addCopy(row) {
   if (!row || row.querySelector('.msg-copy')) return;
   const bar = replyBar(row); if (!bar) return;
-  const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'msg-copy'; btn.textContent = 'Copy';
-  btn.onclick = async () => {
-    const md = row.querySelector('.md');
-    const text = md ? md.innerText : '';
-    try { await navigator.clipboard.writeText(text); btn.textContent = 'Copied'; }
-    catch (e) { btn.textContent = 'Copy failed'; }
-    setTimeout(() => { btn.textContent = 'Copy'; }, 1200);
-  };
-  bar.appendChild(btn);
+  const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'msg-copy'; btn.title = 'Copy'; btn.setAttribute('aria-label', 'Copy message');
+  btn.innerHTML = COPY_ICON; btn.onclick = (e) => { e.stopPropagation(); copyRow(row); };
+  bar.insertBefore(btn, bar.firstChild);
+  // phone: long-press the bubble to copy
+  const bubble = row.querySelector('.bubble'); let lp = 0;
+  bubble.addEventListener('touchstart', (e) => { if (e.target.closest('button,a,img,input')) return; lp = setTimeout(() => { lp = 0; copyRow(row); if (navigator.vibrate) navigator.vibrate(15); }, 550); }, { passive: true });
+  ['touchend', 'touchmove', 'touchcancel'].forEach((k) => bubble.addEventListener(k, () => { if (lp) { clearTimeout(lp); lp = 0; } }, { passive: true }));
 }
+window.pbCopyRow = copyRow;
 let replyTo = null, keepReply = false;
 function clearReply() {
   replyTo = null;
@@ -997,3 +1015,32 @@ if ($('#pause-all')) $('#pause-all').onclick = async () => {
   const r = await api(pausedNow ? '/api/resume_all' : '/api/pause_all', {});
   showPaused(!!r.paused); setStatus(r.message || '');
 };
+
+// ---- 1.4.14: floating "jump to latest" button with a new-messages badge ----
+(function jumpToLatest() {
+  const log = $('#log'); if (!log) return;
+  const btn = document.createElement('button'); btn.type = 'button'; btn.id = 'jump-latest'; btn.hidden = true;
+  btn.title = 'Jump to latest'; btn.setAttribute('aria-label', 'Jump to the latest message');
+  btn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12l7 7 7-7"/></svg><span class="jl-badge" hidden></span>';
+  (log.parentNode || document.body).appendChild(btn);
+  const badge = btn.querySelector('.jl-badge'); let fresh = 0;
+  const GAP = 160;
+  function away() { return log.scrollHeight - log.scrollTop - log.clientHeight > GAP; }
+  function paint() {
+    btn.hidden = !window.pbScrolledUp;
+    badge.hidden = !fresh; badge.textContent = fresh > 99 ? '99+' : String(fresh);
+  }
+  function update() { window.pbScrolledUp = away(); if (!window.pbScrolledUp) fresh = 0; paint(); }
+  log.addEventListener('scroll', update, { passive: true });
+  window.addEventListener('resize', update);
+  btn.onclick = () => { fresh = 0; window.pbScrolledUp = false; log.scrollTo({ top: log.scrollHeight, behavior: 'smooth' }); paint(); };
+  new MutationObserver((muts) => {
+    if (!log.children.length) { window.pbScrolledUp = false; fresh = 0; paint(); return; }
+    let added = 0, mine = false;
+    muts.forEach((m) => m.addedNodes.forEach((n) => { if (n.nodeType === 1 && n.classList.contains('row')) { added++; if (n.classList.contains('user')) mine = true; } }));
+    if (!added) return;
+    if (mine) { fresh = 0; window.pbScrolledUp = false; log.scrollTop = log.scrollHeight; paint(); return; }   // he just sent one
+    if (window.pbScrolledUp) { fresh += added; paint(); }
+  }).observe(log, { childList: true });
+  window.pbJump = { update, get count() { return fresh; } };
+})();

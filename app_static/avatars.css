@@ -1,0 +1,32 @@
+/* Ped Bot avatars. Usage: <div class="pb-avatar pb-idle">SVG inline</div> */
+.pb-avatar{display:inline-block}
+.pb-avatar svg{width:100%;height:100%;overflow:visible}
+.pb-body,.pb-eyes{transform-box:fill-box;transform-origin:50% 50%}
+.pb-body{transform-origin:50% 100%}
+.pb-eyes{animation:pb-blink 3s infinite}
+@keyframes pb-blink{0%,92%,100%{scale:1 1}95%{scale:1 .1}}
+.pb-idle .pb-body{animation:pb-breathe 2.4s ease-in-out infinite}
+@keyframes pb-breathe{50%{transform:scale(1.04,.96)}}
+.pb-blinking .pb-eyes{animation:pb-blink 1s infinite}
+.pb-roll .pb-body{transform-origin:50% 50%;animation:pb-roll 3s ease-in-out infinite}
+@keyframes pb-roll{0%,100%{transform:translateX(-60px) rotate(-360deg)}50%{transform:translateX(60px) rotate(0deg)}}
+.pb-spin .pb-body{transform-origin:50% 50%;animation:pb-spin 1.2s linear infinite}
+@keyframes pb-spin{to{transform:rotate(360deg)}}
+.pb-bounce .pb-body{animation:pb-bounce 1s cubic-bezier(.3,0,.7,1) infinite}
+@keyframes pb-bounce{0%,100%{transform:scale(1.18,.8)}15%{transform:scale(.9,1.1)}50%{transform:translateY(-70px) scale(.95,1.05)}85%{transform:scale(.92,1.08)}}
+.pb-wobble .pb-body{animation:pb-wobble 1s ease-in-out infinite}
+@keyframes pb-wobble{0%,100%{transform:scale(1,1)}20%{transform:scale(1.15,.85) skewX(6deg)}40%{transform:scale(.9,1.1) skewX(-6deg)}60%{transform:scale(1.07,.93) skewX(3deg)}80%{transform:scale(.97,1.03) skewX(-2deg)}}
+.pb-hop .pb-body{animation:pb-hop .75s ease-in-out infinite}
+@keyframes pb-hop{0%,100%{transform:translateY(0)}40%{transform:translateY(-30px) rotate(-6deg)}60%{transform:translateY(-30px) rotate(6deg)}}
+.pb-look .pb-eyes{animation:pb-look 3s ease-in-out infinite,pb-blink 3s infinite}
+@keyframes pb-look{0%,100%{transform:translate(0,0)}20%,35%{transform:translate(-14px,-3px)}55%,70%{transform:translate(14px,-3px)}85%{transform:translate(0,-8px)}}
+.pb-thinking .pb-body{animation:pb-think 1.5s ease-in-out infinite}
+@keyframes pb-think{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.08);opacity:.65}}
+.pb-thinking .pb-eyes{transform:translate(6px,-8px)}
+.pb-happy .pb-body{animation:pb-happy 1.5s ease-out infinite}
+@keyframes pb-happy{0%,100%{transform:scale(1.15,.85)}10%{transform:scale(1)}40%{transform:translateY(-80px) rotate(360deg) scale(1.05)}70%{transform:translateY(0) rotate(360deg)}80%{transform:scale(1.15,.85) rotate(360deg)}}
+.pb-happy .pb-eyes{animation:none;scale:1.15 .5}
+.pb-sleepy .pb-body{animation:pb-sleepy 3s ease-in-out infinite}
+@keyframes pb-sleepy{0%,100%{transform:scale(1.02,.96) rotate(-3deg)}50%{transform:scale(1.07,.88) rotate(4deg)}}
+.pb-sleepy .pb-eyes{animation:none;scale:1.2 .2;translate:0 6px}
+@media (prefers-reduced-motion:reduce){.pb-avatar .pb-body,.pb-avatar .pb-eyes{animation:none!important}}

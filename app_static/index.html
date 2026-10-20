@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Ped Bot</title>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<link rel="stylesheet" href="/avatars.css">
 <link rel="stylesheet" href="/app.css">
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="#0b0b0f">
@@ -13,6 +14,7 @@
   <button class="side-btn" id="new" type="button"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>New chat</button>
   <div class="side-label row-label">Bots<button class="ib small" id="newbot" type="button" title="New bot">+</button></div>
   <div id="bots"></div>
+  <button class="side-btn" id="storebtn" type="button"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>Browse bots</button>
   <div class="side-label row-label">Groups<button class="ib small" id="newgroup" type="button" title="New group">+</button></div>
   <div id="groups"></div>
   <div class="side-label">Chats</div>
@@ -221,6 +223,7 @@
 <script src="/reactions.js"></script>
 <script src="/app.js"></script>
 <script src="/bots_ui.js"></script>
+<script src="/newbot_ui.js"></script>
 <script src="/titlebar.js"></script>
 <script src="/mention_pick.js"></script>
 <script src="/groups_ui.js"></script>

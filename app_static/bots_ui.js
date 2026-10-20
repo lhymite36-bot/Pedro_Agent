@@ -20,7 +20,7 @@
 
   const $ = (s) => document.querySelector(s);
   let bots = [], allTools = [], editing = null, recording = false;
-  const DEFAULT = { color: '#5b6cff', shape: 'round' };
+  const DEFAULT = { color: '#1683f5', shape: 'circle' };
   function look(bot) { return bot ? { color: bot.color || DEFAULT.color, shape: bot.avatar || 'round' } : DEFAULT; }
   function tint(av, bot) { const l = look(bot); av.setLook(l.color, l.shape); }
   root.currentBotLook = () => look(current());

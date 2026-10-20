@@ -183,11 +183,11 @@ class DeleteTests(GroupTests):
 class PictureTests(GroupTests):
     def test_picture_and_preset_persist_and_validate(self):
         pic = "data:image/jpeg;base64,/9j/4AAQSkZJRg=="
-        g = groups.save_group({"name": "P", "picture": pic, "color": "#123456", "avatar": "cat"})
+        g = groups.save_group({"name": "P", "picture": pic, "color": "#123456", "avatar": "cloud"})
         saved = groups.get_group(g["id"])
-        self.assertEqual((saved["picture"], saved["color"], saved["avatar"]), (pic, "#123456", "cat"))
+        self.assertEqual((saved["picture"], saved["color"], saved["avatar"]), (pic, "#123456", "cloud"))
         g2 = groups.save_group({**saved, "picture": "", "color": "bad", "avatar": "dragon"})
-        self.assertEqual((g2["picture"], g2["color"], g2["avatar"]), ("", "#5b9dff", "round"))
+        self.assertEqual((g2["picture"], g2["color"], g2["avatar"]), ("", "#5b9dff", "blob"))
         for bad in ("javascript:alert(1)", "data:image/svg+xml;base64,PHN2Zz4=", "data:image/png;base64," + "A" * 300000):
             with self.assertRaises(ValueError):
                 groups.save_group({"name": "Q", "picture": bad})

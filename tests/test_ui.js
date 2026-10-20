@@ -27,8 +27,8 @@ const av = createAvatar(el);
 assert.ok(el._h.includes('<svg') && classes.has('idle'));
 for (const s of ['listening', 'thinking', 'speaking', 'idle']) { av.setState(s); assert.strictEqual(av.state, s); assert.ok(classes.has(s)); }
 assert.strictEqual(classes.has('speaking'), false);
-for (const s of ['working', 'idle']) { av.setState(s); assert.strictEqual(av.state, s); }
-assert.ok(el._h.includes('av-ball') && !el._h.includes('av-hl'));  // big flat eyes, no shine
+av.setState('working'); assert.strictEqual(av.state, 'working'); av.setState('idle'); assert.strictEqual(av.state, 'idle');
+assert.ok(el._h.includes('pb-eyes') && el._h.includes('pb-body') && !el._h.includes('Gradient'));  // flat blob set
 const kinds = new Set(require('../app_static/avatar.js').SHAPES.map((sh) => { const e2 = { set innerHTML(v) { this._h = v; }, classList: { add() {}, remove() {} }, querySelector: () => ({ setAttribute() {} }) }; createAvatar(e2, { shape: sh, color: '#ff0000' }); assert.ok(e2._h.includes('#ff0000')); return e2._h; }));
 assert.ok(kinds.size >= 5, 'at least 5 distinct characters');
 console.log('ui js: all tests passed');
