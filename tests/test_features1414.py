@@ -321,3 +321,24 @@ def test_no_tool_enum_has_an_empty_value():
             if re.search(r'(^|,)\s*""\s*(,|$)', m.group(1)):
                 bad.append(f.name)
     assert not bad, bad
+
+
+def test_plan_survives_tool_worker_thread():
+    import agent_core as a
+    a._set_turn("demo", None)
+    r = a._call_with_timeout("create_task_plan", a.create_task_plan, {"goal": "g", "steps": ["one", "two"]})
+    assert r.get("ok"), r
+    r2 = a._call_with_timeout("complete_plan_step", a.complete_plan_step, {"step": 1})
+    assert r2.get("ok"), r2
+    a._set_turn("", None)
+
+
+def test_progress_final_is_honest_when_last_step_failed():
+    import progress_notes as pn
+    said = []
+    n = pn.Narrator("close notepad", lambda k, t: said.append((k, t)), clock=iter(range(0, 1000, 20)).__next__)
+    for name, ok in (("launch_application", True), ("write_text_file", True), ("take_screenshot", True), ("kill_process", False)):
+        n.feed({"event": "tool_end", "name": name, "ok": ok, "detail": "Waiting for a yes before kill notepad." if not ok else "fine"})
+    text = n.finish("Not done yet.")
+    assert text.startswith("Not finished yet"), text
+    assert not any(".." in t for _, t in said)

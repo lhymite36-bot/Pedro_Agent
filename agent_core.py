@@ -583,7 +583,7 @@ Git backups:
 - .env, .pem, and .key files are left unstaged. Do not try to commit them.
 
 Windows and processes:
-- A frozen app calls kill_process with the program name, such as notepad. Warn the user before closing a Windows system process.
+- To close an app you opened for the task (not frozen), focus it and press_keys alt+f4 (answer its save prompt if any); that needs no yes. - A frozen app calls kill_process with the program name, such as notepad. Warn the user before closing a Windows system process.
 - focus_window brings a window to the front by its title.
 - manage_window_layout action is maximize, minimize, restore, snap_left, or snap_right.
 - manage_windows_and_processes does one of those actions when a single call is clearer.
@@ -6160,18 +6160,28 @@ def _call_with_timeout(name: str, function: Callable[..., Any], arguments: dict[
     if limit <= 0 or name in _NO_TIMEOUT_TOOLS:
         return function(**arguments)
     box: dict[str, Any] = {}
+    # The turn's plan, request and listener live in thread-locals; carry them into
+    # the worker and back, or create_task_plan's plan is lost after the call.
+    turn_state = dict(_turn_local.__dict__)
+    scope_state = dict(_tool_scope.__dict__)
 
     def runner() -> None:
+        _turn_local.__dict__.update(turn_state)
+        _tool_scope.__dict__.update(scope_state)
         try:
             box["result"] = function(**arguments)
         except BaseException as exc:  # re-raised on the caller thread
             box["error"] = exc
+        finally:
+            box["turn"] = dict(_turn_local.__dict__)
 
     worker = threading.Thread(target=runner, name=f"tool-{name}", daemon=True)
     worker.start()
     worker.join(limit)
     if worker.is_alive():
         raise ToolTimeout(f"timed out after {int(limit)}s (agent.tool_timeout_seconds in rules.yaml)")
+    if "turn" in box:
+        _turn_local.__dict__.update(box["turn"])
     if "error" in box:
         raise box["error"]
     return box.get("result")

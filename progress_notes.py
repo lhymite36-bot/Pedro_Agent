@@ -86,11 +86,14 @@ class Narrator:
         if ev.get("path"):
             self.files.append(str(ev["path"]))
         ok = bool(ev.get("ok"))
-        detail = _short(ev.get("detail") or "", 140)
+        detail = _short(ev.get("detail") or "", 140).rstrip(" .")
+        self.last_ok = bool(ev.get("ok"))
         self._maybe_open()
         if not ok and name not in QUIET_TOOLS:
             self.failed.append(f"{_plain(name)}: {detail}")
-            if self.opened:
+            if self.opened and "waiting for a yes" in detail.casefold():
+                self._say("blocker", f"Waiting for your yes: {detail}.")
+            elif self.opened:
                 self._say("blocker", f"Hit a snag with {_plain(name)}: {detail or 'it did not work'}. Trying another way.")
             return
         if ok and (name in RESULT_TOOLS or ev.get("path")):
@@ -106,8 +109,9 @@ class Narrator:
         secs = int(self.clock() - self.started)
         if cancelled:
             text = f"Stopped after {self.steps} steps ({secs} s)."
-        elif self.failed and not self.results:
-            text = f"Not finished: {self.failed[-1]}"
+        elif (self.failed and not self.results) or str(reply or "").lstrip().casefold().startswith(("not done", "not finished")) \
+                or not getattr(self, "last_ok", True):
+            text = f"Not finished yet ({self.steps} steps, {secs} s): {self.failed[-1] if self.failed else _short(reply, 140)}"
         else:
             proof = []
             if self.files:
@@ -115,6 +119,6 @@ class Narrator:
                 proof.append("saved " + ", ".join(uniq[-3:]))
             if self.results:
                 proof.append("checked: " + "; ".join(r for r in self.results[-2:] if r))
-            text = f"Finished in {self.steps} steps ({secs} s)." + (" Proof - " + " | ".join(proof) + "." if proof else "")
+            text = f"Finished in {self.steps} steps ({secs} s)." + (" Proof - " + " | ".join(proof) if proof else "")
         self._say("final", text)
         return text
