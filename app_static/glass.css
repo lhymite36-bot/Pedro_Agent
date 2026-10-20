@@ -124,7 +124,8 @@ body.glass ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.16);border-col
   body.glass #side,body.glass header,body.glass .box,body.glass .bot .bubble,body.glass .side-btn,body.glass .pa-card,body.glass .rt-panel,body.glass .cn-panel,
   body.glass #settings,body.glass .drawer,body.glass #boted,body.glass #grped,body.glass #bottomnav,body.glass .nb-card,body.glass .st-fcard,body.glass .pb-top,body.glass #jump-latest,body.glass .rt-item{background:var(--g-sheen),rgba(24,24,34,.94)}
 }
-body.glass.no-glass-motion::before,body.glass.no-glass-motion::after{animation:none}
+/* Drift only while focused + opted in: re-blurring every glass panel each frame is heavy on slower PCs. */
+body.glass:not(.glass-motion)::before,body.glass:not(.glass-motion)::after{animation:none}
 @media (prefers-reduced-motion:reduce){
   body.glass::before,body.glass::after,body.glass .row,body.glass .pb-screen:not([hidden]){animation:none!important}
   body.glass *{transition-duration:.01ms!important}

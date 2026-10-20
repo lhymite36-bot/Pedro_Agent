@@ -158,9 +158,9 @@ function create(host,o={}){
   const lift=Math.max(0,-p.y)/90;shadow.setAttribute('rx',62*(R/72)*(1-th*.1)*(1-lift*.45)*(.8+.2*p.sx));shadow.setAttribute('cx',100+p.x);shadow.setAttribute('opacity',1-lift*.6);
   sparks.forEach((d,k)=>{const ang=B.time*3+k*2.094,rr=R*1.05;d.setAttribute('cx',100+p.x+Math.cos(ang)*rr);d.setAttribute('cy',190-(M.gy-cy)+p.y+Math.sin(ang)*rr*.35-R*.2);d.setAttribute('r',sp*(4+2*Math.sin(B.time*8+k)));d.setAttribute('opacity',sp*(Math.sin(ang)>-.2?1:.45))});
  };
- B.svg=svg;B.host=host;B.setColor=c=>{B.color=c||'';B.mFrom=JSON.parse(JSON.stringify(B.cur));B.mTo=snapshotShape(B.shape,B.color);B.morph.x=0;B.morph.v=0;B.morph.t=1};B.destroy=()=>{const i=BOTS.indexOf(B);if(i>=0)BOTS.splice(i,1);svg.remove()};B.setState=setState;B.morphTo=setShape;B.setShape=k=>{B.base=k;setShape(k)};B.blink=blink;B.poke=poke;BOTS.push(B);B.update(0);return B;}
+ B.svg=svg;B.host=host;B.setColor=c=>{B.color=c||'';B.mFrom=JSON.parse(JSON.stringify(B.cur));B.mTo=snapshotShape(B.shape,B.color);B.morph.x=0;B.morph.v=0;B.morph.t=1};B.destroy=()=>{const i=BOTS.indexOf(B);if(i>=0)BOTS.splice(i,1);svg.remove()};B.setState=setState;B.morphTo=setShape;B.setShape=k=>{B.base=k;setShape(k)};B.blink=blink;B.poke=poke;B.big=!!o.follow||(o.size||0)>=80;BOTS.push(B);B.update(0);return B;}
 let lastT=null,manual=false;
-function frame(now){if(!manual){const dt=lastT==null?0:Math.min(.1,(now-lastT)/1000);lastT=now;if(!document.hidden){for(let i=BOTS.length-1;i>=0;i--){const b=BOTS[i];if(!b.svg.isConnected){if(b.seen)BOTS.splice(i,1);continue}b.seen=true;if(b.visible&&b.svg.getClientRects().length)b.update(dt)}}}requestAnimationFrame(frame)}
+let tick=0;function frame(now){if(!manual){const gap=document.hasFocus()?33:250;if(lastT!=null&&now-lastT<gap){requestAnimationFrame(frame);return}tick++;const dt=lastT==null?0:Math.min(.25,(now-lastT)/1000);lastT=now;if(!document.hidden){for(let i=BOTS.length-1;i>=0;i--){const b=BOTS[i];if(!b.svg.isConnected){if(b.seen)BOTS.splice(i,1);continue}b.seen=true;if(b.visible&&(b.big||tick%3===0)&&b.svg.getClientRects().length)b.update(b.big?dt:dt*3)}}}requestAnimationFrame(frame)}
 requestAnimationFrame(frame);
 addEventListener('pointermove',e=>BOTS.forEach(b=>b.look(e.clientX,e.clientY)));
 function step(sec,fps=60){manual=true;for(let i=0;i<Math.round(sec*fps);i++)BOTS.forEach(b=>b.update(1/fps))}
