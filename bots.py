@@ -31,15 +31,15 @@ import rules
 SESSION_PREFIX = "bot-"
 COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 # 1.4.14 flat blob avatars. Older bots' animal shapes map to the nearest one (colour kept).
-AVATARS = ("circle", "blob", "square", "pill", "triangle", "hexagon", "cloud", "drop", "clover", "ball")
-LEGACY_AVATARS = {"round": "circle", "square": "square", "spark": "blob", "ghost": "drop", "star": "clover",
-                  "robot": "square", "octopus": "cloud"}
+AVATARS = ("circle", "ball", "square", "pill", "triangle", "hexagon", "cloud", "drop", "clover", "star", "heart")
+LEGACY_AVATARS = {"round": "circle", "blob": "ball", "spark": "ball", "ghost": "drop", "robot": "square",
+                  "octopus": "cloud", "fox": "triangle", "frog": "pill", "chick": "star", "dino": "clover", "alien": "drop"}
 PALETTE = ("#8b5a32", "#e5383b", "#ff6a00", "#f5a524", "#00c473", "#14b8a6", "#1683f5", "#8b5cf6", "#ec4899", "#7a7a7a")
 
 
 def avatar_shape(value: Any) -> str:
     v = str(value or "")
-    return v if v in AVATARS else LEGACY_AVATARS.get(v, "blob" if v else "circle")
+    return v if v in AVATARS else LEGACY_AVATARS.get(v, "ball" if v else "circle")
 _lock = threading.RLock()
 # A bot may call ask_bot once. run_team stays blocked. The callee runs with
 # handoff off, so the chain cannot grow.

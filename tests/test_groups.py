@@ -187,7 +187,7 @@ class PictureTests(GroupTests):
         saved = groups.get_group(g["id"])
         self.assertEqual((saved["picture"], saved["color"], saved["avatar"]), (pic, "#123456", "cloud"))
         g2 = groups.save_group({**saved, "picture": "", "color": "bad", "avatar": "dragon"})
-        self.assertEqual((g2["picture"], g2["color"], g2["avatar"]), ("", "#5b9dff", "blob"))
+        self.assertEqual((g2["picture"], g2["color"], g2["avatar"]), ("", "#5b9dff", "ball"))
         for bad in ("javascript:alert(1)", "data:image/svg+xml;base64,PHN2Zz4=", "data:image/png;base64," + "A" * 300000):
             with self.assertRaises(ValueError):
                 groups.save_group({"name": "Q", "picture": bad})

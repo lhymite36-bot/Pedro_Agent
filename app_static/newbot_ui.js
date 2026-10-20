@@ -19,7 +19,7 @@
     { id: 'pc-tidy', name: 'PC Tidy', cat: 'PC & Files', color: C.purple, shape: 'square', featured: true,
       desc: 'Keeps Downloads and Desktop in order',
       role: 'Keep Downloads and Desktop tidy: group files into folders by type and date, list big or duplicate files, and ask before deleting anything.' },
-    { id: 'research-buddy', name: 'Research Buddy', cat: 'Learning', color: C.teal, shape: 'blob',
+    { id: 'research-buddy', name: 'Research Buddy', cat: 'Learning', color: C.teal, shape: 'star',
       desc: 'Finds sources and writes a short brief with links', role: 'Research the question on the web, read 3-5 good sources and write a short brief with links. Say what is uncertain.' },
     { id: 'blender-helper', name: 'Blender Helper', cat: 'Content', color: C.amber, shape: 'ball',
       desc: 'Models, textures and renders in Blender', role: 'Use the Blender docs and guides (blender_docs_search, blender_guide) and run_blender_task. Show the render and scene check as proof.' },

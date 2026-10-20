@@ -5,20 +5,22 @@
 // working -> pb-roll (big) / pb-spin (small), done -> pb-happy, sleeping -> pb-sleepy.
 (function (root) {
   'use strict';
-  const SHAPES = ['circle', 'blob', 'square', 'pill', 'triangle', 'hexagon', 'cloud', 'drop', 'clover', 'ball'];
-  const LABELS = { circle: 'Circle', blob: 'Blob', square: 'Rounded square', pill: 'Pill', triangle: 'Triangle', hexagon: 'Hexagon', cloud: 'Cloud', drop: 'Drop', clover: 'Clover', ball: 'Ball' };
+  const SHAPES = ['circle', 'ball', 'square', 'pill', 'triangle', 'hexagon', 'cloud', 'drop', 'clover', 'star', 'heart'];
+  const LABELS = { star: 'Star', heart: 'Heart', circle: 'Circle', ball: 'Ball', square: 'Rounded square', pill: 'Pill', triangle: 'Triangle', hexagon: 'Hexagon', cloud: 'Cloud', drop: 'Drop', clover: 'Clover' };
   const COLORS = [
     ['brown', '#8b5a32'], ['red', '#e5383b'], ['orange', '#ff6a00'], ['amber', '#f5a524'], ['green', '#00c473'],
     ['teal', '#14b8a6'], ['blue', '#1683f5'], ['purple', '#8b5cf6'], ['pink', '#ec4899'], ['grey', '#7a7a7a'],
   ];
   // Older bots used animal shapes; they get the nearest new shape and keep their colour.
-  const LEGACY = { round: 'circle', square: 'square', spark: 'blob', ghost: 'drop', star: 'clover', robot: 'square', octopus: 'cloud' };
-  function norm(sh) { return SHAPES.indexOf(sh) >= 0 ? sh : (LEGACY[sh] || 'blob'); }
+  const LEGACY = { round: 'circle', blob: 'ball', spark: 'ball', ghost: 'drop', robot: 'square', octopus: 'cloud', cat: 'ball', bunny: 'ball', fox: 'triangle', bear: 'circle', owl: 'circle', alien: 'drop', dino: 'clover', panda: 'circle', frog: 'pill', chick: 'star' };
+  function norm(sh) { return SHAPES.indexOf(sh) >= 0 ? sh : (LEGACY[sh] || 'ball'); }
   function E(x, y, w, h, r) {
     return `<g transform="rotate(${r || 0} ${x} ${y})"><rect x="${x - w / 2}" y="${y - h / 2}" width="${w}" height="${h}" rx="${Math.min(w, h) / 2}" fill="#fff"/></g>`;
   }
   const PARTS = {
     circle: (c) => [`<circle cx="100" cy="108" r="74"/>`, E(84, 100, 14, 30) + E(116, 100, 14, 30)],
+    star: (c) => [`<path d="M100,44 L118,92 L168,94 L128,124 L142,172 L100,144 L58,172 L72,124 L32,94 L82,92Z" stroke="${c}" stroke-width="16" stroke-linejoin="round"/>`, E(86, 112, 12, 26) + E(114, 112, 12, 26)],
+    heart: (c) => [`<path d="M100,176 C60,146 28,120 28,88 C28,62 48,46 70,46 C84,46 94,54 100,66 C106,54 116,46 130,46 C152,46 172,62 172,88 C172,120 140,146 100,176Z"/>`, E(85, 100, 14, 30) + E(115, 100, 14, 30)],
     blob: (c) => [`<path d="M100,34 C146,34 176,62 176,108 C176,152 150,180 100,180 C50,180 24,154 24,110 C24,66 56,34 100,34Z" transform="rotate(-8 100 108)"/>`, E(86, 102, 14, 30, 8) + E(118, 98, 14, 30, 8)],
     square: (c) => [`<rect x="30" y="38" width="140" height="140" rx="40"/>`, E(84, 104, 14, 32) + E(116, 104, 14, 32)],
     pill: (c) => [`<rect x="22" y="58" width="156" height="108" rx="54"/>`, E(80, 108, 20, 38) + E(118, 108, 20, 38)],
@@ -39,8 +41,40 @@
   const SLEEP_AFTER = 5 * 60 * 1000;
   function unref(t) { if (t && typeof t.unref === 'function') t.unref(); return t; }
 
+  // 1.4.14: the 3D engine (pedbot-avatars.js) drives every avatar when it is loaded.
+  const ENGINE_STATE = { idle: 'idle', listening: 'look', thinking: 'thinking', working: 'working', speaking: 'hop', done: 'done', sleeping: 'sleepy' };
+  function create3d(el, opts) {
+    const PB = root.PedBot; let shape = norm(opts.shape), color = safeColor(opts.color || '#1683f5'), state = 'idle', sleepTimer = 0;
+    el.classList.add('pb3d'); el.innerHTML = '';
+    const big = (el.clientWidth || 0) >= 80 || !!opts.follow;
+    let bot = PB.create(el, { shape: shape, color: color, follow: big, seed: (Math.random() * 1e6) | 0 });
+    function armSleep() { clearTimeout(sleepTimer); if (state === 'idle') sleepTimer = setTimeout(() => { if (state === 'idle') { bot.setState('sleepy'); state = 'sleeping'; } }, SLEEP_AFTER); }
+    armSleep();
+    const api = {
+      setState(n) {
+        if (n === state) return; const busy = state === 'thinking' || state === 'working' || state === 'speaking';
+        el.classList.remove(state); state = n; el.classList.add(n);
+        bot.setState(n === 'idle' && busy ? 'done' : (ENGINE_STATE[n] || 'idle')); armSleep();
+      },
+      setLevel() {},
+      setLook(c, sh) {
+        const ns = norm(sh || shape), nc = safeColor(c || color);
+        if (nc !== color) { color = nc; bot.setColor(nc); }
+        if (ns !== shape) { shape = ns; bot.setShape(ns); }
+      },
+      celebrate() { bot.setState('done'); },
+      wake() { if (state === 'sleeping') { state = 'idle'; bot.setState('idle'); armSleep(); } },
+      poke() { bot.poke(); },
+      get state() { return state; },
+      get shape() { return shape; },
+      destroy() { clearTimeout(sleepTimer); bot.destroy(); },
+    };
+    return api;
+  }
+
   function createAvatar(el, opts) {
     opts = opts || {};
+    if (root.PedBot && root.PedBot.create && typeof document !== 'undefined' && el && el.appendChild && el.nodeType === 1) return create3d(el, opts);
     let color = safeColor(opts.color || '#1683f5'), shape = norm(opts.shape), state = 'idle', happy = false, doneTimer = 0, sleepTimer = 0;
     el.classList.add('pb-avatar'); el.classList.add('idle');
     function cls() {

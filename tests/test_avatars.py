@@ -4,7 +4,7 @@ from pathlib import Path
 import chat_app
 
 STATIC = Path(chat_app.STATIC)
-SHAPES = ["circle", "blob", "square", "pill", "triangle", "hexagon", "cloud", "drop", "clover", "ball"]
+SHAPES = ["circle", "ball", "square", "pill", "triangle", "hexagon", "cloud", "drop", "clover", "star", "heart"]
 
 
 class AvatarTests(unittest.TestCase):
@@ -31,7 +31,7 @@ class AvatarTests(unittest.TestCase):
         self.assertEqual(list(bots.AVATARS), SHAPES)
         self.assertEqual(len(bots.PALETTE), 10)
         self.assertEqual(bots.avatar_shape("round"), "circle")
-        self.assertEqual(bots.avatar_shape("cat"), "blob")
+        self.assertEqual(bots.avatar_shape("cat"), "ball")
         self.assertEqual(bots.avatar_shape("hexagon"), "hexagon")
         self.assertEqual(bots.avatar_shape(None), "circle")
 
@@ -47,3 +47,18 @@ class AvatarTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Avatar3dTests(unittest.TestCase):
+    def test_3d_engine_is_loaded_first_and_mapped(self):
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        self.assertLess(html.index("/pedbot-avatars.js"), html.index("/avatar.js"))
+        eng = (STATIC / "pedbot-avatars.js").read_text(encoding="utf-8")
+        for s in ("circle", "square", "hexagon", "star", "heart"):
+            self.assertIn(f" {s}:{{", eng)
+        self.assertIn("setColor", eng)
+        self.assertIn("isConnected", eng)              # removed avatars stop animating
+        js = (STATIC / "avatar.js").read_text(encoding="utf-8")
+        for a, b in (("thinking", "thinking"), ("working", "working"), ("done", "done"), ("sleeping", "sleepy"), ("idle", "idle")):
+            self.assertIn(f"{a}: '{b}'", js)
+        self.assertEqual(chat_app.STATIC_FILES.get("pedbot-avatars.js"), "application/javascript; charset=utf-8")
