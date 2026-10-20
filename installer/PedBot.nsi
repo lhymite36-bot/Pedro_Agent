@@ -86,6 +86,7 @@ Section "Uninstall"
   Delete "$DESKTOP\${APP}.lnk"
   RMDir /r "$SMPROGRAMS\${APP}"
   DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\PedroAgent"
+  Delete "$LOCALAPPDATA\Microsoft\WindowsApps\ped.cmd"
   MessageBox MB_YESNO|MB_ICONQUESTION "Also delete your chats, bots, groups, keys (.env) and rules?$\n$\nChoose No to keep them for a later reinstall." IDYES wipe
     RMDir /r "$INSTDIR\.venv"
     RMDir /r "$INSTDIR\python"

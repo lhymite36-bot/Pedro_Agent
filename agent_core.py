@@ -6081,7 +6081,7 @@ TOOL_DECLARATIONS.append(
 # already manage their own background jobs.
 _NO_TIMEOUT_TOOLS = {
     "speak_response", "listen_to_microphone", "stream_pc_camera", "stream_phone_camera",
-    "record_pc_camera",
+    "record_pc_camera", "run_terminal_command",
 }
 tool_timeout_override: float | None = None
 
@@ -6145,6 +6145,9 @@ import quiet_brain_shorts  # noqa: E402
 
 TOOL_DECLARATIONS.extend(quiet_brain_shorts.DECLARATIONS)
 TOOLS.update(quiet_brain_shorts.TOOLS)
+import terminal_tool  # noqa: E402
+TOOL_DECLARATIONS.extend(terminal_tool.DECLARATIONS)
+TOOLS.update(terminal_tool.TOOLS)
 
 
 def _tool_timeout_seconds() -> float:

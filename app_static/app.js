@@ -515,6 +515,21 @@ function toast(text) {
 }
 window.pbToast = toast;
 async function copyRow(row) { const ok = await copyPlain(messageText(row)); toast(ok ? 'Copied' : 'Could not copy'); return ok; }
+// 1.4.14: live terminal output inside the bot's message
+function termEvent(bot, ev) {
+  const col = bot.body && bot.body.parentNode; if (!col) return;
+  if (ev.kind === 'start' || !bot.term) {
+    const box = document.createElement('div'); box.className = 'term';
+    const head = document.createElement('div'); head.className = 'term-head'; head.textContent = (ev.shell || 'terminal') + (ev.cwd ? '  ·  ' + ev.cwd : '');
+    const cmd = document.createElement('div'); cmd.className = 'term-cmd'; cmd.textContent = '> ' + (ev.command || '');
+    const pre = document.createElement('pre'); pre.className = 'term-out';
+    box.append(head, cmd, pre); col.insertBefore(box, bot.body); bot.term = { box, pre, n: 0 };
+  }
+  const t = bot.term;
+  if (ev.kind === 'line') { if (t.n < 400) { t.pre.textContent += ev.line + '\n'; t.n++; t.pre.scrollTop = t.pre.scrollHeight; } else if (t.n === 400) { t.pre.textContent += '… (more output in the reply)\n'; t.n++; } }
+  if (ev.kind === 'end') { const f = document.createElement('div'); f.className = 'term-end' + (ev.code === 0 ? ' ok' : ' bad'); f.textContent = 'exit ' + ev.code + ' · ' + ev.seconds + ' s'; t.box.appendChild(f); bot.term = null; }
+  scrollDown();
+}
 function addCopy(row) {
   if (!row || row.querySelector('.msg-copy')) return;
   const bar = replyBar(row); if (!bar) return;
@@ -715,6 +730,7 @@ async function send(text, isVoice, files) {
         if (ev.event === 'done' && ev.speaker) { bot.text = ev.text || ''; bot.row.dataset.replyText = bot.text; renderMd(bot.body, bot.text, false); groupChips(bot, ev.chips); scrollDown(); continue; }
         if (ev.event === 'step') { act.set(ev.label || 'Working…'); if (ev.name) { labels[ev.name] = ev.label; setMood('working'); } }
         else if (ev.event === 'plan') { renderPlan(bot, ev); const next = (ev.steps || []).find((x) => x.status === 'pending'); act.set(next ? 'Step ' + next.number + ': ' + next.text : 'All steps done, checking…'); }
+        else if (ev.event === 'terminal') { termEvent(bot, ev); if (ev.kind === 'start') act.set('Running in ' + (ev.shell || 'the terminal') + '…'); }
         else if (ev.event === 'team_plan') { act.set('Team is planning ' + ((ev.steps || []).length) + ' tasks'); }
         else if (ev.event === 'token') { act.set('Writing the reply…'); bot.text += (bot.text ? ' ' : '') + ev.text; bot.row.dataset.replyText = bot.text; renderMd(bot.body, bot.text, true); scrollDown(); if (talk && !speaking) { speaking = true; voiceOpen = true; setMood('speaking'); } }
         else if (ev.event === 'tool_start') { /* shown by the live activity line */ }

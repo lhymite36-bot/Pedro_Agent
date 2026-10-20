@@ -127,10 +127,16 @@ def is_sensitive(name: str, arguments: dict[str, Any]) -> bool:
     """The user's rules.yaml (confirm section) decides what needs a yes."""
     import rules
 
+    if name == "run_terminal_command":   # every terminal command needs its own yes, whatever rules.yaml says
+        return True
     return rules.needs_confirmation(name, arguments)
 
 
 def label_for(name: str, arguments: dict[str, Any]) -> str:
+    if name == "run_terminal_command":
+        shell = str(arguments.get("shell") or "powershell")
+        where = f" in {arguments.get('cwd')}" if arguments.get("cwd") else ""
+        return f"run this {shell} command{where}: {' '.join(str(arguments.get('command') or '').split())[:300]}"
     if name == "delete_path":
         return f"delete {arguments.get('path') or 'that path'}"
     if name == "gmail_send_message":

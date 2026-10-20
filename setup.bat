@@ -44,6 +44,8 @@ for %%D in (storage logs data temp) do if not exist "%%D" mkdir "%%D"
 if not exist "rules.yaml" copy "rules.default.yaml" "rules.yaml" >nul
 if exist "Start Pedro Agent.cmd" del "Start Pedro Agent.cmd"
 > "Start Ped Bot.cmd" echo @start "" "%%~dp0.venv\Scripts\pythonw.exe" "%%~dp0main.py" --app
+rem "ped" terminal command: a tiny launcher in WindowsApps, which is already on the user PATH.
+if exist "%LOCALAPPDATA%\Microsoft\WindowsApps\" > "%LOCALAPPDATA%\Microsoft\WindowsApps\ped.cmd" echo @"%~dp0.venv\Scripts\python.exe" "%~dp0ped.py" %%*
 echo.
 echo Done. Double-click "Start Ped Bot.cmd" in this folder to open the app.
 echo On first start it asks for your free Gemini API key.
