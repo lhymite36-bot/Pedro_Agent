@@ -68,6 +68,7 @@ Section "Install"
   ; one app only: remove the old Pedro Agent shortcuts and launcher
   Delete "$DESKTOP\${OLDAPP}.lnk"
   RMDir /r "$SMPROGRAMS\${OLDAPP}"
+  Delete "$SMPROGRAMS\${OLDAPP}.lnk"
   Delete "$INSTDIR\Start Pedro Agent.cmd"
   CreateDirectory "$SMPROGRAMS\${APP}"
   CreateShortCut "$SMPROGRAMS\${APP}\${APP}.lnk" "$INSTDIR\.venv\Scripts\pythonw.exe" '"$INSTDIR\main.py" --app' "$INSTDIR\installer\pedbot.ico" 0 SW_SHOWNORMAL "" "Your PC assistant"
