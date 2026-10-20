@@ -53,8 +53,11 @@ FunctionEnd
 
 Section "Install"
   SetOutPath "$INSTDIR"
-  File /r /x .git /x .github /x dist /x tests /x android_app /x "*.pyc" /x __pycache__ /x rules.yaml /x .env /x storage /x workspace /x docs "..\*.*"
+  File /r /x .git /x .github /x dist /x tests /x android_app /x "*.pyc" /x __pycache__ /x rules.yaml /x .env /x storage /x workspace /x docs /x python "..\*.*"
   ; keep the user's own settings on upgrade
+  SetOutPath "$INSTDIR\python"
+  File /r "..\python\*.*"
+  SetOutPath "$INSTDIR"
   DetailPrint "Setting up Python and packages in a visible window (this can take a few minutes)..."
   ; plain batch file in a visible window (no PowerShell, nothing hidden)
   ExecWait '"$SYSDIR\cmd.exe" /c ""$INSTDIR\setup.bat" /auto"' $0
@@ -85,6 +88,7 @@ Section "Uninstall"
   DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\PedroAgent"
   MessageBox MB_YESNO|MB_ICONQUESTION "Also delete your chats, bots, groups, keys (.env) and rules?$\n$\nChoose No to keep them for a later reinstall." IDYES wipe
     RMDir /r "$INSTDIR\.venv"
+    RMDir /r "$INSTDIR\python"
     Delete "$INSTDIR\*.py"
     RMDir /r "$INSTDIR\app_static"
     RMDir /r "$INSTDIR\installer"

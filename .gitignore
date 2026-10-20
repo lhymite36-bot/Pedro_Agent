@@ -75,3 +75,4 @@ bak-*/
 *.jks.b64
 *.p12
 keystore-backup/
+python/

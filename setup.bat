@@ -9,6 +9,10 @@ cd /d "%~dp0"
 title Ped Bot setup
 echo Ped Bot setup in %CD%
 set "PY="
+rem The installer ships its own python.org Python in .\python (not the Microsoft Store one,
+rem which makes Windows show a Python icon on the taskbar instead of Ped Bot).
+if exist "%~dp0python\python.exe" set "PY="%~dp0python\python.exe""
+if defined PY if exist ".venv\pyvenv.cfg" ( findstr /i /c:"%~dp0python" ".venv\pyvenv.cfg" >nul || ( echo Rebuilding .venv on the bundled Python... & rd /s /q ".venv" ) )
 for %%V in (3.12 3.13 3.14 3.11 3.10) do (
   if not defined PY ( py -%%V -c "import sys" >nul 2>&1 && set "PY=py -%%V" )
 )
