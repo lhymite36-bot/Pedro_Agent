@@ -210,7 +210,8 @@ DECLARATIONS = [
      "description": ("Search the official Blender Manual and Python API reference (matching the installed Blender) "
                      "plus expert workflow guides. Use before writing bpy code you are unsure of; cite what you used."),
      "parameters": {"type": "object", "properties": {
-         "query": {"type": "string"}, "source": {"type": "string", "enum": ["", "manual", "api", "guide"]},
+         "query": {"type": "string"}, "source": {"type": "string", "enum": ["manual", "api", "guide"],
+                    "description": "Optional: limit to one source."},
          "limit": {"type": "integer"}}, "required": ["query"]}},
     {"name": "blender_guide",
      "description": "Get the expert step-by-step workflow for a Blender topic (e.g. modelling, uv, rigging, geometry_nodes).",

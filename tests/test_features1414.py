@@ -308,3 +308,16 @@ class NoReaNoSigningTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_no_tool_enum_has_an_empty_value():
+    """Gemini rejects the whole request (400) if any enum value is an empty string."""
+    import re
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    bad = []
+    for f in root.glob("*.py"):
+        for m in re.finditer(r'"enum":\s*\[([^\]]*)\]', f.read_text(encoding="utf-8")):
+            if re.search(r'(^|,)\s*""\s*(,|$)', m.group(1)):
+                bad.append(f.name)
+    assert not bad, bad

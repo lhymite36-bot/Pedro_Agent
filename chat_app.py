@@ -772,6 +772,13 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
                         cancel_event=cancel, on_text=on_text, on_event=emit,
                     ) or ""
             except Exception as exc:  # RuntimeError for quota, key, network
+                print(f"[turn] {type(exc).__name__}: {agent._scrub(str(exc))[:300]}", flush=True)
+                if not isinstance(exc, RuntimeError):
+                    try:
+                        import crash_reports
+                        crash_reports.record(exc, where="chat turn")
+                    except Exception:
+                        pass
                 emit({"event": "error", "text": agent.friendly_model_error(agent._scrub(str(exc)))})
                 reply = ""
         if reply and not session.startswith(groups.SESSION_PREFIX):

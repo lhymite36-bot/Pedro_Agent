@@ -7220,6 +7220,13 @@ def _run_agent_core(
 
         candidate = (response.candidates or [None])[0]
         if candidate is None or candidate.content is None:
+            try:
+                agent_log.event("empty_reply", model=str(chosen), reason=str(getattr(candidate, "finish_reason", None)),
+                                feedback=str(getattr(response, "prompt_feedback", None))[:300])
+                print(f"[model] empty answer from {chosen}: finish_reason={getattr(candidate, 'finish_reason', None)} "
+                      f"feedback={str(getattr(response, 'prompt_feedback', None))[:200]}", flush=True)
+            except Exception:
+                pass
             if voice and voice_lines:
                 return "\n".join(voice_lines)
             return EMPTY_REPLY_NOTE
