@@ -107,3 +107,8 @@ class CardOutsideChatTest(unittest.TestCase):
         self.assertEqual(polls.view(card["id"], confirm_action.pending())["status"], "open")
         confirm_action.reset()
         self.assertEqual(polls.view(card["id"], None)["status"], "expired")
+
+class OutputInReplyTest(unittest.TestCase):
+    def test_message_keeps_output(self):
+        r = terminal_tool.run_terminal_command("echo hello-ped", "cmd", timeout_seconds=20)
+        self.assertIn("hello-ped", r["message"]); self.assertIn("```", r["message"])
