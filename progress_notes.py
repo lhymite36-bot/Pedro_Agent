@@ -20,7 +20,7 @@ from typing import Any, Callable
 LONG_STEPS = 3
 LONG_SECONDS = 15.0
 GAP_SECONDS = 30.0
-RESULT_TOOLS = {"ui_click", "ui_set_text", "write_file", "create_file", "save_file", "run_blender_task",
+RESULT_TOOLS = {"ui_click", "ui_set_text", "write_file", "write_text_file", "create_file", "save_file", "run_blender_task",
                 "send_email", "gmail_send", "youtube_upload", "download_file", "browser_download", "run_python",
                 "create_routine", "save_task_routine", "export_file", "follow_demonstration"}
 QUIET_TOOLS = {"ui_read", "ui_find", "read_page_text", "screenshot", "take_screenshot", "list_files", "ask_user",
@@ -83,7 +83,7 @@ class Narrator:
         name = str(ev.get("name") or "")
         self.steps += 1
         self.since_update += 1
-        if ev.get("path"):
+        if ev.get("path") and name not in QUIET_TOOLS:
             self.files.append(str(ev["path"]))
         ok = bool(ev.get("ok"))
         detail = _short(ev.get("detail") or "", 140).rstrip(" .")
@@ -96,7 +96,7 @@ class Narrator:
             elif self.opened:
                 self._say("blocker", f"Hit a snag with {_plain(name)}: {detail or 'it did not work'}. Trying another way.")
             return
-        if ok and (name in RESULT_TOOLS or ev.get("path")):
+        if ok and name not in QUIET_TOOLS and (name in RESULT_TOOLS or ev.get("path")):
             self.results.append(detail or _plain(name))
             if self.opened and self.clock() - self.last_update >= GAP_SECONDS:
                 done = f"{self.steps} steps in" if self.steps > 1 else "First step"

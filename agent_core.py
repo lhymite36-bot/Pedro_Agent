@@ -345,6 +345,11 @@ def _set_turn(request: str, plan: dict[str, Any] | None) -> None:
     _turn_local.plan = plan
 
 
+def turn_tool_notes() -> list[str]:
+    """What this turn's tools reported as done (used by review_work as evidence)."""
+    return list(getattr(_turn_local, "tool_notes", None) or [])
+
+
 def _set_plan(plan: dict[str, Any] | None) -> None:
     _turn_local.plan = plan
 
@@ -7310,6 +7315,14 @@ def _run_agent_core(
                 if name in grounding.ACTION_TOOLS:
                     acted = True
             grounding.note(name, result)
+            if result.get("ok"):
+                notes = getattr(_turn_local, "tool_notes", None)
+                if notes is None or getattr(_turn_local, "tool_notes_for", None) != user_text:
+                    notes = _turn_local.tool_notes = []
+                    _turn_local.tool_notes_for = user_text
+                args_txt = " ".join(str(v) for v in (arguments or {}).values() if isinstance(v, (str, int, float)))
+                notes.append(f"{name.replace('_', ' ')} {args_txt[:160]} {result.get('message') or ''}"[:400])
+                del notes[:-60]
             _emit(
                 "tool_end",
                 name=name,

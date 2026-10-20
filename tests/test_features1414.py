@@ -342,3 +342,16 @@ def test_progress_final_is_honest_when_last_step_failed():
     text = n.finish("Not done yet.")
     assert text.startswith("Not finished yet"), text
     assert not any(".." in t for _, t in said)
+
+
+def test_review_work_accepts_this_turns_tool_results(tmp_path, monkeypatch):
+    import agent_core as a, extras149
+    f = tmp_path / "speedtest_after.txt"
+    f.write_text("Ped Bot speed test after", encoding="utf-8")
+    a._turn_local.tool_notes = ["launch application notepad Opened notepad.",
+                                "type text Ped Bot speed test after Typed 24 character(s)."]
+    try:
+        r = extras149.review_work("notepad test", ["Opened Notepad", "Typed 'Ped Bot speed test after'"], [str(f)])
+    finally:
+        a._turn_local.tool_notes = []
+    assert "Could not verify" not in str(r), r
