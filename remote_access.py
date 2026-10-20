@@ -672,6 +672,42 @@ def _follow_tunnel_output(proc: subprocess.Popen) -> bool:
     return alive
 
 
+def _tunnel_pid_file() -> Path:
+    import agent_config
+    return agent_config.storage_dir() / "tunnel.pid"
+
+
+def _end_stale_tunnel() -> None:
+    """1.4.15: a tunnel left running by an earlier app run (app killed, crash, upgrade) is closed first.
+    Before this, every restart left one more cloudflared.exe (~32 MB each) running."""
+    try:
+        pid = int(_tunnel_pid_file().read_text(encoding="utf-8").strip() or 0)
+    except Exception:
+        return
+    if pid <= 0 or pid == os.getpid():
+        return
+    try:
+        if os.name == "nt":
+            out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"], capture_output=True, text=True,
+                                 timeout=10, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
+            if "cloudflared" in out.casefold():
+                subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True, timeout=10,
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        else:
+            with open(f"/proc/{pid}/comm", encoding="utf-8") as f:
+                if "cloudflared" in f.read():
+                    os.kill(pid, 9)
+    except Exception:
+        pass
+
+
+def _remember_tunnel(proc: Any) -> None:
+    try:
+        _tunnel_pid_file().write_text(str(proc.pid), encoding="utf-8")
+    except Exception:
+        pass
+
+
 def start_tunnel(port: int) -> str:
     """Cloudflare quick tunnel (free, no account). Returns the https URL."""
     global _tunnel, public_url
@@ -679,6 +715,7 @@ def start_tunnel(port: int) -> str:
     if not exe:
         print("Remote: cloudflared not found. Install it (winget install Cloudflare.cloudflared) or use Tailscale.", flush=True)
         return ""
+    _end_stale_tunnel()
     flags: dict[str, Any] = {}
     if os.name == "nt":
         flags["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -690,6 +727,7 @@ def start_tunnel(port: int) -> str:
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
             text=True, encoding="utf-8", errors="replace", bufsize=1, shell=False, **flags)
         _tunnel = proc
+        _remember_tunnel(proc)
         if generation != _tunnel_gen:
             _end_process(proc)
             if _tunnel is proc:
