@@ -276,6 +276,32 @@ def _mail_drop(exc: BaseException) -> bool:
     return isinstance(exc, (TimeoutError, ConnectionError))
 
 
+APP_PASSWORD_HINT = "This isn't a Gmail app password. Make one at myaccount.google.com/apppasswords"
+SIGN_IN_DROP = ("Gmail closed the connection while signing in, so this is a sign-in problem, not a network problem. "
+                "Check the Gmail address and app password (myaccount.google.com/apppasswords).")
+
+
+class _SignInDrop(RuntimeError):
+    """The connection dropped during login: a sign-in problem, so the other port is not tried."""
+
+
+def app_password_ok(password: str) -> bool:
+    """1.4.16: a Gmail app password is 16 letters (spaces ignored). Only the shape is checked; never logged."""
+    value = "".join(str(password or "").split())
+    return len(value) == 16 and value.isascii() and value.isalpha()
+
+
+def _login(smtp: Any, sender: str, password: str) -> None:
+    import smtplib
+
+    try:
+        smtp.login(sender, password)
+    except smtplib.SMTPAuthenticationError:
+        raise
+    except (smtplib.SMTPServerDisconnected, ConnectionError, TimeoutError, OSError) as exc:
+        raise _SignInDrop(type(exc).__name__) from None
+
+
 def _smtp_send(sender: str, password: str, recipient: str, subject: str, body: str, port: int = 587) -> None:
     import smtplib
     from email.message import EmailMessage
@@ -292,14 +318,14 @@ def _smtp_send(sender: str, password: str, recipient: str, subject: str, body: s
         # Direct TLS. Works where 587 + STARTTLS is closed early by a network or antivirus mail scan,
         # which shows up as "Connection unexpectedly closed".
         with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30, context=context) as smtp:
-            smtp.login(sender, password)
+            _login(smtp, sender, password)
             smtp.send_message(message)
         return
     with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as smtp:
         smtp.ehlo()
         smtp.starttls(context=context)
         smtp.ehlo()
-        smtp.login(sender, password)
+        _login(smtp, sender, password)
         smtp.send_message(message)
 
 
@@ -333,6 +359,8 @@ def _deliver(recipient: str, subject: str, body: str) -> dict[str, Any]:
             "Gmail is not set up. Set GMAIL_ADDRESS and GMAIL_APP_PASSWORD in the environment."
         )
     account, password = setup
+    if not app_password_ok(password):
+        return _err(APP_PASSWORD_HINT)
     payload["from"] = account
     import smtplib
 
@@ -350,6 +378,8 @@ def _deliver(recipient: str, subject: str, body: str) -> dict[str, Any]:
             raise
         except smtplib.SMTPAuthenticationError as exc:
             return _err(f"The email was not sent. {_safe(str(exc))}")
+        except _SignInDrop:
+            return _err(f"The email was not sent. {SIGN_IN_DROP}")
         except Exception as exc:
             last = exc
             if _mail_drop(exc):

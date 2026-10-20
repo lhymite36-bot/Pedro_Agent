@@ -391,6 +391,8 @@ def connect(name: str, fields: dict[str, Any] | None = None) -> dict[str, Any]:
             password = "".join(str(fields.get("secret") or fields.get("password") or "").split())
             if not gmail_mail.valid_email(address) or not (8 <= len(password) <= 64):
                 return _err("Enter the Gmail address and the app password.")
+            if not gmail_mail.app_password_ok(password):
+                return _err(gmail_mail.APP_PASSWORD_HINT)
             data = _read_store()
             data["gmail"] = {"address": address, "password": password}
             _write_store(data)

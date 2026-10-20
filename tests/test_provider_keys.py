@@ -113,7 +113,7 @@ class DroppedConnectionTests(unittest.TestCase):
             if len(calls) == 1:
                 raise smtplib.SMTPServerDisconnected("Connection unexpectedly closed")
 
-        with mock.patch.object(gmail_mail, "_configured", return_value=("from@example.com", "password12")), \
+        with mock.patch.object(gmail_mail, "_configured", return_value=("from@example.com", "passwordpassword")), \
              mock.patch.object(gmail_mail, "_smtp_send", side_effect=send):
             result = gmail_mail._deliver("to@example.com", "Hello", "A short note.")
         self.assertTrue(result["ok"])
@@ -130,7 +130,7 @@ class DroppedConnectionTests(unittest.TestCase):
             calls.append(1)
             raise smtplib.SMTPAuthenticationError(535, b"bad")
 
-        with mock.patch.object(gmail_mail, "_configured", return_value=("from@example.com", "password12")), \
+        with mock.patch.object(gmail_mail, "_configured", return_value=("from@example.com", "passwordpassword")), \
              mock.patch.object(gmail_mail, "_smtp_send", side_effect=send):
             result = gmail_mail._deliver("to@example.com", "Hello", "A short note.")
         self.assertFalse(result["ok"])

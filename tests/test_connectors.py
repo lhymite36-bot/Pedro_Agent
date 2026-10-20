@@ -54,7 +54,7 @@ class ConnectorTests(unittest.TestCase):
         }]
 
     def test_catalog_hides_secrets_and_search_uses_the_saved_mail(self) -> None:
-        secret = "app-password-value"
+        secret = "apppasswordvalue"
         saved = connectors.connect("gmail", {"address": "ada@example.com", "secret": secret})
         self.assertTrue(saved["ok"], saved)
         self.assertNotIn(secret, json.dumps(saved))
