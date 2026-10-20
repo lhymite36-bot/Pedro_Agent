@@ -17,6 +17,9 @@ ACTION_TOOLS = frozenset({
     "press_keys",
     "scroll",
 })
+# Clicks and typing that check themselves (ui_controls). Several may run in one step
+# (faster), but the third identical one is still refused.
+VERIFIED_ACTIONS = frozenset({"ui_click", "ui_set_text"})
 
 _PATH = re.compile(r"[A-Za-z]:\\[^\s\"'`<>|*?\n]+")
 _URL = re.compile(r"https?://[^\s\"'<>\n]+")
@@ -107,7 +110,7 @@ def signature(name: str, arguments: dict[str, Any]) -> str:
 
 def repeat_error(name: str, arguments: dict[str, Any]) -> dict[str, Any] | None:
     """Refuse the third identical screen action. The first two still run."""
-    if name not in ACTION_TOOLS:
+    if name not in ACTION_TOOLS and name not in VERIFIED_ACTIONS:
         return None
     bag = _bag()
     key = signature(name, arguments)

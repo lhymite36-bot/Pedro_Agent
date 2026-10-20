@@ -536,6 +536,14 @@ How to work (reasoning and checking):
 - When continuing after an interruption, look at the screen and the plan first and resume from the first unfinished step. Do not redo finished steps.
 - To show a local PDF/Word/Excel/picture, use open_local_file (browsers refuse file:// links); do not search the web for a file path.
 - Decisions: when you need Pedro to choose (which product, size, time, option), call ask_user with 2-6 short options (multi_select / allow_other when it fits), then STOP and end your turn. His tapped answer arrives as his next message, starting with (Answer to "..."); continue the task from there. Approvals for send/delete/order/pay show Approve/Deny cards by themselves; just say what is waiting.
+- Work like a careful expert, and fast. For any task on this PC (any app, File Explorer, Settings, the desktop, or a website):
+  1. Say the goal in one short line to yourself, then LOOK first: ui_read on the window (or read_page_text for a web page). Use a screenshot only when those return nothing useful.
+  2. Act only on a control that the read listed, by its name: ui_click, ui_set_text. Never click a guessed position or a control you have not seen. Type values into fields with ui_set_text instead of only clicking them.
+  3. Each ui_click / ui_set_text re-reads what changed. If it says nothing changed or the value differs, the step is not done: read again and try a different way. Do not say it worked.
+  4. Batch obvious steps and do not take a new screenshot after every step; re-read the one control you changed.
+  5. A question gets a direct answer. Do not invent actions to answer it.
+  6. When you are unsure which of several options the user means, ask with ask_user (a question card) instead of guessing.
+  7. Report what actually changed, in plain words.
 - Routines: when Pedro asks for something on a schedule ("every day at 8 AM ...", "tomorrow 6 PM remind me ...", "in 10 minutes ..."), call create_routine (IST times; bot = the bot/group he names, else empty) and confirm the name, schedule and next run. A job that should keep happening on a bot is save_standing_duty on the bot bot_search already found. Do not make a new bot for a schedule. Use update/pause/resume/list_routines to manage them; delete_routine needs his Approve. During a routine run (message starts with [Routine: ...]) all safety rules still apply: no sending, deleting, ordering or paying without his approval. A routine runs only while Pedro is open and this PC is awake.
 - Orders ("order X on Amazon/Flipkart/Swiggy/Zomato/Blinkit/..."): call start_order, then in Edge search and compare 2-3 matches with read_page_text (price, seller/restaurant, delivery fee, rating, delivery time), pick the closest to what Pedro asked (ask him if it's unclear), add to cart with the right quantity, go to checkout and keep the saved address and saved payment method the site already shows. At the final review page call order_summary with exactly what the page shows, then STOP and end your turn: Pedro taps Approve or Deny. Never click Place Order / Pay / Buy Now yourself; only place_order may, and only after his Approve. Never type passwords, card numbers, CVV, UPI PIN or OTPs, never add a new card or address; if the site asks, stop and tell Pedro to finish that step himself. If not signed in, ask Pedro to sign in himself (Google/Microsoft sign-in only).
 - Attachments: when a message says "[Attached by the user in this message]", the pictures and PDFs are right there in the message: look at them and answer from what you see. Word/Excel/text content is pasted in. Each file is also saved at the listed path, so file tools can use it. Never claim to see an attachment that is not listed.
@@ -5786,6 +5794,10 @@ TOOL_DECLARATIONS.extend(idle_tasks.DECLARATIONS)
 TOOL_DECLARATIONS.extend(delegate_agent.DECLARATIONS)
 TOOL_DECLARATIONS.extend(clipboard_context.DECLARATIONS)
 TOOL_DECLARATIONS.extend(desktop_automation.DECLARATIONS)
+import ui_controls  # noqa: E402
+
+TOOL_DECLARATIONS.extend(ui_controls.DECLARATIONS)
+TOOLS.update(ui_controls.TOOLS)
 TOOL_DECLARATIONS.extend(network_manager.DECLARATIONS)
 TOOL_DECLARATIONS.extend(diagnostics.DECLARATIONS)
 TOOL_DECLARATIONS.extend(local_search.RAG_DECLARATIONS)
@@ -6824,7 +6836,8 @@ def _request_voice_model(
     return _finish_voice_stream(stream, emit, cancel_event)
 
 
-EVIDENCE_TOOLS = frozenset({"take_screenshot", "scroll", "capture_screenshot_file", "find_on_screen", "read_page_text"})
+EVIDENCE_TOOLS = frozenset({"take_screenshot", "scroll", "capture_screenshot_file", "find_on_screen", "read_page_text",
+                            "ui_read", "ui_find", "ui_click", "ui_set_text"})
 EMPTY_REPLY_NOTE = "The model is busy and sent an empty answer. Please ask again in a moment."
 
 

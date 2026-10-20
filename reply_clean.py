@@ -50,12 +50,9 @@ def clean_for_display(text: str) -> str:
 
 
 def _norm(text: str) -> str:
-    import grounding
-
-    calls = " ".join(grounding.text_calls(text))
     body = clean_for_display(re.sub(r"^\s*\[\[@[^\]]+\]\]", "", str(text or ""))).casefold()
     body = re.sub(r"[^a-z0-9 ]+", " ", body)
-    return (calls + " " + " ".join(body.split())).strip()
+    return " ".join(body.split())
 
 
 LOOP_REPLY = ("I keep giving the same answer, so I've stopped instead of repeating it again. "
