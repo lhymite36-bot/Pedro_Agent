@@ -71,10 +71,12 @@ def pause_all(state: Any = None, by: str = "pc") -> dict[str, Any]:
         _paused = {"paused": True, "since": time.time(), "by": by}
         _save()
     stopped = []
-    if state is not None and hasattr(state, "cancel_all"):
+    if state is not None and hasattr(state, "any_busy"):
+        # 1.4.15: running chats are not cancelled; they freeze at their next safe point
+        # (before the next model call or tool) and go on cleanly after Resume. Stop still cancels.
         try:
-            state.cancel_all()
-            stopped.append("running chats")
+            if state.any_busy():
+                stopped.append("running chats (frozen until Resume)")
         except Exception:
             pass
     for mod, fn in (("idle_tasks", "stop_idle_tasks"),):

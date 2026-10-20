@@ -289,16 +289,69 @@ def save_setup(data: dict) -> dict:
     return {"ok": True, **setup_status()}
 
 
-def clear_chats(state) -> int:
-    """Delete every normal chat. Bot and group rooms (and the bots/groups) stay."""
-    n = 0
-    for row in chat_store.sessions():
-        sid = str(row.get("session") or "")
-        if sid and not sid.startswith((bots.SESSION_PREFIX, groups.SESSION_PREFIX)):
-            chat_store.delete_session(sid)
-            state.histories.pop(sid, None)
-            n += 1
-    return n
+def side_message(state: Any, session: str, text: str) -> dict[str, Any]:
+    """1.4.15: a message sent while this chat's task runs. Saved, answered at once, and handed to the task."""
+    import live_steer
+    import live_sync
+    if not session or not text:
+        return {"ok": False, "error": "empty"}
+    if not live_steer.running(session):
+        return {"ok": False, "not_running": True}
+    kind = live_steer.kind_of(text)
+    uid = chat_store.add(session, "user", text)
+    if kind == "stop":
+        state.cancel_session(session)
+        try:
+            import stop_token
+            stop_token.fire_async(state.session_cancel(session))
+        except Exception:
+            pass
+    elif kind == "steer":
+        live_steer.add(session, text)
+    reply = live_steer.respond(session, text, kind)
+    mid = chat_store.add(session, "assistant", reply)
+    for ev in ({"event": "side", "role": "user", "id": uid, "text": text},
+               {"event": "side", "role": "assistant", "id": mid, "text": reply, "kind": kind}):
+        try:
+            live_sync.publish(session, ev)
+        except Exception:
+            pass
+    return {"ok": True, "side": True, "kind": kind, "reply": reply, "user_id": uid, "id": mid}
+
+
+def normal_chats() -> list[str]:
+    """Normal chats only. Bot and group rooms are not counted or deleted."""
+    return [sid for sid in (str(r.get("session") or "") for r in chat_store.sessions())
+            if sid and not sid.startswith((bots.SESSION_PREFIX, groups.SESSION_PREFIX))]
+
+
+_LAST_CLEAR: dict[str, Any] = {}
+UNDO_SECONDS = 15   # the window shows Undo for 10 s; a little slack for a slow phone link
+
+
+def clear_chats(state, backup: bool = True) -> int:
+    """Delete every normal chat. Bot and group rooms (and the bots/groups, routines, settings) stay.
+
+    1.4.15: chat_history.db is first copied to storage/backups/chat_history-<time>.db, so Undo can put them back.
+    """
+    gone = normal_chats()
+    if backup and gone:
+        dest = chat_store.backup_db()
+        _LAST_CLEAR.clear()
+        _LAST_CLEAR.update({"backup": dest, "sessions": list(gone), "at": time.time()})
+    for sid in gone:
+        chat_store.delete_session(sid)
+        state.histories.pop(sid, None)
+    return len(gone)
+
+
+def undo_clear_chats() -> dict[str, Any]:
+    info = dict(_LAST_CLEAR)
+    if not info or time.time() - float(info.get("at") or 0) > UNDO_SECONDS:
+        return {"ok": False, "error": "Undo has expired. The backup file is still in storage/backups."}
+    _LAST_CLEAR.clear()
+    n = chat_store.restore_sessions(info["backup"], info["sessions"])
+    return {"ok": True, "restored": n}
 
 def _ui_settings_path():
     import agent_config
@@ -660,6 +713,12 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
         raw_emit(ev)
 
     emit = step_labels.wrap_emit(watch)
+    import live_steer
+    _labelled = emit
+
+    def emit(ev: dict) -> None:   # 1.4.15: keep the live state for mid-task messages
+        live_steer.note(session, ev)
+        _labelled(ev)
     import confirm_action as _confirm
     chat_token = _confirm.bind_chat(session)
     import desktop_share
@@ -673,6 +732,9 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
     cancel = state.session_cancel(session)
     cancel.clear()
     state.cancel = cancel
+    live_steer.begin(session, text)
+    turn_t0 = time.time()
+    turn_failed = {"yes": False}
     pipeline = None
     reply = ""
     spoke = {"any": False}
@@ -715,14 +777,25 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
         state.pipeline = pipeline
         state.remember_pipe(session, pipeline)
 
-        def on_text(chunk: str) -> None:
-            emit({"event": "token", "text": chunk})
-            if pipeline is not None and not cancel.is_set():
-                spoke["any"] = True
-                try:
-                    pipeline.submit(chunk)
-                except Exception as exc:
-                    emit({"event": "error", "text": f"Voice: {exc}"})
+        speech_buf = agent._SentenceBuffer()
+
+        def to_voice(pieces: list) -> None:
+            for piece in pieces:
+                if pipeline is not None and not cancel.is_set():
+                    spoke["any"] = True
+                    try:
+                        pipeline.submit(piece)
+                    except Exception as exc:
+                        emit({"event": "error", "text": f"Voice: {exc}"})
+
+        def on_text(chunk: str) -> None:   # 1.4.15: raw token deltas straight to the window
+            emit({"event": "token", "text": chunk, "raw": True})
+            if pipeline is not None:
+                to_voice(speech_buf.push(chunk))
+                if chunk.rstrip().endswith((".", "!", "?")):   # a whole sentence: speak it now
+                    to_voice(speech_buf.flush())
+
+        on_text.raw_tokens = True  # type: ignore[attr-defined]
 
         if pipeline is not None:
             _pause_wake()
@@ -736,6 +809,9 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
                 group = groups.group_for_session(session)
                 import confirm_action
                 waiting = confirm_action.pending()
+                import stop_token
+                stop_token.bind(cancel)   # 1.4.15: a quick-yes command is stoppable too
+                agent._turn_local.cancel_event = cancel
                 quick = confirm_action.answer_pending(text, agent.invoke_tool)   # one yes runs it once
                 if quick is not None and waiting and waiting.get("name") == "place_order" and quick.startswith("Cancelled"):
                     import order_flow
@@ -777,6 +853,8 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
                         text, history, state.model,
                         cancel_event=cancel, on_text=on_text, on_event=emit,
                     ) or ""
+                if pipeline is not None and quick is None and group is None:
+                    to_voice(speech_buf.flush())
             except Exception as exc:  # RuntimeError for quota, key, network
                 print(f"[turn] {type(exc).__name__}: {agent._scrub(str(exc))[:300]}", flush=True)
                 if not isinstance(exc, RuntimeError):
@@ -787,6 +865,13 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
                         pass
                 emit({"event": "error", "text": agent.friendly_model_error(agent._scrub(str(exc)))})
                 reply = ""
+                turn_failed["yes"] = True
+        try:
+            import checkins
+            if not cancel.is_set():
+                checkins.task_finished(session, text, reply, time.time() - turn_t0, failed=turn_failed["yes"])
+        except Exception:
+            pass
         if reply and not session.startswith(groups.SESSION_PREFIX):
             save_reply(session, "assistant", reply)
             reply = chat_store.extract_reactions(reply)[0]
@@ -837,6 +922,7 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
             bot_mind.unbind_announce(say_token)
         except Exception:
             pass
+        live_steer.end(session)
         state.remember_pipe(session, None)
         if state.pipeline is pipeline:
             state.pipeline = None
@@ -1073,6 +1159,11 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     self._send_saved(found.read_bytes(), kind, found.name, query.get("download", ["0"])[0] == "1")
             elif url.path == "/api/bots":
                 self._json({"bots": bots.list_bots(), "tools": sorted(_agent().TOOLS)})
+            elif url.path == "/api/checkins":
+                import checkins
+                self._json(checkins.settings())
+            elif url.path == "/api/chats_count":
+                self._json({"count": len(normal_chats())})
             elif url.path == "/api/sessions":
                 import attachments
                 rows = chat_store.sessions()
@@ -1164,7 +1255,7 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             else:
                 self._send(404, b"{}")
 
-        _SYNC_PATHS = {"/api/card/answer", "/api/react", "/api/rename", "/api/delete_session", "/api/clear_chats",
+        _SYNC_PATHS = {"/api/card/answer", "/api/react", "/api/rename", "/api/delete_session", "/api/clear_chats", "/api/clear_chats/undo",
                        "/api/pin", "/api/routines/update", "/api/bots", "/api/bots/delete", "/api/groups",
                        "/api/groups/delete", "/api/undo", "/api/stop", "/api/pause_all", "/api/resume_all"}
 
@@ -1249,6 +1340,11 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                         self._json(undo_store.undo_last_change())
             elif url.path == "/api/chat":
                 self._chat(data)
+            elif url.path == "/api/chat_side":
+                self._json(side_message(state, str(data.get("session") or ""), " ".join(str(data.get("text") or "").split())))
+            elif url.path == "/api/checkins":
+                import checkins
+                self._json(checkins.save_settings(**{k: data[k] for k in ("enabled", "frequency") if k in data}))
             elif url.path == "/api/routines/update":   # Routines page buttons
                 self._json(routine_action(data))
             elif url.path == "/api/card/answer":   # tap on a question / approval card; the page then sends r.text
@@ -1328,10 +1424,13 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 self._json(safe_mode.resume_all(state, by="phone" if self.remote else "pc"))
             elif url.path == "/api/stop":
                 stopped = str(data.get("session") or "")
+                import stop_token
                 if stopped:
                     state.cancel_session(stopped)
+                    stop_token.fire_async(state.session_cancel(stopped))   # kill its commands, let go of keys
                 else:
                     state.cancel_all()
+                    stop_token.fire_async(None)
                 try:
                     _agent().stop_agent_speech()
                 except Exception:
@@ -1435,7 +1534,12 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 if data.get("confirm") != "clear":
                     self._json({"ok": False, "error": "Confirm clearing all chats."}, 400)
                 else:
-                    self._json({"ok": True, "deleted": clear_chats(state)})
+                    n = clear_chats(state)
+                    info = _LAST_CLEAR
+                    self._json({"ok": True, "deleted": n, "undo_seconds": 10,
+                                "backup": info["backup"].name if n and info.get("backup") else ""})
+            elif url.path == "/api/clear_chats/undo":
+                self._json(undo_clear_chats())
             else:
                 self._send(404, b"{}")
 
@@ -1451,6 +1555,11 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             client_audio = bool(self.remote or data.get("play_here"))
             if not text:
                 self._json({"error": "empty"}, 400)
+                return
+            import live_steer
+            import confirm_action as _ca
+            if live_steer.running(session) and not data.get("queue") and not _ca.is_short_yes(text):
+                self._json(side_message(state, session, text))   # 1.4.15: answered now; the task keeps running
                 return
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -1621,6 +1730,11 @@ def start_routines(state: "AppState") -> None:
 
     routines.runner = run
     routines.start()
+    try:
+        import checkins
+        checkins.start()   # 1.4.15 proactive check-ins (Settings toggle + frequency)
+    except Exception as exc:
+        print(f"[checkins] {exc}", flush=True)
     try:
         import quiet_brain_shorts
 

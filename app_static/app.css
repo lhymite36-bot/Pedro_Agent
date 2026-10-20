@@ -575,3 +575,16 @@ main{position:relative}
 .term-cmd{padding:6px 12px 0;color:#9fe7a4;white-space:pre-wrap;word-break:break-word}
 .term-out{margin:0;padding:6px 12px 10px;max-height:260px;overflow:auto;color:#e8e8ee;white-space:pre-wrap;word-break:break-word}
 .term-end{padding:4px 12px 7px;font-size:11.5px;color:#a9a9bb}.term-end.ok{color:#7ee2a0}.term-end.bad{color:#ff8a9a}
+/* 1.4.15: Delete all chats (danger action, dialog, Undo bar) */
+.btn.danger-solid{background:#d9434b;color:#fff;border:1px solid #ff6b73;font-weight:600}
+.btn.danger-solid:hover{background:#c2343c}
+.danger-zone small{color:#ffb3b8}
+.pb-modal-wrap{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px}
+.pb-modal{background:#1d1f27;color:#eee;border:1px solid #d9434b;border-radius:14px;max-width:420px;width:100%;padding:18px 18px 14px;box-shadow:0 12px 40px rgba(0,0,0,.5)}
+.pb-modal h3{margin:0 0 8px;color:#ff8a92}.pb-modal p{margin:0 0 16px;line-height:1.45}
+.pb-modal-acts{display:flex;gap:10px;justify-content:flex-end}
+#pb-undo{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#222;color:#fff;border-radius:10px;padding:10px 14px;display:flex;gap:14px;align-items:center;z-index:9999;box-shadow:0 6px 24px rgba(0,0,0,.4)}
+#pb-undo button{background:none;border:0;color:#7fb2ff;font-weight:700;cursor:pointer;font-size:15px}
+/* 1.4.15 mid-task messages */
+.row.side .bubble{border-left:3px solid #7fb2ff}
+.row.bot.side .bubble{opacity:.95;font-size:.95em}

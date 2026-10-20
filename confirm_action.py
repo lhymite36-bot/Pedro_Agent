@@ -309,3 +309,9 @@ def confirm_sensitive_action(label: str) -> dict[str, Any]:
         approved=False,
         label=shown,
     )
+
+
+def is_short_yes(text: str) -> bool:
+    """1.4.15: a bare yes/no goes to the normal chat path (it answers a waiting action), not to the mid-task responder."""
+    folded = " ".join((text or "").casefold().split()).strip(" .!?")
+    return folded in POSITIVE or folded in NEGATIVE

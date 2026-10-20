@@ -277,3 +277,46 @@ def delete_session(session: str, path: Path | None = None) -> None:
         con.execute("DELETE FROM messages WHERE session=?", (session,))
         con.execute("DELETE FROM titles WHERE session=?", (session,))
         con.execute("DELETE FROM pins WHERE session=?", (session,))
+
+
+# ---- 1.4.15: Delete all chats with an automatic backup and Undo ----
+def backup_db(folder: Path | None = None, path: Path | None = None) -> Path:
+    """Copy chat_history.db to backups/chat_history-YYYYmmdd-HHMMSS.db (sqlite online backup)."""
+    src = path or db_path()
+    folder = folder or src.parent / "backups"
+    folder.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    dest = folder / f"chat_history-{stamp}.db"
+    n = 1
+    while dest.exists():
+        n += 1
+        dest = folder / f"chat_history-{stamp}-{n}.db"
+    with _lock:
+        source = sqlite3.connect(str(src))
+        target = sqlite3.connect(str(dest))
+        try:
+            source.backup(target)
+        finally:
+            target.close()
+            source.close()
+    return dest
+
+
+def restore_sessions(backup: Path, sessions: list[str], path: Path | None = None) -> int:
+    """Put the given chats back from a backup file. Messages written since are kept."""
+    if not sessions:
+        return 0
+    with _lock, _session(path) as con:
+        con.execute("ATTACH DATABASE ? AS bk", (str(backup),))
+        try:
+            marks = ",".join("?" * len(sessions))
+            ids = f"SELECT id FROM bk.messages WHERE session IN ({marks})"
+            con.execute(f"INSERT OR IGNORE INTO messages SELECT * FROM bk.messages WHERE session IN ({marks})", sessions)
+            con.execute(f"INSERT OR IGNORE INTO reactions SELECT * FROM bk.reactions WHERE msg_id IN ({ids})", sessions)
+            con.execute(f"INSERT OR IGNORE INTO writes SELECT * FROM bk.writes WHERE msg_id IN ({ids})", sessions)
+            con.execute(f"INSERT OR IGNORE INTO titles SELECT * FROM bk.titles WHERE session IN ({marks})", sessions)
+            con.execute(f"INSERT OR IGNORE INTO pins SELECT * FROM bk.pins WHERE session IN ({marks})", sessions)
+            con.commit()
+        finally:
+            con.execute("DETACH DATABASE bk")
+    return len(sessions)

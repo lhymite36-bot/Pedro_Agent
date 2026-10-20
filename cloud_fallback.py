@@ -16,7 +16,7 @@ from typing import Any, Callable
 
 DEFAULT_URL = "https://api.groq.com/openai/v1/chat/completions"
 DEFAULT_MODEL = "openai/gpt-oss-120b"   # llama-3.3-70b-versatile was retired on Groq
-_TIMEOUT = 90
+_TIMEOUT = 15  # 1.4.15: fail over fast instead of hanging 90 s
 transport_override: Callable[[dict[str, Any]], dict[str, Any]] | None = None
 providers_override: list[dict[str, Any]] | None = None
 
@@ -167,7 +167,9 @@ def _run_one(provider: dict[str, Any], user_text: str, *, on_event: Callable[[di
         {"role": "user", "content": agent._scrub(user_text)},
     ]
     tools = _tools(user_text, *sizes[0][:2])
+    import stop_token
     for _ in range(max_rounds):
+        stop_token.checkpoint()   # 1.4.15: Stop / Pause between backup-model steps too
         try:
             data = _post(_request_body(provider, messages, tools), provider)
         except _TooLarge:
@@ -204,6 +206,23 @@ def _run_one(provider: dict[str, Any], user_text: str, *, on_event: Callable[[di
             messages.append({"role": "tool", "tool_call_id": call.get("id") or name,
                              "content": agent._scrub(json.dumps(public, default=str))[:4000]})
     return f"Stopped after {max_rounds} tool rounds on the backup model. Ask me to continue."
+
+
+def quick_chat(system: str, messages: list[dict[str, Any]], max_tokens: int = 400) -> str | None:
+    """1.4.15: one small no-tools request for simple chat on the first saved backup (Groq is very fast)."""
+    for provider in providers_for("busy"):
+        body = {"model": _provider_model(provider), "max_tokens": max_tokens, "temperature": 0.4,
+                "messages": [{"role": "system", "content": system}, *messages]}
+        if provider["id"] == "cerebras":
+            body["reasoning_effort"] = "none"
+        try:
+            data = _post(body, provider)
+        except Exception:
+            continue
+        text = str(((data.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
+        if text:
+            return text
+    return None
 
 
 def run(user_text: str, *, on_event: Callable[[dict[str, Any]], None] | None = None,

@@ -124,7 +124,7 @@ class BackupWhenSpentTests(_RulesCase):
         agent_core.genai_client_override = self._fake_client(behaviour)
         cloud_fallback.transport_override = lambda body: {"choices": [{"message": {"content": "from groq"}}]}
         with self.assertRaises(RuntimeError) as err:
-            agent_core.run_agent("hello", [], "first-model")
+            agent_core.run_agent("check my files", [], "first-model")  # not simple chat (1.4.15 fast path)
         self.assertIn("first-model", called)
         self.assertIn("free Gemini quota", str(err.exception))
         self.assertNotIn("from groq", str(err.exception))

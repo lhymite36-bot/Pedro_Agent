@@ -99,7 +99,7 @@ class SafeModeTests(_Storage):
         state = mock.Mock()
         r = safe_mode.pause_all(state, by="phone")
         self.assertTrue(r["paused"])
-        state.cancel_all.assert_called_once()
+        state.cancel_all.assert_not_called()   # 1.4.15: running chats freeze at a safe point instead
         self.assertTrue(safe_mode.paused())
         self.assertIsNotNone(safe_mode.refuse("ui_click"))
         self.assertIsNone(safe_mode.refuse("ask_user"))
@@ -132,7 +132,7 @@ class CrashReportTests(_Storage):
         except ValueError as exc:
             path = crash_reports.record(exc, "test")
         text = path.read_text(encoding="utf-8")
-        self.assertIn("Ped Bot 1.4.14 crash report", text)
+        self.assertIn("Ped Bot 1.4.15 crash report", text)
         self.assertIn("ValueError", text)
         self.assertNotIn("AIzaSy", text)
         self.assertNotIn("hunter2", text)

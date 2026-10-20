@@ -65,6 +65,7 @@ import time
 import webbrowser
 import zipfile
 import mouse_controller
+import stop_token
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Callable
@@ -4026,7 +4027,10 @@ def _type_into_focused_window(text: str) -> None:
         pointer_override("type", {"text": text})
         return
     if text.isascii() and not _caps_lock_on():
-        _desktop().write(text, interval=0)
+        for at in range(0, len(text), 8):   # 1.4.15: small chunks, so Stop ends typing mid-text
+            if stop_token.stopped():
+                raise stop_token.Stopped("Stopped.")
+            _desktop().write(text[at:at + 8], interval=0)
         return
     if os.name == "nt" and _caps_lock_on():
         _type_windows_unicode(text)  # Unicode input ignores Caps Lock, so case stays right
@@ -4279,6 +4283,8 @@ def _perform_held(
     mime: str | None,
 ) -> dict[str, Any]:
     for index, raw_step in enumerate(actions):
+        if stop_token.stopped():
+            return _err(f"Stopped by the user before step {index}.", completed=completed, stopped=True)
         step = _action_dict(raw_step)
         if step is None:
             return _err(
@@ -6166,8 +6172,11 @@ def _call_with_timeout(name: str, function: Callable[..., Any], arguments: dict[
     thread is abandoned (Python cannot kill threads safely).
     """
     limit = _tool_timeout_seconds()
-    if limit <= 0 or name in _NO_TIMEOUT_TOOLS:
+    cancel = getattr(_turn_local, "cancel_event", None)
+    if (limit <= 0 or name in _NO_TIMEOUT_TOOLS) and cancel is None:
         return function(**arguments)
+    if limit <= 0 or name in _NO_TIMEOUT_TOOLS:
+        limit = 10 ** 7
     box: dict[str, Any] = {}
     # The turn's plan, request and listener live in thread-locals; carry them into
     # the worker and back, or create_task_plan's plan is lost after the call.
@@ -6177,6 +6186,7 @@ def _call_with_timeout(name: str, function: Callable[..., Any], arguments: dict[
     def runner() -> None:
         _turn_local.__dict__.update(turn_state)
         _tool_scope.__dict__.update(scope_state)
+        stop_token.bind(cancel)
         try:
             box["result"] = function(**arguments)
         except BaseException as exc:  # re-raised on the caller thread
@@ -6186,7 +6196,12 @@ def _call_with_timeout(name: str, function: Callable[..., Any], arguments: dict[
 
     worker = threading.Thread(target=runner, name=f"tool-{name}", daemon=True)
     worker.start()
-    worker.join(limit)
+    deadline = time.monotonic() + limit
+    while worker.is_alive() and time.monotonic() < deadline:
+        worker.join(0.05)
+        if cancel is not None and cancel.is_set() and worker.is_alive():
+            stop_token.fire(cancel)   # kill its processes, let go of keys; the thread is abandoned
+            return {"ok": False, "stopped": True, "error": "Stopped by the user."}
     if worker.is_alive():
         raise ToolTimeout(f"timed out after {int(limit)}s (agent.tool_timeout_seconds in rules.yaml)")
     if "turn" in box:
@@ -6475,6 +6490,8 @@ def _transient_network_error(exc: BaseException) -> bool:
                 "503 unavailable",
                 "high demand",
                 "overloaded",
+                "no longer available",
+                "404 not_found",
             )
         ):
             return True
@@ -6616,8 +6633,10 @@ def _accumulate_voice_stream(
             return text[len(current) :]
         return text
 
+    raw = bool(getattr(on_sentence, "raw_tokens", False))
+
     def emit(ready: list[str]) -> None:
-        if on_sentence is None:
+        if on_sentence is None or raw:
             return
         for sentence in ready:
             if cancel_event is not None and cancel_event.is_set():
@@ -6636,6 +6655,8 @@ def _accumulate_voice_stream(
             if loose:
                 visible.append(loose)
                 parts.append(_SpokenDelta(loose))
+                if raw and on_sentence is not None and not (cancel_event is not None and cancel_event.is_set()):
+                    on_sentence(loose)
                 emit(buffer.push(loose))
             continue
         for part in chunk_parts:
@@ -6663,6 +6684,8 @@ def _accumulate_voice_stream(
             visible.append(text)
             if not getattr(part, "thought_signature", None):
                 parts.append(_SpokenDelta(text))
+            if raw and on_sentence is not None and not (cancel_event is not None and cancel_event.is_set()):
+                on_sentence(text)
             emit(buffer.push(text))
     if cancel_event is None or not cancel_event.is_set():
         emit(buffer.flush())
@@ -6729,14 +6752,24 @@ def _result_image(result: dict[str, Any]) -> str | None:
     return None
 
 
+_COOLING: dict[str, float] = {}
+COOL_SECONDS = 300
+
+
+def cool_model(name: str) -> None:
+    """1.4.15: a model that timed out or was busy goes to the back of the line for 5 minutes."""
+    _COOLING[str(name)] = time.monotonic() + COOL_SECONDS
+
+
 def _turn_models(order: list[str], current: str, skipped: set[str]) -> list[str]:
-    """Models still worth calling. The one that just answered stays first."""
+    """Models still worth calling. The one that just answered stays first; cooling models go last."""
     names: list[str] = []
     for name in [current, *order]:
         name = str(name or "").strip()
         if name and name not in skipped and name not in names:
             names.append(name)
-    return names
+    now = time.monotonic()
+    return [n for n in names if _COOLING.get(n, 0) <= now] + [n for n in names if _COOLING.get(n, 0) > now]
 
 
 def model_candidates(first: str | None = None) -> list[str]:
@@ -6809,6 +6842,20 @@ def _model_configs(voice: bool) -> tuple[Any, Any | None]:
     instruction = system_prompt()
     if voice:
         instruction += VOICE_REPLY_GUIDE
+    cache_key = (voice, instruction, id(TOOL_DECLARATIONS), len(TOOL_DECLARATIONS))
+    hit = _CONFIG_CACHE.get(cache_key)
+    if hit is not None:   # 1.4.15: same prompt + tools -> same objects (and a stable prefix for Gemini's implicit cache)
+        return hit
+    if len(_CONFIG_CACHE) > 8:
+        _CONFIG_CACHE.clear()
+    built = _build_model_configs(voice, instruction)
+    _CONFIG_CACHE[cache_key] = built
+    return built
+
+
+def _build_model_configs(voice: bool, instruction: str) -> tuple[Any, Any | None]:
+    from google.genai import types
+
     shared: dict[str, Any] = {
         "system_instruction": instruction,
         "tools": [types.Tool(function_declarations=TOOL_DECLARATIONS)],
@@ -6868,6 +6915,8 @@ def _request_voice_model(
         if on_sentence is not None:
             on_sentence(sentence)
 
+    emit.raw_tokens = bool(getattr(on_sentence, "raw_tokens", False))  # type: ignore[attr-defined]
+
     stream = client.models.generate_content_stream(
         model=model,
         contents=history,
@@ -6921,7 +6970,162 @@ _DONE_CLAIM = re.compile(
     re.I,
 )
 AUTO_RESUMES = 2
-RESUME_WAIT_SECONDS = 60
+RESUME_WAIT_SECONDS = 3   # 1.4.15: was 60 s; failover is immediate now
+ATTEMPT_TIMEOUT_MS = 8000   # 1.4.15: one model attempt; a slow model fails over instead of hanging
+_CLIENTS: dict[str, Any] = {}
+_CONFIG_CACHE: dict[tuple[Any, ...], tuple[Any, Any]] = {}
+FAST_SYSTEM = (
+    "You are Ped Bot, Pedro's friendly assistant on his Windows PC. Reply briefly, warmly and in plain words. "
+    "You have no tools in this reply. If the message asks you to do, open, check, find or change anything "
+    "on the PC, the web, files, apps, email, routines or bots, or needs current information "
+    "(time, date, news, weather, prices), reply with exactly [[NEEDS_TOOLS]] and nothing else."
+)
+NEEDS_TOOLS = "[[NEEDS_TOOLS]]"
+_FAST_GREETING = re.compile(
+    r"^(hi+|hey+|hello+|hiya|yo|sup|wassup|what'?s up|hola|namaste|good (morning|afternoon|evening|night)|"
+    r"thanks?( you)?|thank u|ty|ok(ay)?|cool|nice|great|awesome|bye|see you|how are (you|u)|how'?s it going|"
+    r"who are you|what can you do)\b[\s!.?,:)\w']*$", re.I)
+_FAST_QUESTION = re.compile(r"^(what|who|why|how|when|where|which|is|are|does|do|can you explain|explain|define|"
+                            r"tell me (a joke|a fact|about)|meaning of|difference between)\b", re.I)
+_FAST_BLOCK = re.compile(
+    r"\b(my|me|mine|i|i'm|pc|computer|laptop|file|files|folder|open|screen|click|download|downloads|desktop|run|"
+    r"install|chrome|edge|browser|email|mail|gmail|send|order|buy|today|tonight|tomorrow|now|time|date|weather|"
+    r"news|latest|current|price|remind|routine|schedule|bot|bots|youtube|post|upload|write|create|make|save|"
+    r"delete|close|play|search|find|check|show|list|start|stop|set|turn|wingz|task|workflow|replay|terminal|"
+    r"command|this|that|it|here|there|above|previous|again|continue)\b", re.I)
+
+
+def simple_chat(text: str) -> bool:
+    """1.4.15: a greeting or a general question that needs no tools (answered on the fast path)."""
+    t = " ".join(str(text or "").split())
+    if not t or len(t) > 160 or t.startswith("[") or "\n" in str(text or ""):
+        return False
+    if _FAST_BLOCK.search(t):
+        return False
+    return bool(_FAST_GREETING.match(t) or _FAST_QUESTION.match(t))
+
+
+def _gemini_client(genai: Any, key: str) -> Any:
+    """One client per key, reused: keeps the HTTPS connection warm. Every attempt times out after 8 s."""
+    if genai_client_override is not None:
+        return genai_client_override(key)
+    client = _CLIENTS.get(key)
+    if client is None:
+        from google.genai import types
+        client = genai.Client(api_key=key, http_options=types.HttpOptions(timeout=ATTEMPT_TIMEOUT_MS))
+        _CLIENTS[key] = client
+    return client
+
+
+def _fast_reply(user_text: str, history: list[Any], model: str, *, on_text: Any, cancel_event: Any,
+                on_event: Any) -> str | None:
+    """Answer simple chat with a small no-tools request on Flash-Lite (Groq if Gemini fails).
+
+    None means "use the full agent" (the model asked for tools, or every fast model failed).
+    """
+    from google import genai
+    from google.genai import types
+
+    keys = gemini_api_keys()
+    if not keys:
+        return None
+    block = memory_prompt_block()
+    config = types.GenerateContentConfig(
+        system_instruction=FAST_SYSTEM + ("\n" + block if block else ""), temperature=0.4, max_output_tokens=600,
+        thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL))
+    plain = types.GenerateContentConfig(system_instruction=config.system_instruction, temperature=0.4,
+                                        max_output_tokens=600)
+    recent = [c for c in history[-8:] if getattr(c, "role", "") in ("user", "model")
+              and all(getattr(p, "text", None) for p in (getattr(c, "parts", None) or []))]
+    contents = [*recent, types.Content(role="user", parts=[types.Part.from_text(text=user_text)])]
+    held = {"buf": "", "open": False}
+
+    def gate(chunk: str) -> None:   # hold the first characters until we know it is not [[NEEDS_TOOLS]]
+        if held["open"]:
+            on_text(chunk)
+            return
+        held["buf"] += chunk
+        probe = held["buf"].lstrip()
+        if NEEDS_TOOLS.startswith(probe) or NEEDS_TOOLS in probe:
+            return
+        held["open"] = True
+        on_text(held["buf"])
+
+    gate.raw_tokens = bool(getattr(on_text, "raw_tokens", False))  # type: ignore[attr-defined]
+    try:   # Groq first: a tiny request answers in about a second while Gemini is often slow or busy
+        import cloud_fallback
+        if cloud_fallback.providers_for("busy"):
+            started = time.monotonic()
+            msgs = []
+            for c in recent:
+                txt = " ".join(getattr(p, "text", "") or "" for p in (c.parts or []))
+                msgs.append({"role": "assistant" if c.role == "model" else "user", "content": txt[:2000]})
+            msgs.append({"role": "user", "content": user_text})
+            text = stop_token.run(lambda: cloud_fallback.quick_chat(config.system_instruction, msgs), cancel_event)
+            if text and NEEDS_TOOLS in text:
+                return None
+            if text:
+                agent_log.event("fast_reply", model="backup", ms=int((time.monotonic() - started) * 1000))
+                if on_text:
+                    on_text(text)
+                history.append(types.Content(role="user", parts=[types.Part.from_text(text=user_text)]))
+                history.append(types.Content(role="model", parts=[types.Part.from_text(text=text)]))
+                if on_event is not None:
+                    on_event({"event": "final", "text": text})
+                return text
+    except stop_token.Stopped:
+        return ""
+    except Exception:
+        pass
+    client = _gemini_client(genai, keys[0])
+    lites = [m for m in model_candidates(model) if "lite" in m] or [model]
+    for name in _turn_models(lites, lites[0], set()):
+        for cfg in (config, plain):
+            spoke = {"yes": False}
+            try:
+                stop_token.checkpoint(cancel_event)
+                started = time.monotonic()
+                resp = stop_token.run(lambda: _request_voice_model(
+                    client, name, contents, cfg, on_sentence=gate if on_text else None,
+                    cancel_event=cancel_event, spoke=spoke), cancel_event)
+                text = str(getattr(resp, "spoken_text", "") or "").strip()
+                _note_usage(name, True)
+                agent_log.event("fast_reply", model=name, ms=int((time.monotonic() - started) * 1000))
+                if not text or NEEDS_TOOLS in text:
+                    return None
+                if on_text and not held["open"] and held["buf"]:
+                    on_text(held["buf"])
+                history.append(types.Content(role="user", parts=[types.Part.from_text(text=user_text)]))
+                history.append(types.Content(role="model", parts=[types.Part.from_text(text=text)]))
+                if on_event is not None:
+                    on_event({"event": "final", "text": text})
+                return text
+            except stop_token.Stopped:
+                return ""
+            except Exception as exc:
+                _note_usage(name, False, str(exc))
+                if spoke["yes"]:
+                    return None
+                if cfg is config and _thinking_rejected(exc):
+                    continue
+                agent_log.event("model_switch", frm=name, to="next", reason=_scrub(str(exc))[:120])
+                if _transient_network_error(exc) or _is_daily_quota(exc):
+                    cool_model(name)
+                break
+    try:
+        import cloud_fallback
+        if cloud_fallback.providers_for("busy"):
+            reply = stop_token.run(lambda: cloud_fallback.run_chain(user_text, on_event=on_event, kind="busy",
+                                                                    max_rounds=1), cancel_event)
+            if reply:
+                history.append(types.Content(role="user", parts=[types.Part.from_text(text=user_text)]))
+                history.append(types.Content(role="model", parts=[types.Part.from_text(text=reply)]))
+                return reply
+    except stop_token.Stopped:
+        return ""
+    except Exception:
+        pass
+    return None
 
 
 CHANGE_LOG_TOOLS = frozenset({"make_document", "write_text_file", "create_directory", "capture_screenshot_file", "build_local_program"})
@@ -7040,6 +7244,8 @@ def _run_agent_core(
     begin_task_turn(user_text)
     import grounding
     grounding.begin()
+    stop_token.bind(cancel_event)
+    _turn_local.cancel_event = cancel_event
     if local_llm.use_local_first(user_text):
         return local_llm.local_llm_fallback(
             user_text,
@@ -7063,10 +7269,12 @@ def _run_agent_core(
         )
     key_at = 0
     _capture_user_memory(user_text)
-    if genai_client_override is not None:
-        client = genai_client_override(keys[0])
-    else:
-        client = genai.Client(api_key=keys[0])
+    if not voice and getattr(_tool_scope, "allowed", None) is None and not _active_parts() \
+            and simple_chat(user_text):
+        fast = _fast_reply(user_text, history, model, on_text=on_text, cancel_event=cancel_event, on_event=on_event)
+        if fast is not None:
+            return fast
+    client = _gemini_client(genai, keys[0])
     config, voice_plain = _model_configs(voice)
     active_config = config
     history.append(types.Content(role="user", parts=_user_parts(types, user_text)))
@@ -7089,7 +7297,23 @@ def _run_agent_core(
     saw_quota = False
     chosen = model
     for _round in range(rounds):
-        delays = (5, 15, 30)
+        stop_token.checkpoint(cancel_event, on_pause=lambda: _emit("step", label="Paused. Press Resume to go on.", name=""),
+                              on_resume=lambda: _emit("step", label="Resumed.", name=""))
+        delays: tuple[int, ...] = ()   # 1.4.15: no 5/15/30 s backoff; a failed model hands over at once
+        try:   # 1.4.15: messages Pedro sent while this task runs (add/change instructions, answers)
+            import live_steer
+            steer = live_steer.take()
+        except Exception:
+            steer = []
+        if steer:
+            note = live_steer.STEER_NOTE + "\n".join(f"- {m}" for m in steer)
+            last = history[-1] if history else None
+            if last is not None and getattr(last, "role", "") == "user" and getattr(last, "parts", None) is not None:
+                last.parts.append(types.Part.from_text(text=note))
+            else:
+                history.append(types.Content(role="user", parts=[types.Part.from_text(text=note)]))
+            _emit("step", label="Got your message - adjusting the task.", name="steer")
+            agent_log.event("steer", n=len(steer))
         response = None
         quota_error: BaseException | None = None
         reason = ""
@@ -7119,7 +7343,7 @@ def _run_agent_core(
                 spoke = {"yes": False}
                 try:
                     if stream_text:
-                        response = _request_voice_model(
+                        response = stop_token.run(lambda: _request_voice_model(
                             client,
                             active_model,
                             history,
@@ -7127,7 +7351,7 @@ def _run_agent_core(
                             on_sentence=on_text,
                             cancel_event=cancel_event,
                             spoke=spoke,
-                        )
+                        ), cancel_event, "pb-model")
                     elif voice:
                         response = _request_voice_model(
                             client,
@@ -7139,13 +7363,15 @@ def _run_agent_core(
                             spoke=spoke,
                         )
                     else:
-                        response = client.models.generate_content(
+                        response = stop_token.run(lambda: client.models.generate_content(
                             model=active_model,
                             contents=history,
                             config=active_config,
-                        )
+                        ), cancel_event, "pb-model")
                     _note_usage(active_model, True)
                     break
+                except stop_token.Stopped:
+                    return "\n".join(voice_lines)
                 except Exception as exc:
                     _note_usage(active_model, False, str(exc))
                     if (
@@ -7176,9 +7402,13 @@ def _run_agent_core(
                             f"[net] Gemini connection dropped. Retrying in {delay}s.",
                             flush=True,
                         )
-                        time.sleep(delay)
+                        if stop_token.wait(delay, cancel_event):
+                            return "\n".join(voice_lines)
                         continue
                     if _transient_network_error(exc) and not spoke["yes"] and not voice:
+                        print(f"[net] {active_model}: {_scrub(str(exc))[:160]}", flush=True)
+                        agent_log.event("model_fail", model=active_model, error=_scrub(str(exc))[:200])
+                        cool_model(active_model)
                         skipped.add(active_model)
                         reason = "net"
                         if index < len(order) - 1:
@@ -7223,7 +7453,7 @@ def _run_agent_core(
                 if key_at + 1 < len(keys):
                     key_at += 1
                     nxt = keys[key_at]
-                    client = genai_client_override(nxt) if genai_client_override is not None else genai.Client(api_key=nxt)
+                    client = _gemini_client(genai, nxt)
                     print("[quota] This Gemini key is out of free requests. Trying the next saved key.", flush=True)
                     agent_log.event("model_switch", frm="gemini-key", to="next-gemini-key")
                     skipped.clear()
@@ -7273,6 +7503,12 @@ def _run_agent_core(
                 _emit("self_check", text="Running the step for real instead of describing it.")
                 history.append(types.Content(role="user", parts=[types.Part.from_text(text=TEXT_CALL_NUDGE)]))
                 continue
+            try:   # a message arrived during this last step: keep going with it instead of ending
+                import live_steer
+                if live_steer.pending():
+                    continue
+            except Exception:
+                pass
             raw = _finish_claimed_launch(_text_from(response), _emit, user_text)
             text = grounding.ground_reply(user_text, raw)
             if text != (raw or "").strip():
@@ -7299,6 +7535,13 @@ def _run_agent_core(
         response_parts = []
         acted = False
         for call in calls:
+            if cancel_event is not None and cancel_event.is_set():
+                break
+            try:
+                stop_token.checkpoint(cancel_event, on_pause=lambda: _emit("step", label="Paused. Press Resume to go on.", name=""),
+                                      on_resume=lambda: _emit("step", label="Resumed.", name=""))
+            except stop_token.Stopped:
+                break
             name = call.name or ""
             arguments = dict(call.args or {})
             used_tools.add(name)

@@ -86,7 +86,7 @@ class GeminiKeyTests(unittest.TestCase):
             "NVIDIA_API_KEY": "",
         }):
             with self.assertRaises(RuntimeError) as err:
-                agent_core.run_agent("hello", [], "only-model")
+                agent_core.run_agent("check my files", [], "only-model")  # not simple chat (1.4.15 fast path)
         self.assertIn("key:111", seen)
         self.assertIn("key:222", seen)
         self.assertIn("free Gemini quota", str(err.exception))

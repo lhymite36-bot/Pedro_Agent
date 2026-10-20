@@ -23,8 +23,10 @@ const runningSessions = new Set();
 function syncRunningButton() {
   running = runningSessions.has(session || '');
   const b = $('#send'); if (!b) return;
-  b.classList.toggle('stop', running);
-  b.innerHTML = running ? '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>'
+  const typed = running && $('#t') && $('#t').value.trim();   // 1.4.15: typing during a task -> Send (side message)
+  b.classList.toggle('stop', running && !typed);
+  b.title = running ? (typed ? 'Send to the running task' : 'Stop') : 'Send';
+  b.innerHTML = running && !typed ? '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>'
     : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
   const stopBtn = $('#hdr-stop'); if (stopBtn) stopBtn.hidden = !running;
   if (!running) setLiveStep('');
@@ -432,11 +434,50 @@ async function deleteChat(id, title) {
   await api('/api/delete_session', { session: id, confirm: true });
   if (session === id) $('#new').click(); else loadSessions();
 }
+// 1.4.15: Delete all chats: red danger action, a count in the dialog, auto backup, Undo for 10 s.
+function dangerDialog(title, body, okText) {
+  return new Promise((resolve) => {
+    const wrap = document.createElement('div'); wrap.className = 'pb-modal-wrap'; wrap.setAttribute('role', 'dialog'); wrap.setAttribute('aria-modal', 'true');
+    const box = document.createElement('div'); box.className = 'pb-modal';
+    const h = document.createElement('h3'); h.textContent = title;
+    const p = document.createElement('p'); p.textContent = body;
+    const row = document.createElement('div'); row.className = 'pb-modal-acts';
+    const no = document.createElement('button'); no.type = 'button'; no.className = 'btn'; no.textContent = 'Cancel';
+    const yes = document.createElement('button'); yes.type = 'button'; yes.className = 'btn danger-solid'; yes.textContent = okText;
+    row.append(no, yes); box.append(h, p, row); wrap.appendChild(box); document.body.appendChild(wrap);
+    const done = (v) => { wrap.remove(); resolve(v); };
+    no.onclick = () => done(false); yes.onclick = () => done(true);
+    wrap.onclick = (e) => { if (e.target === wrap) done(false); };
+    no.focus();
+  });
+}
+function undoBar(text, seconds, onUndo) {
+  let bar = $('#pb-undo'); if (bar) bar.remove();
+  bar = document.createElement('div'); bar.id = 'pb-undo'; bar.setAttribute('role', 'status');
+  const msg = document.createElement('span'); msg.textContent = text;
+  const btn = document.createElement('button'); btn.type = 'button'; btn.textContent = 'Undo';
+  bar.append(msg, btn); document.body.appendChild(bar);
+  const timer = setTimeout(() => bar.remove(), seconds * 1000);
+  btn.onclick = async () => { clearTimeout(timer); btn.disabled = true; await onUndo(); bar.remove(); };
+}
 async function clearAllChats() {
-  if (!confirm('Delete ALL your chats? Bots, groups and their rooms are kept. This can\'t be undone.')) return;
+  const c = await api('/api/chats_count');
+  const n = (c && c.count) || 0;
+  if (!n) { setStatus('There are no chats to delete.'); return; }
+  const onPhone = !/^(127\.0\.0\.1|localhost)$/.test(location.hostname);
+  const other = onPhone ? 'on your PC too' : 'on your phone too';
+  const ok = await dangerDialog('Delete all chats?',
+    'This deletes ' + n + ' chat' + (n === 1 ? '' : 's') + '. The phone mirrors the PC, so they are cleared ' + other + '. Bots, routines, groups and settings are kept. A backup is saved first.',
+    'Delete');
+  if (!ok) return;
   const r = await api('/api/clear_chats', { confirm: 'clear' });
   if (!String(session).startsWith('bot-') && !String(session).startsWith('group-')) $('#new').click(); else loadSessions();
   setStatus('Deleted ' + (r.deleted || 0) + ' chats.');
+  undoBar('Deleted ' + (r.deleted || 0) + ' chats.', 10, async () => {
+    const u = await api('/api/clear_chats/undo', {});
+    setStatus(u && u.ok ? 'Restored ' + u.restored + ' chats.' : ((u && u.error) || 'Could not undo.'));
+    loadSessions();
+  });
 }
 if ($('#clear-chats')) $('#clear-chats').onclick = clearAllChats;
 async function openSession(s) {
@@ -484,6 +525,7 @@ function waveOn(on) {
 // ---------- chat ----------
 async function stop() {
   voiceOpen = false; stopClip(); setMood('idle');
+  setRunning(false); setStatus('Stopped');   // 1.4.15: show it at once; the server stops within ~0.5 s
   await fetch('/api/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session: session || '' }) });
 }
 function setRunning(on) {
@@ -732,7 +774,7 @@ async function send(text, isVoice, files) {
         else if (ev.event === 'plan') { renderPlan(bot, ev); const next = (ev.steps || []).find((x) => x.status === 'pending'); act.set(next ? 'Step ' + next.number + ': ' + next.text : 'All steps done, checking…'); }
         else if (ev.event === 'terminal') { termEvent(bot, ev); if (ev.kind === 'start') act.set('Running in ' + (ev.shell || 'the terminal') + '…'); }
         else if (ev.event === 'team_plan') { act.set('Team is planning ' + ((ev.steps || []).length) + ' tasks'); }
-        else if (ev.event === 'token') { act.set('Writing the reply…'); bot.text += (bot.text ? ' ' : '') + ev.text; bot.row.dataset.replyText = bot.text; renderMd(bot.body, bot.text, true); scrollDown(); if (talk && !speaking) { speaking = true; voiceOpen = true; setMood('speaking'); } }
+        else if (ev.event === 'token') { act.set('Writing the reply…'); bot.text += ev.raw ? ev.text : ((bot.text ? ' ' : '') + ev.text); bot.row.dataset.replyText = bot.text; renderMd(bot.body, bot.text, true); scrollDown(); if (talk && !speaking) { speaking = true; voiceOpen = true; setMood('speaking'); } }
         else if (ev.event === 'tool_start') { /* shown by the live activity line */ }
         else if (ev.event === 'tool_end') {
           act.finish(labels[ev.name] || ev.name.replace(/_/g, ' '), ev.ok); act.set('Thinking…'); setMood('thinking');
@@ -783,6 +825,8 @@ $('#composer').onsubmit = (e) => {
   e.preventDefault();
   const target = replyTo && $('#reply-in') ? ($('#reply-in').value || '') : (session || '');
   if (runningSessions.has(target)) {
+    const typed = $('#t').value.trim();
+    if (target === (session || '') && typed) { $('#t').value = ''; autosize(); syncRunningButton(); sideSend(typed); return; }
     if (target === (session || '')) stop(); else setStatus('That chat is still replying.', true);
     return;
   }
@@ -790,6 +834,25 @@ $('#composer').onsubmit = (e) => {
   if (Attach.busy()) { setStatus('Wait for the files to finish uploading.', true); return; }
   if (!text && !ready.length) return; $('#t').value = ''; autosize(); Attach.clear(); send(text, false, ready);
 };
+// 1.4.15: message while it works. Answered at once from the task's live state; the task keeps running and adjusts.
+const sideIds = new Set();
+function sideRows(userText, replyText, ids) {
+  const u = addUser(userText); u.classList.add('side');
+  const b = addBot(); b.row.classList.add('side'); b.text = replyText || ''; renderMd(b.body, b.text || '…', false);
+  (ids || []).forEach((i) => i && sideIds.add(i));
+  return b;
+}
+async function sideSend(text) {
+  const u = addUser(text); u.classList.add('side');
+  const b = addBot(); b.row.classList.add('side'); renderMd(b.body, '…', false);
+  try {
+    const r = await api('/api/chat_side', { session: session || '', text });
+    if (r && r.ok) { sideIds.add(r.user_id); sideIds.add(r.id); b.text = r.reply; renderMd(b.body, r.reply, false); if (r.kind === 'stop') setStatus('Stopped'); }
+    else { b.row.remove(); u.remove(); send(text); }   // the task just ended: send it normally
+  } catch (e) { renderMd(b.body, 'Could not reach the task: ' + (e && e.message || e), false); }
+  scrollDown();
+}
+window.pbSideRows = sideRows; window.pbSideIds = sideIds;
 // 1.4.9: attach pictures/files: button (PC + phone app file chooser), paste, drag and drop.
 const Attach = (() => {
   const items = []; const tray = $('#att-tray');
@@ -833,6 +896,7 @@ document.addEventListener('dragover', (e) => { if (e.dataTransfer && Array.from(
 document.addEventListener('drop', (e) => { if (!e.dataTransfer || !e.dataTransfer.files.length) return; e.preventDefault(); dragDepth = 0; document.body.classList.remove('dropping'); Attach.add(e.dataTransfer.files); });
 function autosize() { const t = $('#t'); t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 200) + 'px'; }
 $('#t').addEventListener('input', autosize);
+$('#t').addEventListener('input', () => { if (running) syncRunningButton(); });
 $('#t').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#composer').requestSubmit(); } });
 $$('.hint').forEach((h) => (h.onclick = () => send(h.textContent)));
 
@@ -1001,6 +1065,10 @@ const CLIENT_ID = (() => { try { return sessionStorage.pbClient || (sessionStora
     if (ev.origin && ev.origin === CLIENT_ID) return;            // this window started it and already shows it
     if (ev.event === 'saved') listSoon();
     if (!ev.session || ev.session !== session) { if (ev.session) { runningSessions.add(ev.session); markWorkingChats(); if (ev.event === 'speech_end' || ev.event === 'final') { runningSessions.delete(ev.session); markWorkingChats(); } } return; }
+    if (ev.event === 'side') {   // a mid-task message from another window (PC <-> phone)
+      if (!sideIds.has(ev.id)) { sideIds.add(ev.id); const row = ev.role === 'user' ? addUser(ev.text) : addBot().row; row.classList.add('side'); if (ev.role !== 'user') renderMd(row.querySelector('.md'), ev.text, false); scrollDown(); }
+      return;
+    }
     if (ev.event === 'token' || ev.event === 'step' || ev.event === 'tool_start' || ev.event === 'speaker') {
       watching = true; setMood('working');
       const label = ev.label || (ev.name ? ('Running ' + String(ev.name).replace(/_/g, ' ')) : 'Typing…');
@@ -1060,4 +1128,12 @@ if ($('#pause-all')) $('#pause-all').onclick = async () => {
     if (window.pbScrolledUp) { fresh += added; paint(); }
   }).observe(log, { childList: true });
   window.pbJump = { update, get count() { return fresh; } };
+})();
+
+// 1.4.15: proactive check-ins setting (PC and phone)
+(async function checkinsSetting() {
+  const on = $('#checkins-on'), fq = $('#checkins-freq'); if (!on || !fq) return;
+  try { const s = await api('/api/checkins'); on.checked = !!s.enabled; fq.value = s.frequency || 'normal'; fq.disabled = !s.enabled; } catch (e) {}
+  const save = async () => { fq.disabled = !on.checked; const s = await api('/api/checkins', { enabled: on.checked, frequency: fq.value }); setStatus(s.enabled ? 'Check-ins on (' + s.frequency + ').' : 'Check-ins off.'); };
+  on.onchange = save; fq.onchange = save;
 })();

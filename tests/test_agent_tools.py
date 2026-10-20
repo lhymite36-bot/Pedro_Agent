@@ -4179,7 +4179,7 @@ class AgentToolTests(unittest.TestCase):
                     )
             self.assertEqual(dropped, "Answered on this PC.")
             # Busy/dropped: every Gemini model gets the same backoff before the local fallback.
-            self.assertEqual(slept, [5, 15, 30] * len(agent_core.model_candidates("gemini-3.5-flash-lite")))
+            self.assertEqual(slept, [])   # 1.4.15: no 5/15/30 s backoff, immediate failover
             self.assertEqual(len(sent), 1)
         finally:
             os.environ.pop("PRIVACY_MODE", None)

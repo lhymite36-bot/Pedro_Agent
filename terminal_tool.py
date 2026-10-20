@@ -81,6 +81,8 @@ def run_terminal_command(command: str, shell: str = "powershell", cwd: str = "",
                                 encoding="utf-8", errors="replace")
     except OSError as exc:
         return {"ok": False, "error": f"Could not start {shell}: {exc}"}
+    import stop_token
+    stop_token.track(proc)   # 1.4.15: Stop kills the whole process tree at once
     out: list[str] = []
     size = 0
     timed_out = False
@@ -100,6 +102,10 @@ def run_terminal_command(command: str, shell: str = "powershell", cwd: str = "",
     except subprocess.TimeoutExpired:
         proc.kill()
         code = -1
+    stop_token.untrack(proc)
+    if stop_token.stopped():
+        _emit({"event": "terminal", "kind": "end", "code": code, "seconds": round(time.monotonic() - started, 1)})
+        return {"ok": False, "stopped": True, "error": "Stopped by the user.", "exit_code": code}
     secs = round(time.monotonic() - started, 1)
     _emit({"event": "terminal", "kind": "end", "code": code, "seconds": secs})
     text = "\n".join(out)[-MAX_OUTPUT:]

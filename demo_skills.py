@@ -25,6 +25,8 @@ import os
 import re
 import threading
 import time
+
+import stop_token
 from pathlib import Path
 from typing import Any, Callable
 
@@ -495,6 +497,14 @@ def _type_text(keys_c: Any, text: str) -> int:
     return done
 
 
+def _paused_now() -> bool:
+    try:
+        import safe_mode
+        return safe_mode.paused()
+    except Exception:
+        return False
+
+
 def replay_skill(name: str, speed: float = 0.0, cancel_event: threading.Event | None = None,
                  sleep: Callable[[float], None] = time.sleep, inputs: Any = None) -> dict[str, Any]:
     slug = skill_name(name)
@@ -549,6 +559,10 @@ def replay_skill(name: str, speed: float = 0.0, cancel_event: threading.Event | 
         for index, event in enumerate(events):
             if stop.is_set():
                 break
+            while _paused_now() and not stop.is_set():   # Pause all: freeze between actions, resume cleanly
+                stop.wait(0.2)
+            if stop.is_set():
+                break
             if index and index % (every * 4) == 0:
                 _progress(f"Replaying '{slug}': action {index} of {total}.")
             if index in covered and index not in slot_at:
@@ -567,7 +581,12 @@ def replay_skill(name: str, speed: float = 0.0, cancel_event: threading.Event | 
                 if kind == "click":
                     mouse_c.position = (int(event["x"] * sx), int(event["y"] * sy))
                     button = getattr(Button, str(event.get("button", "left")), None) if Button else event.get("button")
-                    (mouse_c.press if event.get("down") else mouse_c.release)(button)
+                    if event.get("down"):
+                        mouse_c.press(button)
+                        stop_token.hold("mouse", button, mouse_c)
+                    else:
+                        mouse_c.release(button)
+                        stop_token.unhold("mouse", button)
                 elif kind == "scroll":
                     mouse_c.position = (int(event["x"] * sx), int(event["y"] * sy))
                     mouse_c.scroll(int(event.get("dx", 0)), int(event.get("dy", 0)))
@@ -575,11 +594,17 @@ def replay_skill(name: str, speed: float = 0.0, cancel_event: threading.Event | 
                     key = _resolve_key(str(event.get("key", "")))
                     if key is None:
                         continue
-                    (keys_c.press if event.get("down") else keys_c.release)(key)
+                    if event.get("down"):
+                        keys_c.press(key)
+                        stop_token.hold("key", key, keys_c)
+                    else:
+                        keys_c.release(key)
+                        stop_token.unhold("key", key)
                 done += 1
     finally:
         if escape is not None:
             escape.stop()
+        stop_token.release_inputs(cancel_event)   # never leave a key or button held down
     if stop.is_set():
         return _err(f"Replay of '{slug}' stopped after {done} of {len(events)} actions.", stopped=True, done=done)
     note = f" with {len(values)} new input(s)" if slots and values else ""
@@ -588,7 +613,10 @@ def replay_skill(name: str, speed: float = 0.0, cancel_event: threading.Event | 
 
 
 def _tool_replay(name: str, speed: float = 0.0, inputs: Any = None) -> dict[str, Any]:
-    return replay_skill(name, speed, inputs=inputs)
+    import stop_token
+    ev = stop_token.current()   # 1.4.15: Stop ends the replay mid-step
+    return replay_skill(name, speed, cancel_event=ev, inputs=inputs,
+                        sleep=(lambda s: stop_token.wait(s, ev)) if ev is not None else time.sleep)
 
 
 _SECRET = re.compile(
