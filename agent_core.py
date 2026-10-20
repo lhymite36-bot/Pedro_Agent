@@ -612,8 +612,6 @@ Script repair:
 MCP tools:
 - mcp_router reads servers from workspace/mcp_servers.json. action is list_servers, list_tools, or call.
 - Pass the server name and, for a call, the tool name and a JSON object of arguments. Do not pass a shell command.
-- Reverse engineering, decompilation, JavaScript/Electron unpacking, managed binary inspection, and native disassembly go through server "rea". Call list_tools on rea, then call the matching REA tool. Typical first tools: analyze_javascript_application for an ASAR or JS app, inspect_managed_artifact for a .NET assembly, open_binary for a native executable.
-- Skip REA when the work is ordinary source in this project. Do not use REA on game copies, BattlEye, .rpf archives, cracks, or repacks.
 - If no servers are configured, say so.
 
 Private replies:
@@ -5728,8 +5726,8 @@ TOOL_DECLARATIONS = [
         "description": (
             "Call a tool on an MCP server listed in workspace/mcp_servers.json. "
             "action is list_servers, list_tools, or call. Pass the server name "
-            "and, for a call, the tool name plus a JSON object. Reverse "
-            "engineering uses server rea. Do not pass a shell command."
+            "and, for a call, the tool name plus a JSON object. "
+            "Do not pass a shell command."
         ),
         "parameters": {
             "type": "object",
@@ -6827,6 +6825,32 @@ def _request_voice_model(
 
 
 EVIDENCE_TOOLS = frozenset({"take_screenshot", "scroll", "capture_screenshot_file", "find_on_screen", "read_page_text"})
+EMPTY_REPLY_NOTE = "The model is busy and sent an empty answer. Please ask again in a moment."
+
+
+def friendly_model_error(exc: BaseException | str) -> str:
+    """One short line for a model error instead of the raw JSON (503, 429, empty)."""
+    text = str(exc or "")
+    low = text.casefold()
+    if low.startswith(("the free gemini quota", "every gemini model", "all gemini models are busy")):
+        return text[:400]   # already a plain message
+    if any(k in low for k in ("503", "unavailable", "high demand", "overloaded", "busy")):
+        return "Gemini is busy right now, retrying… If this keeps up, try again in a minute."
+    if any(k in low for k in ("429", "resource_exhausted", "quota")):
+        return ALL_QUOTA_MESSAGE if "every gemini model" in low else "Gemini's free limit is used up for now. The backup model is tried next."
+    if "no text" in low or "no content" in low or "empty" in low:
+        return EMPTY_REPLY_NOTE
+    if "timed out" in low or "timeout" in low:
+        return "The model took too long to answer. Please try again."
+    return text[:200]
+
+
+TEXT_CALL_NUDGE = (
+    "Your reply wrote a tool call as text, like [[tool(...)]]. Text does nothing. "
+    "If the step is needed, call the tool with a real function call now. "
+    "If it is not needed, answer in plain words without any [[...]] call and without saying it ran."
+)
+
 EVIDENCE_NUDGE = (
     "[self-check] You are about to report this task as done/complete, but in this turn you have not "
     "looked at the screen (take_screenshot or scroll) to confirm it. Check the real result now, "
@@ -7007,6 +7031,7 @@ def _run_agent_core(
 
     used_tools: set[str] = set()
     evidence_nudges = 0
+    text_call_nudges = 0
     skipped: set[str] = set()
     saw_quota = False
     chosen = model
@@ -7163,7 +7188,7 @@ def _run_agent_core(
         if candidate is None or candidate.content is None:
             if voice and voice_lines:
                 return "\n".join(voice_lines)
-            return "Gemini returned no content for that request."
+            return EMPTY_REPLY_NOTE
         calls = list(response.function_calls or [])
         if voice:
             piece = str(getattr(response, "spoken_text", "") or "").strip()
@@ -7178,9 +7203,16 @@ def _run_agent_core(
         if not calls:
             if voice:
                 said = _finish_claimed_launch(
-                    "\n".join(voice_lines) or "Gemini returned no text.", _emit, user_text
+                    "\n".join(voice_lines) or EMPTY_REPLY_NOTE, _emit, user_text
                 )
                 return grounding.ground_reply(user_text, said)
+            written = grounding.text_calls(_text_from(response))
+            if written and text_call_nudges < 2:
+                text_call_nudges += 1
+                print(f"[check] Tool call written as text ({written[0]}). Asking for a real call.", flush=True)
+                _emit("self_check", text="Running the step for real instead of describing it.")
+                history.append(types.Content(role="user", parts=[types.Part.from_text(text=TEXT_CALL_NUDGE)]))
+                continue
             raw = _finish_claimed_launch(_text_from(response), _emit, user_text)
             text = grounding.ground_reply(user_text, raw)
             if text != (raw or "").strip():
@@ -7196,7 +7228,7 @@ def _run_agent_core(
                 history.append(types.Content(role="user", parts=[types.Part.from_text(text=EVIDENCE_NUDGE)]))
                 continue
             _emit("final", text=text)
-            return text or "Gemini returned no text."
+            return text or EMPTY_REPLY_NOTE
 
         preamble = voice_lines[-1] if voice and voice_lines else _text_from(response)
         if preamble and not voice:
@@ -8897,7 +8929,6 @@ def run_init() -> int:
     print("Folders:")
     for folder in created["folders"]:
         print(f"  {folder}")
-    mcp_router.ensure_rea_server()
     ffmpeg = agent_config.ffmpeg_status()
     if ffmpeg:
         print(f"ffmpeg: {ffmpeg}")
@@ -8909,8 +8940,6 @@ def run_init() -> int:
         print(f"OpenCV: {cv2.__version__}")
     except ImportError:
         print("OpenCV: not installed. From the project folder run: pip install -r requirements.txt")
-    rea = agent_config.rea_status()
-    print(f"REA: {rea.get('message') or 'not checked.'}")
     if os.name == "nt":
         print("Connected volumes:")
         try:
@@ -9014,6 +9043,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.app:
         import chat_app
 
+        try:
+            import agent_config
+            import storage_migrate
+
+            moved = storage_migrate.run_at_start(APP_DIR, agent_config.storage_dir())
+            if moved.get("migrated"):
+                print("[storage] " + str(moved.get("message")), flush=True)
+                if moved.get("env_keys"):
+                    load_env_file(APP_DIR / ".env")
+        except Exception as exc:
+            print(f"[storage] Could not bring over the older chat history: {exc}", flush=True)
+
         return chat_app.run(args.model, port=args.port)
     if args.check_tools:
         return check_tools()
@@ -9061,18 +9102,11 @@ def main(argv: list[str] | None = None) -> int:
             f"Voice: {_neural_voice()}. "
             "Set ELEVENLABS_API_KEY in .env for the cloud voice."
         )
-    if shutil.which("rea"):
-        rea_line = "REA: rea is on PATH. Reverse engineering uses mcp_router server rea."
-    elif shutil.which("npx"):
-        rea_line = "REA: npx is available. Reverse engineering uses mcp_router server rea."
-    else:
-        rea_line = "REA: not found. Install with npm install --global rea-agents."
     print(
         f"{AGENT_NAME}. Type a request, or exit to quit.\n"
         "Type v and press Enter to speak. Press T while it listens, "
         'or say "text mode", to type again.\n'
-        f"{voice_line}\n"
-        f"{rea_line}"
+        f"{voice_line}"
     )
     if voice:
         print(

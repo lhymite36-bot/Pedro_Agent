@@ -1,7 +1,9 @@
 """Drive a desktop app with the existing click, type, and focus tools.
 
-pywinauto is not installed. Steps stay on the 0-1000 grid and the key list
-the other desktop tools already allow. At most 8 steps run in one call.
+Steps stay on the 0-1000 grid and the key list the other desktop tools already
+allow. Up to rules.yaml agent.desktop_max_steps (200 by default) run in one call.
+For controls that have a name, prefer the ui_* tools in ui_controls.py: they find
+the control by name and check that each click or typed value landed.
 """
 
 from __future__ import annotations
@@ -9,7 +11,17 @@ from __future__ import annotations
 import json
 from typing import Any
 
-_MAX_STEPS = 8
+_DEFAULT_MAX_STEPS = 200
+
+
+def _max_steps() -> int:
+    try:
+        import rules
+
+        value = int(rules.agent_setting("desktop_max_steps", _DEFAULT_MAX_STEPS) or 0)
+    except Exception:
+        value = 0
+    return value if value > 0 else _DEFAULT_MAX_STEPS
 
 
 def _agent() -> Any:
@@ -28,8 +40,8 @@ def _steps(raw: Any) -> list[dict[str, Any]] | str:
             return "steps must be a list of action objects."
     if not isinstance(raw, list):
         return "steps must be a list of action objects."
-    if len(raw) > _MAX_STEPS:
-        return f"At most {_MAX_STEPS} desktop steps can run in one call."
+    if len(raw) > _max_steps():
+        return f"At most {_max_steps()} desktop steps can run in one call. Split the rest into another call."
     steps: list[dict[str, Any]] = []
     for item in raw:
         if isinstance(item, dict):
@@ -99,8 +111,8 @@ DECLARATIONS = [
         "name": "desktop_ui_automation",
         "description": (
             "Open a known app such as Excel, Power BI, SSMS, or Chrome, focus "
-            "a window, and run up to 8 click, type, or key steps. Coordinates "
-            "are the 0-1000 screen grid. Do not pass a shell command."
+            "a window, and run a list of click, type, or key steps (up to 200). Coordinates "
+            "are the 0-1000 screen grid. Prefer ui_find/ui_click/ui_set_text for named controls. Do not pass a shell command."
         ),
         "parameters": {
             "type": "object",
@@ -109,7 +121,7 @@ DECLARATIONS = [
                 "window_title": {"type": "string", "description": "Window title to focus."},
                 "steps": {
                     "type": "array",
-                    "description": "Up to 8 click, type, press, scroll, navigate, or screenshot steps.",
+                    "description": "Click, type, press, scroll, navigate, or screenshot steps.",
                     "items": {
                         "type": "object",
                         "properties": {

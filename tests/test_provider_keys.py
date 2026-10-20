@@ -108,8 +108,8 @@ class DroppedConnectionTests(unittest.TestCase):
 
         calls = []
 
-        def send(*_args):
-            calls.append(1)
+        def send(*_args, **kw):
+            calls.append(kw.get("port", 587))
             if len(calls) == 1:
                 raise smtplib.SMTPServerDisconnected("Connection unexpectedly closed")
 
@@ -117,7 +117,7 @@ class DroppedConnectionTests(unittest.TestCase):
              mock.patch.object(gmail_mail, "_smtp_send", side_effect=send):
             result = gmail_mail._deliver("to@example.com", "Hello", "A short note.")
         self.assertTrue(result["ok"])
-        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls, [587, 465])   # the retry uses direct TLS on 465
 
     def test_a_rejected_login_is_not_retried(self):
         import smtplib
@@ -126,7 +126,7 @@ class DroppedConnectionTests(unittest.TestCase):
 
         calls = []
 
-        def send(*_args):
+        def send(*_args, **_kw):
             calls.append(1)
             raise smtplib.SMTPAuthenticationError(535, b"bad")
 

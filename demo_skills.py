@@ -31,7 +31,48 @@ from typing import Any, Callable
 import llm
 import rules
 
-DEFAULTS = {"max_record_seconds": 300, "frame_every_seconds": 2.0, "max_frames": 8, "replay_speed": 1.0}
+DEFAULTS = {"max_record_seconds": 0, "frame_every_seconds": 2.0, "max_frames": 16, "replay_speed": 1.0,
+            "keep_frames": 240, "follow_max_steps": 500, "progress_every": 10}
+# 300 was the old built-in recording cap. It is read as "no limit" so a saved rules.yaml
+# from 1.4.13 or earlier no longer cuts a long lesson short. Set any other number to cap it.
+_LEGACY_RECORD_CAP = 300.0
+
+
+def record_limit_seconds() -> float:
+    """0 = record until the user presses Done (stop_demonstration)."""
+    try:
+        value = float(settings().get("max_record_seconds") or 0)
+    except (TypeError, ValueError):
+        value = 0.0
+    if value <= 0 or value == _LEGACY_RECORD_CAP:
+        return 0.0
+    return value
+
+
+def follow_max_steps() -> int:
+    try:
+        value = int(settings().get("follow_max_steps") or 0)
+    except (TypeError, ValueError):
+        value = 0
+    return value if value > 0 else int(DEFAULTS["follow_max_steps"])
+
+
+def _progress(text: str) -> None:
+    """Show replay progress in the chat (Thinking line) while a long lesson runs."""
+    try:
+        import bot_mind
+
+        bot_mind._say(text)
+    except Exception:
+        pass
+    if progress_hook is not None:
+        try:
+            progress_hook(text)
+        except Exception:
+            pass
+
+
+progress_hook: Callable[[str], None] | None = None
 NAME = re.compile(r"[^a-z0-9_-]+")
 
 # Tests can swap these.
@@ -122,12 +163,15 @@ class Recorder:
         now = self._t()
         if not force and now - self._last_frame < float(cfg["frame_every_seconds"]):
             return
-        if len(self.frames) >= int(cfg["max_frames"]) * 4:
-            return
         blob = (screen_grab or _default_grab)()
         if blob:
             self._last_frame = now
-            self.frames.append((now, blob))
+            with self._lock:
+                self.frames.append((now, blob))
+                keep = max(8, int(cfg.get("keep_frames") or 240))
+                if len(self.frames) > keep:
+                    # Long lesson: thin the older half so the whole task stays covered.
+                    self.frames = self.frames[0:keep // 2:2] + self.frames[keep // 2:]
 
     def add(self, event: dict[str, Any]) -> None:
         with self._lock:
@@ -160,10 +204,10 @@ class Recorder:
             listener.start()
 
         def ticker() -> None:
-            limit = float(settings()["max_record_seconds"]) or 300.0
+            limit = record_limit_seconds()
             while not self.stop_event.wait(0.5):
                 self._frame()
-                if self._t() >= limit:
+                if limit and self._t() >= limit:
                     self.stop_event.set()
 
         threading.Thread(target=ticker, name="demo-ticker", daemon=True).start()
@@ -207,10 +251,11 @@ def record_demonstration(name: str, bot: str = "") -> dict[str, Any]:
             return _err(f"Could not watch the mouse and keyboard: {exc}")
         recorder._frame(True)
         _current = recorder
-    limit = settings()["max_record_seconds"]
+    limit = record_limit_seconds()
     who = f" for {bot_name}" if bot_name else ""
-    return _ok(f"Recording '{slug}'{who}. Do the task on this PC now, then say 'stop recording'. "
-               f"It stops by itself after {limit} seconds.", name=slug, bot=bot_name)
+    until = (f"It stops by itself after {int(limit)} seconds." if limit
+             else "There is no time or step limit. It keeps recording until you press Done or say 'stop recording'.")
+    return _ok(f"Recording '{slug}'{who}. Do the task on this PC now. {until}", name=slug, bot=bot_name)
 
 
 def _typed_runs(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -355,17 +400,18 @@ def summarise(name: str, events: list[dict[str, Any]], frames: list[tuple[float,
     prompt = (
         "These screenshots and this input log show a person doing a task on Windows. "
         "Write a reusable skill file in Markdown for an AI agent with: a '# <title>' line, "
-        "'## When to use', '## Steps' (numbered, naming the buttons/fields seen in the "
+        "'## When to use', '## Steps' (numbered, one line per real step, never merged or cut short "
+        "however long the task is, naming the buttons/fields seen in the "
         "screenshots), and '## Notes' (what could differ next time). Do not invent typed "
         "text that is hidden in the log. Each '[N characters typed]' item is one input "
         "that changes every time. Call those Input 1, Input 2, in order, in the steps.\n\n"
-        f"SKILL NAME: {name}\nINPUT LOG (t = seconds):\n{json.dumps(log)[:12000]}"
+        f"SKILL NAME: {name}\nSTEPS IN LOG: {len(log)} (list every one, however many)\nINPUT LOG (t = seconds):\n{json.dumps(log)[:400000]}"
     )
     try:
         body = llm.strip_fence(llm.text(prompt, _pick_frames(frames, int(settings()["max_frames"]))))
     except Exception as exc:
         body = f"# {name}\n\n(No vision summary: {exc})\n\n## Steps\n" + "\n".join(
-            f"{i + 1}. {json.dumps(step)}" for i, step in enumerate(log[:60]))
+            f"{i + 1}. {json.dumps(step)}" for i, step in enumerate(log))
     if not body.lstrip().startswith("#"):
         body = f"# {name}\n\n{body}"
     return body.rstrip() + f"\n\nReplay: say \"replay skill {name}\" (Esc stops the replay).\n"
@@ -497,9 +543,14 @@ def replay_skill(name: str, speed: float = 0.0, cancel_event: threading.Event | 
     except Exception:
         Button = None  # type: ignore[assignment]
     try:
+        total = len(events)
+        every = max(1, int(settings().get("progress_every") or 10))
+        _progress(f"Replaying '{slug}': {total} recorded actions.")
         for index, event in enumerate(events):
             if stop.is_set():
                 break
+            if index and index % (every * 4) == 0:
+                _progress(f"Replaying '{slug}': action {index} of {total}.")
             if index in covered and index not in slot_at:
                 last_t = float(event.get("t", 0))
                 continue
@@ -532,7 +583,8 @@ def replay_skill(name: str, speed: float = 0.0, cancel_event: threading.Event | 
     if stop.is_set():
         return _err(f"Replay of '{slug}' stopped after {done} of {len(events)} actions.", stopped=True, done=done)
     note = f" with {len(values)} new input(s)" if slots and values else ""
-    return _ok(f"Replayed '{slug}' ({done} actions){note}.", done=done)
+    _progress(f"Replayed '{slug}': all {len(events)} recorded actions ran.")
+    return _ok(f"Replayed '{slug}' ({done} actions, every recorded step){note}.", done=done, total=len(events))
 
 
 def _tool_replay(name: str, speed: float = 0.0, inputs: Any = None) -> dict[str, Any]:
@@ -547,7 +599,7 @@ _FOLLOW_KEYS = {
     "enter": "Key.enter", "tab": "Key.tab", "escape": "Key.esc", "esc": "Key.esc",
     "backspace": "Key.backspace", "space": "Key.space",
 }
-FOLLOW_LIMIT = 12
+FOLLOW_LIMIT = 0   # 0 = skills.follow_max_steps (500 by default)
 
 
 def _is_secret(text: str) -> bool:
@@ -595,7 +647,7 @@ def _follow_prompt(lesson: str, supplied: str, previous: str) -> str:
         'click needs x and y in image pixels. type needs text. key is enter, tab, escape, or backspace. '
         "scroll needs dy (negative moves down). done means the task on screen is finished. "
         "stop means you cannot do this step. reason is a short note and must not repeat typed text.\n\n"
-        f"LESSON:\n{lesson[:6000]}\n\n"
+        f"LESSON:\n{lesson[:120000]}\n\n"
         f"TEXT THE USER ALREADY SUPPLIED:\n{given}\n\n"
         f"PREVIOUS ACTION: {previous}"
     )
@@ -710,9 +762,12 @@ def follow_skill(name: str, inputs: Any = None, cancel_event: threading.Event | 
     frames: list[dict[str, Any]] = bot_mind.load_frames(slug)
     rewound = False
     try:
-        for _ in range(max(1, int(limit))):
+        rounds = int(limit) if int(limit or 0) > 0 else follow_max_steps()
+        for round_no in range(max(1, rounds)):
             if stop.is_set():
                 break
+            if round_no and round_no % 10 == 0:
+                _progress(f"Following '{slug}': {len(performed)} steps done so far.")
             import desktop_share
             with desktop_share.hold():
                 frame = _follow_image()
@@ -720,7 +775,9 @@ def follow_skill(name: str, inputs: Any = None, cancel_event: threading.Event | 
                 return _err("Could not see the screen.")
             blob, scale_x, scale_y = frame
             seen_words = bot_mind.words(bot_mind.screen_text())
-            decision = _decision(llm.text(_follow_prompt(lesson, supplied, previous), [blob]))
+            where = (f"{previous} (Steps done so far: {len(performed)}. Carry on with the next lesson step. "
+                     "Answer done only after the last step of the lesson is finished.)")
+            decision = _decision(llm.text(_follow_prompt(lesson, supplied, where), [blob]))
             action = decision.get("action")
             if action == "done":
                 return _ok(f"Followed '{slug}' ({len(performed)} actions).", done=len(performed), actions=performed)

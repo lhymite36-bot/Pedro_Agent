@@ -4030,71 +4030,23 @@ class AgentToolTests(unittest.TestCase):
             agent_core.mcp_router.mcp_router("list_tools", server="notes")
         self.assertIn("real mcp", str(live.exception))
 
-    def test_rea_mcp_is_registered_without_spawning(self) -> None:
-        import agent_config
+    def test_reverse_engineering_server_is_not_part_of_ped_bot(self) -> None:
         import mcp_router
 
         example = (agent_core.APP_DIR / "mcp_servers.example.json").read_text(encoding="utf-8")
-        self.assertIn("rea-agents", example)
-        self.assertIn('"rea"', example)
-        self.assertNotIn("C:\\Users\\", example)
-        self.assertIn('server "rea"', agent_core.SYSTEM_PROMPT)
-        self.assertIn("analyze_javascript_application", agent_core.SYSTEM_PROMPT)
-        self.assertNotIn("elevenlabs", agent_core.SYSTEM_PROMPT.casefold())
-        self.assertFalse(agent_core._request_needs_plan("reverse engineer this app"))
-        self.assertTrue(
-            agent_core._request_needs_plan(
-                "reverse engineer this app and update my spreadsheet"
-            )
-        )
-
+        self.assertNotIn("rea-agents", example)
+        self.assertNotIn('server "rea"', agent_core.SYSTEM_PROMPT)
         config = self.root / "workspace" / "mcp_servers.json"
         config.parent.mkdir(parents=True, exist_ok=True)
-        config.write_text(
-            json.dumps(
-                {
-                    "mcpServers": {
-                        "notes": {"command": "python", "args": ["-m", "notes"]}
-                    }
-                }
-            ),
-            encoding="utf-8",
-        )
+        config.write_text(json.dumps({"servers": {
+            "notes": {"command": "python", "args": ["-m", "notes"]},
+            "rea": {"command": "npx", "args": ["-y", "rea-agents@latest", "--mcp"]},
+            "other": {"command": "npx", "args": ["-y", "rea-agents", "--mcp"]}}}), encoding="utf-8")
         agent_core.mcp_config_override = config
-        with mock.patch("subprocess.run", side_effect=AssertionError("real rea")):
-            with mock.patch("subprocess.Popen", side_effect=AssertionError("real process")):
-                servers = mcp_router.ensure_rea_server(config)
-                listed = agent_core.invoke_tool("mcp_router", {"action": "list_servers"})
-        self.assertIn("rea", servers)
-        self.assertIn("notes", servers)
-        self.assertTrue(listed["ok"], listed)
-        self.assertEqual(sorted(listed["servers"]), ["notes", "rea"])
-        saved = json.loads(config.read_text(encoding="utf-8"))
-        self.assertIn("rea", saved["servers"])
-        self.assertEqual(saved["servers"]["rea"]["args"][-1], "--mcp")
-
-        previous = agent_config.rea_runner_override
-        agent_config.rea_runner_override = lambda: {"ok": True, "message": "REA is ready."}
-        try:
-            status = agent_config.rea_status()
-        finally:
-            agent_config.rea_runner_override = previous
-        self.assertEqual(status["ok"], "true")
-        self.assertIn("ready", status["message"])
-
-        with mock.patch("agent_config.shutil.which", return_value=None):
-            missing = agent_config.rea_status()
-        self.assertEqual(missing["ok"], "false")
-        self.assertIn("not installed", missing["message"])
-
-        with mock.patch("agent_config.shutil.which", return_value="rea"):
-            with mock.patch(
-                "agent_config.subprocess.run",
-                side_effect=AssertionError("real rea"),
-            ):
-                with self.assertRaises(AssertionError) as guard:
-                    agent_config.rea_status()
-        self.assertIn("real rea", str(guard.exception))
+        listed = agent_core.invoke_tool("mcp_router", {"action": "list_servers"})
+        self.assertEqual(listed["servers"], ["notes"])
+        self.assertFalse(mcp_router.mcp_router("list_tools", server="rea")["ok"])
+        self.assertFalse(hasattr(mcp_router, "ensure_rea_server"))
 
     def test_private_or_offline_turn_stays_on_ollama(self) -> None:
         self.assertIn("Ollama", agent_core.SYSTEM_PROMPT)
@@ -5880,12 +5832,8 @@ class AgentToolTests(unittest.TestCase):
         self.assertIn("you are pedro_agent", agent_core.SYSTEM_PROMPT.casefold())
         self.assertNotIn("pedro 1", agent_core.SYSTEM_PROMPT.casefold())
         self.assertNotIn("elevenlabs", agent_core.SYSTEM_PROMPT.casefold())
-        self.assertIn('server "rea"', agent_core.SYSTEM_PROMPT)
+        self.assertNotIn('server "rea"', agent_core.SYSTEM_PROMPT)
         self.assertFalse((agent_core.APP_DIR / "skills" / "reverse-engineer-anything").exists())
-        self.assertIn(
-            "rea-agents",
-            (agent_core.APP_DIR / "mcp_servers.example.json").read_text(encoding="utf-8"),
-        )
         requirements = (agent_core.APP_DIR / "requirements.txt").read_text(encoding="utf-8")
         self.assertIn("python-dotenv", requirements)
         self.assertNotIn("\nelevenlabs", requirements.casefold())

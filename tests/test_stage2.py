@@ -902,10 +902,57 @@ class RemoteAccessTests(_Tmp):
         self.lp.mouse_override = lambda kind, fields: seen.append(kind)
         self.addCleanup(setattr, self.lp, "mouse_override", None)
         ctl = json.loads(self._req(base, "/live/control", {"type": "click", "x": .5, "y": .5}, cookie=cookie)[2])
-        self.assertTrue(ctl["ok"], ctl)
-        self.assertEqual(seen, ["click"])
+        self.assertFalse(ctl["ok"], ctl)   # view only: allow_control is off
+        self.assertEqual(seen, [])
         self.assertEqual(self._req(base, "/api/status", cookie=cookie + "x")[0], 401)
         self.assertEqual(self._req(base, "/api/settings", {"model": "x"}, cookie=cookie, origin=False)[0], 200)
+
+    def _sign_in(self, base):
+        code, headers, _b = self._req(base, "/login", {"secret": self.ra.access_token()})
+        self.assertEqual(code, 200)
+        return headers["Set-Cookie"].split(";")[0]
+
+    def test_phone_control_over_http_needs_permission(self) -> None:
+        seen: list[str] = []
+        self.lp.mouse_override = lambda kind, fields: seen.append(kind)
+        self.addCleanup(setattr, self.lp, "mouse_override", None)
+        base = self._start(allow_control=True)
+        cookie = self._sign_in(base)
+        click = {"type": "click", "x": .5, "y": .5}
+        # Signed in, control allowed in rules, but no 'Allow control' yes yet: refused.
+        ctl = json.loads(self._req(base, "/live/control", click, cookie=cookie)[2])
+        self.assertFalse(ctl["ok"], ctl)
+        self.assertTrue(ctl.get("needs_confirmation"), ctl)
+        self.assertEqual(seen, [])
+        # Without a sign-in nothing reaches the PC either.
+        self.assertEqual(self._req(base, "/live/control", click)[0], 401)
+        self.assertEqual(seen, [])
+        # A plain tap without 'yes' still refuses.
+        allow = json.loads(self._req(base, "/live/control/allow", {"confirm": ""}, cookie=cookie)[2])
+        self.assertFalse(allow["ok"], allow)
+        self.assertFalse(json.loads(self._req(base, "/live/control", click, cookie=cookie)[2])["ok"])
+        # After the yes the same click runs once.
+        allow = json.loads(self._req(base, "/live/control/allow", {"confirm": "yes"}, cookie=cookie)[2])
+        self.assertTrue(allow["ok"], allow)
+        ctl = json.loads(self._req(base, "/live/control", click, cookie=cookie)[2])
+        self.assertTrue(ctl["ok"], ctl)
+        self.assertEqual(seen, ["click"])
+
+    def test_phone_control_blocked_by_rules_tool_block(self) -> None:
+        seen: list[str] = []
+        self.lp.mouse_override = lambda kind, fields: seen.append(kind)
+        self.addCleanup(setattr, self.lp, "mouse_override", None)
+        self.write_rules({"remote": {"enabled": True, "port": 0, "allow_control": True},
+                          "tools": {"blocked": ["remote_control_action"]}})
+        import chat_app
+
+        info = self.ra.start(chat_app.AppState("m"))
+        base = info["local_url"].rstrip("/")
+        cookie = self._sign_in(base)
+        self._req(base, "/live/control/allow", {"confirm": "yes"}, cookie=cookie)
+        ctl = json.loads(self._req(base, "/live/control", {"type": "click", "x": .5, "y": .5}, cookie=cookie)[2])
+        self.assertFalse(ctl["ok"], ctl)
+        self.assertEqual(seen, [])
 
     def test_cross_origin_post_refused(self) -> None:
         import urllib.error

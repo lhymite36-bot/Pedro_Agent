@@ -424,10 +424,23 @@ def run_group(group: dict[str, Any], text: str, history: list[Any], emit: Callab
         emit({"event": "group_status", "who": display(speaker)["name"], "doing": status})
         call_kw = dict(kw)
         call_kw["on_text"] = lambda chunk: emit({"event": "token", "text": chunk})
-        try:
-            reply = _run_one(speaker, prompt, history, model, call_kw)
-        except Exception as exc:
-            reply = f"(couldn't answer: {exc})"
+        import agent_core as _ac
+
+        reply = ""
+        for attempt in range(2):
+            try:
+                reply = _run_one(speaker, prompt, history, model, call_kw)
+                break
+            except Exception as exc:
+                reply = _ac.friendly_model_error(exc)
+                busy = "busy" in reply.casefold()
+                if attempt == 0 and busy and not (cancel_event is not None and cancel_event.is_set()):
+                    emit({"event": "step", "label": "Gemini is busy, retrying…", "name": ""})
+                    time.sleep(3)
+                    continue
+                if busy:
+                    reply = "Gemini is still busy. I'll stop here; please ask again in a minute."
+                break
         done.append((speaker, reply))
         transcript.append(f"{display(speaker)['name']}: {reply}")
         shown, chips = for_display(reply, group)

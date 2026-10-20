@@ -40,6 +40,8 @@ NEGATIVE = {"no", "nope", "nah", "cancel", "stop", "don't", "dont", "n"}
 _pending_by: dict[str, dict[str, Any]] = {}
 _granted_by: dict[str, dict[str, Any]] = {}
 _done: list[dict[str, Any]] = []      # actions already run after a yes (this conversation turn)
+_recent_yes: dict[str, tuple[str, float]] = {}   # chat -> (category, when) of the last yes
+YES_WINDOW_SECONDS = 180
 _turn = threading.local()              # set while the chat layer has already read the user's message
 _chat = contextvars.ContextVar("pedro_confirm_chat", default="")
 
@@ -58,6 +60,7 @@ def _bucket() -> str:
 
 
 def reset() -> None:
+    _recent_yes.clear()
     _pending_by.clear()
     _granted_by.clear()
     _done.clear()
@@ -136,6 +139,10 @@ def label_for(name: str, arguments: dict[str, Any]) -> str:
         title = " ".join(str(arguments.get("title") or "that video").split())
         privacy = " ".join(str(arguments.get("privacy") or "private").split()) or "private"
         return f"post {title} on YouTube as {privacy}"
+    if name == "create_routine":
+        what = " ".join(str(arguments.get("name") or "a routine").split())[:60]
+        when = " ".join(str(arguments.get("when") or "").split())[:40]
+        return f"create the routine '{what}'" + (f" ({when})" if when else "")
     if name == "send_remote_update":
         return "send a message to your phone"
     if name not in {"kill_process", "shutdown_computer", "manage_windows_and_processes", "network_manager"}:
@@ -154,6 +161,9 @@ def label_for(name: str, arguments: dict[str, Any]) -> str:
 
 
 def remember(name: str, arguments: dict[str, Any], label: str) -> None:
+    current = _pending_by.get(_bucket())
+    if current is not None and _same(current, name, arguments):
+        return   # already waiting on this exact yes: keep the one card, do not ask again
     _pending_by[_bucket()] = {
         "name": name,
         "arguments": dict(arguments),
@@ -177,7 +187,12 @@ def note_user_text(text: str) -> None:
         return
     key = _bucket()
     if folded in POSITIVE and _pending_by.get(key) is not None:
-        _granted_by[key] = _pending_by.pop(key)
+        item = _pending_by.pop(key)
+        _granted_by[key] = item
+        import time as _t
+
+        if item["name"] == "confirm_before":   # only a general "may I?" yes carries to the real action
+            _recent_yes[key] = (_key(item["name"], item["arguments"])[0], _t.monotonic())
         return
     _pending_by.pop(key, None)
     _granted_by.pop(key, None)
@@ -189,6 +204,17 @@ def consume_grant(name: str, arguments: dict[str, Any]) -> bool:
     key = _bucket()
     granted = _granted_by.get(key)
     if granted is None or not _same(granted, name, arguments):
+        # Asked once: a yes to confirm_before for this kind of action covers the real action
+        # that follows in the next few minutes, so the user is not asked again and again.
+        recent = _recent_yes.get(key)
+        import time as _t
+
+        if (recent and name != "confirm_before" and recent[0] == _key(name, arguments)[0]
+                and _t.monotonic() - recent[1] <= YES_WINDOW_SECONDS
+                and (granted is None or granted.get("name") == "confirm_before")):
+            _granted_by.pop(key, None)
+            _recent_yes.pop(key, None)   # used once
+            return True
         return False
     if name == "confirm_before" and granted.get("name") == "confirm_before":
         return True   # the model re-checking; keep the grant for the delete/send that follows

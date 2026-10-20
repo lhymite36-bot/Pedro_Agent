@@ -154,8 +154,19 @@ function botFace() {
   d._av = createAvatar(d, look); return d;
 }
 // Stage directions like [chuckles] are for the voice only.
-const STAGE = /\s*[\[(](?:chuckles?|laughs?|laughing|giggles?|sighs?|smiles?|grins?|winks?|gasps?|whispers?|clears throat|pause|sarcastic(?:ally)?|excited(?:ly)?|cheerful(?:ly)?|softly|happily|sadly|snorts?|hums?|coughs?)[\])]\s*/gi;
-function stripStage(t) { return String(t || '').replace(/\s*\[\[react:[^\]\s]{1,16}\]\]/g, '').replace(STAGE, ' ').replace(/ {2,}/g, ' ').replace(/^ +/gm, ''); }
+const STAGE = /[ \t]*\[(?:chuckles?|laughs?|laughing|giggles?|playful(?:ly)?|sighs?|smiles?|smile|grins?|winks?|gasps?|whispers?|clears throat|pauses?|sarcastic(?:ally)?|excited(?:ly)?|cheerful(?:ly)?|cheers|softly|happily|sadly|snorts?|hums?|coughs?|thoughtful(?:ly)?|warmly|gently|proudly|nervously|curious(?:ly)?|breathes?)\][ \t]*/gi;
+// Markers people should never see (1.4.14): reactions, written tool calls, team protocol words, stray speaker tags.
+const TEXT_CALL = /\[\[\s*[A-Za-z_][A-Za-z0-9_]{2,60}\s*\((?:[^\[\]]|\[[^\[\]]*\])*\)\s*\]\]/g;
+const PROTO = /(^|\n)\s*\**\s*(?:ASSIGN\s+@?[A-Za-z0-9_\-]+\s*\**\s*[:\-]\s*|PROJECT\s+(?:DONE|COMPLETE)\s*[:\-]?\s*|ASK\s+USER\s*[:\-]\s*|DONE\s*[:\-]\s*|BLOCKED\s*[:\-]\s*)/g;
+function stripStage(t) {
+  return String(t || '')
+    .replace(/\s*\[{1,2}react:[^\]\s]{1,16}\]{1,2}/g, '')
+    .replace(/(?<!\[)\[@[A-Za-z0-9_\-]+\]\]\s*/g, '')
+    .replace(TEXT_CALL, '')
+    .replace(PROTO, '$1')
+    .replace(/\s*\b(?:PROJECT\s+DONE|ASK\s+USER|ASSIGN\s+@[A-Za-z0-9_\-]+|DONE|BLOCKED)\s*:\s*/g, ' ')
+    .replace(STAGE, ' ').replace(/ {2,}/g, ' ').replace(/^ +/gm, '');
+}
 
 // ---------- rendering ----------
 function scrollDown() { const l = $('#log'); l.scrollTop = l.scrollHeight; }

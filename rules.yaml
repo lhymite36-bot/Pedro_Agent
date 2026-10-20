@@ -112,9 +112,12 @@ team:                          # run_team: planner + coder/browser/files/researc
   review_rounds: 1             # times the reviewer may send a sub-task back
 
 skills:                        # learn by demonstration (record_demonstration / replay_skill)
-  max_record_seconds: 300
+  max_record_seconds: 0        # 0 = no limit: records until you press Done / say stop
   frame_every_seconds: 2.0     # screenshot interval while recording (plus one per click)
-  max_frames: 8                # screenshots sent to Gemini vision for the summary
+  max_frames: 16               # screenshots sent to Gemini vision for the summary
+  keep_frames: 240             # screenshots kept from a long recording (older ones thinned)
+  follow_max_steps: 500        # most steps follow_skill takes on one run
+  progress_every: 10           # replay progress line every N steps
   replay_speed: 1.0
 
 code:                          # code_engineer: write -> test -> fix loop

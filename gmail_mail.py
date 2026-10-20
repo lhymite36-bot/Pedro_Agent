@@ -276,7 +276,7 @@ def _mail_drop(exc: BaseException) -> bool:
     return isinstance(exc, (TimeoutError, ConnectionError))
 
 
-def _smtp_send(sender: str, password: str, recipient: str, subject: str, body: str) -> None:
+def _smtp_send(sender: str, password: str, recipient: str, subject: str, body: str, port: int = 587) -> None:
     import smtplib
     from email.message import EmailMessage
 
@@ -285,9 +285,19 @@ def _smtp_send(sender: str, password: str, recipient: str, subject: str, body: s
     message["To"] = recipient
     message["Subject"] = subject
     message.set_content(body)
-    with smtplib.SMTP("smtp.gmail.com", 587, timeout=20) as smtp:
+    import ssl
+
+    context = ssl.create_default_context()
+    if port == 465:
+        # Direct TLS. Works where 587 + STARTTLS is closed early by a network or antivirus mail scan,
+        # which shows up as "Connection unexpectedly closed".
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30, context=context) as smtp:
+            smtp.login(sender, password)
+            smtp.send_message(message)
+        return
+    with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as smtp:
         smtp.ehlo()
-        smtp.starttls()
+        smtp.starttls(context=context)
         smtp.ehlo()
         smtp.login(sender, password)
         smtp.send_message(message)
@@ -318,9 +328,13 @@ def _deliver(recipient: str, subject: str, body: str) -> dict[str, Any]:
     import smtplib
 
     last: BaseException | None = None
-    for _attempt in range(3):
+    import time as _time
+
+    for attempt, port in enumerate((587, 465, 465)):
+        if attempt:
+            _time.sleep(1.5 * attempt)
         try:
-            _smtp_send(account, password, recipient, subject, body)
+            _smtp_send(account, password, recipient, subject, body, port=port)
             last = None
             break
         except AssertionError:
@@ -333,7 +347,8 @@ def _deliver(recipient: str, subject: str, body: str) -> dict[str, Any]:
                 continue
             return _err(f"The email was not sent. {_safe(str(exc))}")
     if last is not None:
-        return _err(f"The email was not sent. {_safe(str(last))}")
+        return _err(f"The email was not sent. {_safe(str(last))} Gmail closed the connection on both port 587 "
+                    "and 465. Check the internet connection, or whether antivirus 'email scanning' blocks mail apps.")
     return _ok(
         f"Email successfully sent to {recipient}.",
         to=recipient,

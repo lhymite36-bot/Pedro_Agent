@@ -140,10 +140,10 @@ def open_window(url: str) -> Any:
     set_app_id()
     api = WindowApi()
     frameless = os.name == "nt" and os.environ.get("PEDRO_NATIVE_FRAME") != "1"
-    width, height, x, y = 1180, 800, None, None
-    try:   # fit small screens (e.g. 1366x768): leave room for the taskbar, centre it
+    width, height, x, y = 1440, 900, None, None
+    try:   # use most of the screen (Live PC needs room); leave the taskbar free, centre it
         scr = webview.screens[0]
-        width, height = min(width, scr.width - 40), min(height, scr.height - 70)
+        width, height = max(760, min(width, scr.width - 16)), max(520, min(height, scr.height - 56))
         x, y = max(0, (scr.width - width) // 2), max(0, (scr.height - 40 - height) // 2)
     except Exception:
         pass

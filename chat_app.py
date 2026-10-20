@@ -634,6 +634,13 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
             emit({"event": "step", "label": f"Reading {len(files)} attachment(s)", "name": ""})
 
         def save_reply(sess: str, role: str, said: str) -> int:   # store + tell the window the id and reactions
+            if role == "assistant" and "[[card:" not in said:
+                import reply_clean
+
+                guarded = reply_clean.guard_loop(sess, said)
+                if guarded != said:
+                    emit({"event": "step", "label": "Stopped a repeating answer.", "name": "reason"})
+                    said = guarded
             mid = chat_store.add(sess, role, said)
             if wrote:
                 chat_store.remember_writes(mid, wrote)
@@ -714,7 +721,7 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
                         cancel_event=cancel, on_text=on_text, on_event=emit,
                     ) or ""
             except Exception as exc:  # RuntimeError for quota, key, network
-                emit({"event": "error", "text": agent._scrub(str(exc))})
+                emit({"event": "error", "text": agent.friendly_model_error(agent._scrub(str(exc)))})
                 reply = ""
         if reply and not session.startswith(groups.SESSION_PREFIX):
             save_reply(session, "assistant", reply)
@@ -976,6 +983,9 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 rows = chat_store.history(sid)
                 if sid.startswith(groups.SESSION_PREFIX):
                     rows = [groups.clean_row(r) for r in rows]
+                import reply_clean
+
+                rows = [reply_clean.clean_row(r) for r in rows]
                 import attachments
                 import confirm_action
                 import polls

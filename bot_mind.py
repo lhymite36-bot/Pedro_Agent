@@ -40,7 +40,7 @@ _target: contextvars.ContextVar[tuple[str, bool]] = contextvars.ContextVar(
 _announce: contextvars.ContextVar[Callable[[str], None] | None] = contextvars.ContextVar(
     "pedro_mind_say", default=None
 )
-_YES = {"yes", "yeah", "yep", "confirm", "do it", "go ahead", "sure", "y", "ok", "okay"}
+_YES = {"yes"}   # only a clear "yes" (any capitals) or the card's Approve tap lets a bot pass a trap
 _STOP_WORDS = frozenset(
     "the a an on in of to and or for page this that with from are was were click button text".split()
 )

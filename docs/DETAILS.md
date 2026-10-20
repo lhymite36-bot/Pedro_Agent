@@ -461,14 +461,11 @@ git push, or closing a program.
 
 `mcp_router` calls a tool on a server you listed in `workspace/mcp_servers.json`
 (or the file in `MCP_CONFIG`). The assistant passes the server name, the tool
-name, and a JSON object. It does not pass a shell command. Reverse engineering
-uses the `rea` server. Install the CLI with `npm install --global rea-agents`,
-then `python main.py --init` writes that server into the config if it is
-missing. `python main.py --init` also prints `rea --help`. Routing notes are
-in `mcp_servers.example.json`. Example:
+name, and a JSON object. It does not pass a shell command. Messages are one
+JSON object per line (the MCP stdio format). Example:
 
 ```json
-{"servers":{"rea":{"command":"npx","args":["-y","rea-agents@latest","--mcp"]}}}
+{"servers":{"notes":{"command":"python","args":["-m","your_mcp_server"]}}}
 ```
 
 A request that says to keep something private, offline, or local only is

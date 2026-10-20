@@ -373,6 +373,15 @@ def category_for(name: str, arguments: dict[str, Any]) -> str | None:
         action = str(arguments.get("action") or "").strip().casefold().replace("-", "_").replace(" ", "_")
         if action in _NETWORK:
             return "network"
+    if name == "ui_click":
+        label = " " + _fold(arguments.get("name")) + " "
+        if any(w in label for w in (" delete ", " remove ", " erase ", " uninstall ", " empty recycle bin ")):
+            return "delete"
+        if any(w.strip() in label for w in _PAYMENT_WORDS) or any(w in label for w in (" buy ", " pay ", " checkout ")):
+            return "payment"
+        if any(w in label for w in (" send ", " post ", " publish ", " submit ", " share ")):
+            return "send_message"
+        return None
     if name in {"perform_actions", "browser_download_tool", "desktop_ui_automation", "click_screen_target"}:
         blob = json.dumps(arguments, default=str).casefold()
         if any(word in blob for word in _PAYMENT_WORDS):
@@ -386,6 +395,8 @@ def needs_confirmation(name: str, arguments: dict[str, Any]) -> bool:
         return False
     if name in {str(t) for t in confirm.get("extra_tools") or []}:
         return True
+    if name == "create_routine" and confirm.get("ask_before_routines", True):
+        return True   # a bot never adds a scheduled job without an Approve
     category = category_for(name, arguments)
     return category is not None and category in {str(c) for c in confirm.get("categories") or []}
 

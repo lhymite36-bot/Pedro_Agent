@@ -27,7 +27,14 @@ echo Using %PY%
 if not exist ".venv\Scripts\python.exe" ( %PY% -m venv .venv || goto fail )
 ".venv\Scripts\python.exe" -m pip install --upgrade pip --disable-pip-version-check -q
 echo Installing packages (a few minutes the first time)...
-".venv\Scripts\python.exe" -m pip install -r requirements.txt --disable-pip-version-check || goto fail
+rem Core packages first, so one optional package that fails cannot leave the app unable to start.
+".venv\Scripts\python.exe" -m pip install "pyyaml>=6.0" --disable-pip-version-check -q || goto fail
+".venv\Scripts\python.exe" -m pip install -r requirements.txt --disable-pip-version-check
+if errorlevel 1 (
+  echo Some optional packages did not install. Retrying each one so the rest still work...
+  for /f "usebackq eol=# tokens=*" %%R in ("requirements.txt") do ".venv\Scripts\python.exe" -m pip install "%%R" --disable-pip-version-check -q
+)
+".venv\Scripts\python.exe" -c "import yaml" || goto fail
 if not exist ".env" copy ".env.example" ".env" >nul
 for %%D in (storage logs data temp) do if not exist "%%D" mkdir "%%D"
 if not exist "rules.yaml" copy "rules.default.yaml" "rules.yaml" >nul

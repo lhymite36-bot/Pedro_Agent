@@ -360,7 +360,9 @@ def remote_control_action(type: str, x: float = 0.0, y: float = 0.0, text: str =
     return {"ok": False, "error": "type must be click or type."}
 
 
-def do_control(data: dict[str, Any]) -> dict[str, Any]:
+def control_refusal() -> dict[str, Any] | None:
+    """Why phone input is refused right now, or None when it may run.
+    Needs remote.allow_control, the 'Allow control' yes, and remote_control_action not blocked."""
     if not settings()["allow_control"]:
         return {"ok": False, "error": "View only. Set remote.allow_control: true in rules.yaml to allow control."}
     if not control_open():
@@ -368,6 +370,27 @@ def do_control(data: dict[str, Any]) -> dict[str, Any]:
     reason = rules.tool_block_reason("remote_control_action")
     if reason:
         return {"ok": False, "error": reason}
+    return None
+
+
+def phone_control(data: dict[str, Any]) -> dict[str, Any]:
+    """Live PC input from the phone: the same permission checks as do_control, then the
+    Live PC control (clicks, drags, scrolls, typing)."""
+    refused = control_refusal()
+    if refused is not None:
+        _note("Remote control refused")
+        return refused
+    import live_pc
+
+    result = live_pc.local_control(data if isinstance(data, dict) else {})
+    _note(f"Remote {str((data or {}).get('type') or '')}" + (" ok" if result.get("ok") else " failed"))
+    return result
+
+
+def do_control(data: dict[str, Any]) -> dict[str, Any]:
+    refused = control_refusal()
+    if refused is not None:
+        return refused
     import agent_core
 
     function = agent_core.TOOLS.get("remote_control_action", remote_control_action)
@@ -532,9 +555,8 @@ def make_remote_handler(state: Any) -> type:
                 self._json(allow_control(str(self._body().get("confirm") or "")))
                 return
             if path == "/live/control":
-                import live_pc
-
-                self._json(live_pc.local_control(self._body()))
+                result = phone_control(self._body())
+                self._json(result)
                 return
             super().do_POST()
 

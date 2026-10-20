@@ -37,7 +37,7 @@ class YouTubeChannelTests(unittest.TestCase):
     def test_missing_client_explains_the_setup_and_hides_nothing_secret(self) -> None:
         out = self.yt.youtube_upload(r"C:\clip.mp4", "Hello")
         self.assertFalse(out["ok"])
-        self.assertIn("API key cannot", out["error"])
+        self.assertIn("one-time step you do yourself", out["error"])
         self.assertIn("console.cloud.google.com", out["error"])
         self.assertNotIn("refresh_token", json.dumps(out))
         self.assertFalse(self.yt.youtube_status()["connected"])
