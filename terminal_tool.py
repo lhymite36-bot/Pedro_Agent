@@ -104,6 +104,10 @@ def run_terminal_command(command: str, shell: str = "powershell", cwd: str = "",
     _emit({"event": "terminal", "kind": "end", "code": code, "seconds": secs})
     text = "\n".join(out)[-MAX_OUTPUT:]
     msg = (f"Ran in {shell} ({secs} s), exit code {code}." + (" Stopped: time limit reached." if timed_out else ""))
+    tail = "\n".join(out[-20:]).strip("\n")
+    if tail:   # keep the output in the chat history too (the live box only exists while it streams)
+        fence = "`" * 3
+        msg += "\n\n" + fence + "\n> " + command[:300] + "\n" + tail[-1500:].replace(fence, "'" * 3) + "\n" + fence
     return {"ok": code == 0 and not timed_out, "message": msg, "exit_code": code, "output": text, "seconds": secs,
             "error": "" if code == 0 and not timed_out else msg + (" Last output: " + text[-400:] if text else "")}
 
