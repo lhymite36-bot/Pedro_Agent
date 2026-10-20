@@ -5,6 +5,16 @@
     python main.py --voice
 """
 
+import sys
+
+# pythonw / redirected logs on Windows default to cp1252: never crash on emoji or \ufeff.
+for _s in (sys.stdout, sys.stderr):
+    try:
+        if _s is not None:
+            _s.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 try:
     import crash_reports
 

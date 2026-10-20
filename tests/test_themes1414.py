@@ -18,4 +18,12 @@ class ThemeTests(unittest.TestCase):
         self.assertIn('id="p-themes"', html); self.assertIn("/themes.js", html)
         css = open(os.path.join(HERE, "app_static", "glass.css"), encoding="utf-8").read()
         self.assertIn("@property --w1", css); self.assertIn("transition:--w1", css)
+
+
+class Utf8StdoutTest(unittest.TestCase):
+    def test_main_reconfigures_utf8(self):
+        import subprocess, sys
+        code = "import io,sys; sys.stdout=io.TextIOWrapper(io.BytesIO(),encoding='cp1252'); exec(open('main.py').read().split('try:\\n    import crash_reports')[0]); print('\\ufeff\\U0001F600'); sys.stderr.write('ok')"
+        r = subprocess.run([sys.executable, "-c", code], cwd=HERE, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr); self.assertIn("ok", r.stderr)
 if __name__ == "__main__": unittest.main()
