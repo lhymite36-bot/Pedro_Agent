@@ -70,27 +70,54 @@ def focus_existing(title: str = TITLE) -> None:
         pass
 
 
-def apply_icon(title: str = TITLE, tries: int = 40) -> bool:
-    """WM_SETICON on our window once it exists (big + small icons)."""
+def _own_windows(title: str) -> list[int]:
+    """Top-level windows of THIS process with our title (FindWindow could pick another app's window)."""
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    found: list[int] = []
+    pid = os.getpid()
+    proto = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+    def cb(hwnd: Any, _l: Any) -> bool:
+        owner = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+        if owner.value == pid:
+            buf = ctypes.create_unicode_buffer(256)
+            user32.GetWindowTextW(hwnd, buf, 256)
+            if buf.value == title:
+                found.append(int(hwnd))
+        return True
+
+    user32.EnumWindows(proto(cb), 0)
+    return found
+
+
+def apply_icon(title: str = TITLE, tries: int = 60) -> bool:
+    """WM_SETICON (big + small) on our own window, re-applied for ~15 s because the
+    window toolkit can set Python's icon after we do (the taskbar then shows Python)."""
     ico = icon_path()
     if os.name != "nt" or ico is None:
         return False
     import ctypes
 
     user32 = ctypes.windll.user32
-    user32.FindWindowW.restype = ctypes.c_void_p
     user32.LoadImageW.restype = ctypes.c_void_p
     user32.SendMessageW.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p]
+    icons = [(which, user32.LoadImageW(None, str(ico), 1, size, size, 0x10)) for which, size in ((1, 256), (0, 32))]
+    done = False
     for _ in range(tries):
-        hwnd = user32.FindWindowW(None, title)
-        if hwnd:
-            for which, size in ((1, 256), (0, 32)):   # ICON_BIG, ICON_SMALL
-                h = user32.LoadImageW(None, str(ico), 1, size, size, 0x10)   # IMAGE_ICON, LR_LOADFROMFILE
-                if h:
-                    user32.SendMessageW(hwnd, 0x80, which, h)   # WM_SETICON
-            return True
+        try:
+            for hwnd in _own_windows(title):
+                for which, h in icons:
+                    if h:
+                        user32.SendMessageW(hwnd, 0x80, which, h)   # WM_SETICON
+                done = True
+        except Exception:
+            pass
         time.sleep(0.25)
-    return False
+    return done
 
 
 class WindowApi:
@@ -176,6 +203,7 @@ def _wire_background(win: Any, api: "WindowApi") -> None:
             win.restore()
         except Exception:
             pass
+        threading.Thread(target=apply_icon, kwargs={"tries": 12}, daemon=True).start()
 
     def quit_app() -> None:
         QUITTING.set()
