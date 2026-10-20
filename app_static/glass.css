@@ -87,7 +87,7 @@ body.glass #overlay.open,body.glass #sidescrim{background:rgba(5,5,12,.35);-webk
 body.glass #bottomnav button{position:relative;z-index:1;background:none!important}
 body.glass #bottomnav button.active{color:#fff}
 /* new bot + bots store on glass */
-body.glass .pb-screen{background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,0) 30%),rgba(10,10,20,.62);-webkit-backdrop-filter:saturate(160%) blur(34px);backdrop-filter:saturate(160%) blur(34px)}
+body.glass .pb-screen{background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,0) 30%),rgba(12,10,24,.9);-webkit-backdrop-filter:saturate(160%) blur(34px);backdrop-filter:saturate(160%) blur(34px)}
 body.glass .pb-top{background:rgba(255,255,255,.04)!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;box-shadow:none!important}
 body.glass .pb-top{border-radius:0;border:0;border-bottom:1px solid rgba(255,255,255,.08)}
 body.glass .nb-card,body.glass .st-fcard{border-radius:24px;border-color:rgba(255,255,255,.1);transition:transform .5s var(--spring),background .2s}
@@ -120,3 +120,5 @@ body.glass.no-glass-motion::before,body.glass.no-glass-motion::after{animation:n
   body.glass *{transition-duration:.01ms!important}
 }
 @media (max-width:700px){body.glass .bubble{border-radius:20px}body.glass .rt-panel,body.glass .cn-panel,body.glass #settings{border-radius:0}}
+
+body.glass #avatar-mode{background:transparent}
