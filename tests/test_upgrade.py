@@ -476,7 +476,7 @@ class ChatAppTests(_RulesCase):
             session = events[0]["session"]
             hist = json.loads(urllib.request.urlopen(base + "/api/history?session=" + session).read())
             self.assertEqual([h["text"] for h in hist], ["hi", "Hello Pedro."])
-            self.assertIn("<title>Pedro_Agent</title>", urllib.request.urlopen(base + "/").read().decode())
+            self.assertIn("<title>Ped Bot</title>", urllib.request.urlopen(base + "/").read().decode())
             save = urllib.request.Request(base + "/api/rules", data=json.dumps(
                 {"text": json.dumps({"confirm": {"enabled": False}})}).encode(),
                 headers={"Content-Type": "application/json"})

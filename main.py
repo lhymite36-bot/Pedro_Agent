@@ -5,6 +5,12 @@
     python main.py --voice
 """
 
+try:
+    import crash_reports
+
+    crash_reports.install()
+except Exception:
+    pass
 from agent_core import main
 
 if __name__ == "__main__":

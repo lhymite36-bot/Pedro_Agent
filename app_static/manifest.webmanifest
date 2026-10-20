@@ -1,6 +1,6 @@
 {
-  "name": "Pedro_Agent",
-  "short_name": "Pedro",
+  "name": "Ped Bot",
+  "short_name": "Ped Bot",
   "description": "Your PC assistant, from your phone.",
   "start_url": "/",
   "scope": "/",

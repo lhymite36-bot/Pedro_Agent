@@ -338,6 +338,13 @@ _running: set[str] = set()
 
 def due(now: float | None = None) -> list[dict[str, Any]]:
     now = _now() if now is None else now
+    try:
+        import safe_mode
+
+        if safe_mode.paused():
+            return []
+    except Exception:
+        pass
     return [r for r in _load()["routines"] if not r.get("paused") and r.get("next_run") and r["next_run"] <= now
             and r["id"] not in _running]
 

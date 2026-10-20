@@ -5829,7 +5829,7 @@ class AgentToolTests(unittest.TestCase):
         self.assertIn("STORAGE_DIR=./storage\n", example)
         self.assertIn("EXTERNAL_DRIVE_PATH=\n", example)
         self.assertNotIn("AIza", example)
-        self.assertIn("you are pedro_agent", agent_core.SYSTEM_PROMPT.casefold())
+        self.assertIn("you are ped bot", agent_core.SYSTEM_PROMPT.casefold())
         self.assertNotIn("pedro 1", agent_core.SYSTEM_PROMPT.casefold())
         self.assertNotIn("elevenlabs", agent_core.SYSTEM_PROMPT.casefold())
         self.assertNotIn('server "rea"', agent_core.SYSTEM_PROMPT)

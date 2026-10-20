@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>Pedro_Agent</title>
+<html lang="en"><head><meta charset="utf-8"><title>Ped Bot</title>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <link rel="stylesheet" href="/app.css">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -9,7 +9,7 @@
 <link rel="apple-touch-icon" href="/icon-192.png">
 </head><body>
 <aside id="side">
-  <div class="brand"><div class="mini" id="brand-avatar"></div><div><b>Pedro_Agent</b><small>Your PC assistant</small></div></div>
+  <div class="brand"><div class="mini" id="brand-avatar"></div><div><b>Ped Bot</b><small>Your PC assistant</small></div></div>
   <button class="side-btn" id="new" type="button"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>New chat</button>
   <div class="side-label row-label">Bots<button class="ib small" id="newbot" type="button" title="New bot">+</button></div>
   <div id="bots"></div>
@@ -32,9 +32,10 @@
   <header>
     <button class="ib" id="menubtn" type="button" title="Chats"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
     <div id="hdr-avatar"></div>
-    <div class="who"><b>Pedro_Agent</b><small id="mood">Idle</small><small id="live-step" hidden></small></div>
+    <div class="who"><b>Ped Bot</b><small id="mood">Idle</small><small id="live-step" hidden></small></div>
     <div class="spacer"></div>
     <button type="button" id="avc-open" title="Talk face to face">Avatar</button>
+    <button class="ib pause-all" id="pause-all" type="button" title="Safe mode: pause every bot, routine and task now">Pause all</button>
     <button class="ib" id="hdr-stop" type="button" title="Stop" hidden><svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2"/></svg></button>
   </header>
   <div id="log"></div>
@@ -101,7 +102,7 @@
     <div class="box">
       <button type="button" class="ib" id="attach" title="Attach pictures or files (or paste / drop them)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5l-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9"/></svg></button>
       <input type="file" id="att-file" multiple hidden accept="image/*,.pdf,.docx,.xlsx,.xlsm,.csv,.txt,.md,.json,.log,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain,text/csv">
-      <textarea id="t" rows="1" placeholder="Message Pedro_Agent…"></textarea>
+      <textarea id="t" rows="1" placeholder="Message Ped Bot…"></textarea>
       <div id="wave"></div>
       <button type="button" class="ib" id="hands" title="Hands-free: keep listening after each reply"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h2l3-7 4 14 3-9 2 4h4"/></svg></button>
       <button type="button" class="ib" id="mic" title="Talk (or press Space)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
@@ -120,10 +121,18 @@
 <div id="overlay"></div>
 <section id="settings" aria-label="Settings">
   <div class="set-head"><b>Settings</b><button class="ib" id="close-set" type="button" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
-  <div class="tabs"><button class="tab active" data-pane="p-general" type="button">General</button><button class="tab" data-pane="p-voice" type="button">Voice</button><button class="tab" data-pane="p-rules" type="button">Rules</button></div>
+  <div class="tabs"><button class="tab active" data-pane="p-general" type="button">General</button><button class="tab" data-pane="p-voice" type="button">Voice</button><button class="tab" data-pane="p-rules" type="button">Rules</button><button class="tab" data-pane="p-more" type="button">Connections &amp; updates</button></div>
+  <div class="pane" id="p-more">
+    <div class="field"><div>Keep working when closed<small>Closing the window hides Ped Bot in the tray; bots, routines and the phone keep running. Quit from the tray icon.</small></div><label class="switch"><input type="checkbox" id="bg-keep"><span></span></label></div>
+    <div class="field"><div>Start with Windows<small>Starts hidden in the tray when you sign in. Off unless you turn it on.</small></div><label class="switch"><input type="checkbox" id="bg-start"><span></span></label></div>
+    <div class="field"><div>Windows notifications<small>Progress and results of long tasks.</small></div><label class="switch"><input type="checkbox" id="bg-notes"><span></span></label></div>
+    <div class="field"><div>Updates<small id="upd-line">Checking GitHub for a newer Ped Bot…</small></div><span><button class="btn" id="upd-check" type="button">Check</button> <button class="btn" id="upd-get" type="button" hidden>Download</button> <button class="btn" id="upd-install" type="button" hidden>Install</button></span></div>
+    <div class="field col"><div>Connections<small>Sign in once to YouTube, Gmail and Google Drive. You sign in yourself on Google's page; the permission stays only on this PC.</small></div><div id="conn-list"></div><small id="conn-setup" class="err-text"></small></div>
+    <div class="field col"><div>Crash reports<small>Saved on this PC only. Nothing is sent anywhere; copy one if you want to share it.</small></div><div id="crash-list"></div><span><button class="btn" id="crash-open" type="button">Open folder</button></span></div>
+  </div>
   <div class="pane active" id="p-general">
     <div id="phone-sec" class="phone-sec">
-      <div class="field"><div>Connect phone<small>Use Pedro Agent from your Android phone, anywhere. Uses a free Cloudflare tunnel; sign-in protected.</small></div><label class="switch"><input type="checkbox" id="phone-on"><span></span></label></div>
+      <div class="field"><div>Connect phone<small>Use Ped Bot from your Android phone, anywhere. Uses a free Cloudflare tunnel; sign-in protected.</small></div><label class="switch"><input type="checkbox" id="phone-on"><span></span></label></div>
       <div id="phone-consent" hidden><small>Phone access needs Cloudflare's free <b>cloudflared</b> tool (about 60 MB, from github.com/cloudflare). Download it now?</small> <button class="btn" id="phone-allow" type="button">Allow download</button></div>
       <div id="phone-body" hidden>
         <p id="phone-msg" class="phone-msg"></p>
@@ -217,7 +226,8 @@
 <script src="/routines_ui.js"></script>
 <script src="/connectors_ui.js"></script>
 <script src="/avatar_mode.js"></script>
-<div id="firstrun" class="firstrun" hidden><form id="fr-form"><h2>Welcome to Pedro_Agent</h2>
+<script src="/maintenance_ui.js"></script>
+<div id="firstrun" class="firstrun" hidden><form id="fr-form"><h2>Welcome to Ped Bot</h2>
 <p>Paste your own free Gemini API key to start. Get one free at aistudio.google.com/apikey. It is saved only in the .env file on this PC.</p>
 <input id="fr-key" type="password" placeholder="Gemini API key" autocomplete="off">
 <details><summary>Telegram (optional)</summary><input id="fr-tg" type="password" placeholder="Telegram bot token" autocomplete="off"><input id="fr-chat" placeholder="Your Telegram chat ID"></details>

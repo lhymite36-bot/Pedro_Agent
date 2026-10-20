@@ -66,6 +66,7 @@ STATIC_FILES = {
     "favicon.ico": "image/x-icon",
     "live_ui.js": "application/javascript; charset=utf-8",
     "connectors_ui.js": "application/javascript; charset=utf-8",
+    "maintenance_ui.js": "application/javascript; charset=utf-8",
     "sw.js": "application/javascript; charset=utf-8",
     "manifest.webmanifest": "application/manifest+json",
     "icon-192.png": "image/png",
@@ -138,7 +139,14 @@ def status_payload(state: "AppState") -> dict[str, Any]:
     except Exception:
         level = None
         mic_level = None
+    try:
+        import safe_mode
+
+        _paused = safe_mode.paused()
+    except Exception:
+        _paused = False
     return {
+        "paused": _paused,
         "busy": state.any_busy(),
         "listening": state.mic_lock.locked(),
         "speaking": state.is_speaking(),
@@ -578,8 +586,19 @@ def _finish_speech(state: AppState, pipeline: Any, reply: str, spoke_any: bool, 
         emit({"event": "speech_end", "status": status})
 
 
+def state_hidden() -> bool:
+    """True while the window is closed to the tray (updates also go to notifications)."""
+    try:
+        import win_chrome
+
+        return bool(getattr(win_chrome, "HIDDEN", False))
+    except Exception:
+        return False
+
+
 def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool | None = None,
-                from_voice: bool = False, client_audio: bool = False, files: list[str] | None = None) -> str:
+                from_voice: bool = False, client_audio: bool = False, files: list[str] | None = None,
+                origin: str = "") -> str:
     """Run one turn and push events through emit(dict). Returns the reply.
 
     With speech on, each streamed sentence is synthesized and played while
@@ -594,12 +613,44 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
     wrote: list[str] = []
     raw_emit = emit
 
+    import progress_notes
+    import background as _bg
+
+    def _post_update(kind: str, note: str) -> None:
+        try:
+            mid = chat_store.add(session, "assistant", note)
+        except Exception:
+            mid = 0
+        ev = {"event": "update", "kind": kind, "text": note, "id": mid}
+        try:
+            import live_sync
+
+            live_sync.publish(session, ev)       # every window and the phone, not just this one
+        except Exception:
+            pass
+        raw_emit(ev)
+        if kind in {"opening", "blocker", "final"} or state_hidden():
+            _bg.notify("Ped Bot", note)
+
+    narrator = progress_notes.Narrator(text, _post_update)
+    task_id = _bg.task_started(session, text, files) if not text.startswith("[Resumed") else ""
+
     def watch(ev: dict) -> None:
+        try:
+            narrator.feed(ev)
+        except Exception:
+            pass
         if ev.get("event") == "model_switch":
             shown = str(ev.get("model") or "")
             state.active_model = shown.split(":", 1)[-1] if shown.startswith("backup:") else shown
         if ev.get("event") == "tool_end" and ev.get("ok") and ev.get("path"):
             wrote.append(str(ev["path"]))
+        try:
+            import live_sync
+
+            live_sync.publish(session, ev, origin=origin)
+        except Exception:
+            pass
         raw_emit(ev)
 
     emit = step_labels.wrap_emit(watch)
@@ -728,6 +779,12 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
             reply = chat_store.extract_reactions(reply)[0]
         _post_cards(session, emit, waiting_before)
         emit({"event": "group_done"} if session.startswith(groups.SESSION_PREFIX) else {"event": "done", "text": reply})
+        try:
+            narrator.finish(reply, cancelled=cancel.is_set())
+        except Exception:
+            pass
+        if task_id:
+            _bg.task_finished(task_id)
         if pipeline is not None:
             _finish_speech(state, pipeline, reply, spoke["any"], emit)
         elif want and client_audio and reply and not cancel.is_set():
@@ -743,6 +800,17 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
             emit({"event": "speech_end", "status": "skipped"})
         return reply
     except Exception as exc:
+        try:
+            if task_id:
+                import background as _bg2
+                _bg2.task_finished(task_id)
+        except Exception:
+            pass
+        try:
+            import crash_reports
+            crash_reports.record(exc, "chat turn")
+        except Exception:
+            pass
         emit({"event": "error", "text": f"Turn failed: {exc}"})
         emit({"event": "speech_end", "status": "error"})
         return reply
@@ -926,6 +994,9 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             query = parse_qs(url.query)
             if url.path.startswith("/live/") and self._live_get(url, query):
                 return
+            if url.path == "/api/live":
+                self._live_feed(query)
+                return
             if url.path in {"/", "/index.html"}:
                 self._send(200, (STATIC / "index.html").read_bytes(), "text/html; charset=utf-8")
             elif url.path.lstrip("/") in STATIC_FILES:
@@ -951,6 +1022,20 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             elif url.path == "/api/checklist":
                 import extras149
                 self._json(extras149.setup_checklist())
+            elif url.path == "/api/background":
+                import background
+                self._json(background.settings())
+            elif url.path == "/api/update":
+                import updater
+                self._json(updater.last() or {"current": updater.VERSION, "update_available": False})
+            elif url.path == "/api/connections":
+                import google_connections
+                self._json(google_connections.status())
+            elif url.path == "/api/crashes":
+                import crash_reports
+                name = query.get("name", [""])[0]
+                self._json({"text": crash_reports.read(name)} if name else {"reports": crash_reports.listing(),
+                                                                             "folder": str(crash_reports.folder())})
             elif url.path == "/api/status":
                 self._json(status_payload(state))
             elif url.path == "/api/image":
@@ -1060,7 +1145,24 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             else:
                 self._send(404, b"{}")
 
+        _SYNC_PATHS = {"/api/card/answer", "/api/react", "/api/rename", "/api/delete_session", "/api/clear_chats",
+                       "/api/pin", "/api/routines/update", "/api/bots", "/api/bots/delete", "/api/groups",
+                       "/api/groups/delete", "/api/undo", "/api/stop", "/api/pause_all", "/api/resume_all"}
+
         def do_POST(self) -> None:
+            path = urlparse(self.path).path
+            try:
+                self._do_post()
+            finally:
+                if path in self._SYNC_PATHS:
+                    try:
+                        import live_sync
+
+                        live_sync.notify("changed", what=path.rsplit("/", 1)[-1])
+                    except Exception:
+                        pass
+
+        def _do_post(self) -> None:
             if not self._gate():
                 return
             if not self._same_origin():
@@ -1147,6 +1249,47 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 else:
                     wake_word.stop_wake_word_listener()
                 self._json({"ok": True, "wake": state.wake_on, "phrase": _wake_phrase()})
+            elif url.path in {"/api/update/check", "/api/update/download", "/api/update/install"}:
+                import updater
+                if self.remote and url.path != "/api/update/check":
+                    self._json({"ok": False, "error": "Update from the PC."}, 403)
+                elif url.path.endswith("check"):
+                    self._json(updater.check())
+                elif url.path.endswith("download"):
+                    self._json(updater.download())
+                else:
+                    result = updater.install(str(data.get("confirm") or ""))
+                    self._json(result)
+                    if result.get("ok"):
+                        threading.Timer(2.0, lambda: os._exit(0)).start()
+            elif url.path == "/api/connections/connect":
+                import google_connections
+                if self.remote:
+                    self._json({"ok": False, "error": "Sign in on the PC; the Google page opens there."}, 403)
+                else:
+                    self._json(google_connections.connect(str(data.get("service") or "")))
+            elif url.path == "/api/connections/disconnect":
+                import google_connections
+                self._json(google_connections.disconnect(str(data.get("service") or "")))
+            elif url.path == "/api/crashes/open":
+                import crash_reports
+                if self.remote:
+                    self._json({"ok": False, "error": "Open the folder on the PC."}, 403)
+                else:
+                    self._json(crash_reports.open_folder())
+            elif url.path == "/api/background":
+                import background
+                if self.remote:
+                    self._json({"ok": False, "error": "Change this on the PC."}, 403)
+                else:
+                    keys = {"keep_running", "notifications", "start_with_windows"}
+                    self._json(background.save_settings(**{k: v for k, v in data.items() if k in keys}))
+            elif url.path == "/api/pause_all":
+                import safe_mode
+                self._json(safe_mode.pause_all(state, by="phone" if self.remote else "pc"))
+            elif url.path == "/api/resume_all":
+                import safe_mode
+                self._json(safe_mode.resume_all(state, by="phone" if self.remote else "pc"))
             elif url.path == "/api/stop":
                 stopped = str(data.get("session") or "")
                 if stopped:
@@ -1280,7 +1423,8 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             events: queue.Queue = queue.Queue()
             worker = threading.Thread(
                 target=lambda: (stream_turn(state, session, text, events.put, speak=force_speak,
-                                           from_voice=from_voice, client_audio=client_audio, files=files), events.put(None)),
+                                           from_voice=from_voice, client_audio=client_audio, files=files,
+                                           origin=str(data.get("client") or "")), events.put(None)),
                 daemon=True,
             )
             worker.start()
@@ -1292,6 +1436,45 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 if not self._write(item):
                     state.cancel_session(session)
                     break
+
+        def _live_feed(self, query: dict[str, list[str]]) -> None:
+            """Server push for every window (PC and phone): same chats, live, with catch-up."""
+            import live_sync
+
+            raw = (query.get("since", [""])[0] or self.headers.get("Last-Event-ID") or "").strip()
+            try:
+                seq = int(raw) if raw else live_sync.current()
+            except ValueError:
+                seq = live_sync.current()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Accel-Buffering", "no")
+            self.end_headers()
+            if not self._write({"event": "hello", "seq": live_sync.current()}):
+                return
+            started = time.monotonic()
+            while time.monotonic() - started < 600:   # the client reconnects with ?since=
+                items, gap = live_sync.wait(seq, timeout=15)
+                if gap:
+                    if not self._write({"event": "resync", "seq": live_sync.current()}):
+                        return
+                    items = items[-200:]
+                if not items:
+                    try:   # comment line keeps the tunnel and proxies from closing an idle stream
+                        self.wfile.write(b": ping\n\n")
+                        self.wfile.flush()
+                    except OSError:
+                        return
+                    continue
+                for item in items:
+                    try:
+                        self.wfile.write(f"id: {item['seq']}\n".encode())
+                    except OSError:
+                        return
+                    if not self._write(item):
+                        return
+                    seq = item["seq"]
 
         def _write(self, item: dict[str, Any]) -> bool:
             try:
@@ -1402,6 +1585,27 @@ def start_routines(state: "AppState") -> None:
 
     routines.runner = run
     routines.start()
+    try:
+        import background
+
+        def _resume(t: dict) -> None:
+            events: list = []
+            chat_store.add(t["session"], "assistant", "Picking this back up after a restart: " + str(t["text"])[:200])
+            stream_turn(state, t["session"], "[Resumed after a restart] " + str(t["text"]), events.append, speak=False,
+                        files=list(t.get("files") or []))
+
+        got = background.resume_unfinished(_resume)
+        if got:
+            print(f"[background] resumed {len(got)} unfinished task(s)", flush=True)
+    except Exception as exc:
+        print(f"[background] resume failed: {exc}", flush=True)
+    try:
+        import updater
+
+        if os.environ.get("PEDBOT_NO_UPDATE_CHECK") != "1":
+            updater.start_background_check()
+    except Exception:
+        pass
 
 
 def serve(model: str, port: int = 8765) -> tuple[ThreadingHTTPServer, AppState]:
@@ -1445,7 +1649,7 @@ def run(model: str, port: int = 8765) -> int:
 
         if not win_chrome.single_instance():
             win_chrome.focus_existing()
-            print("Pedro_Agent is already running; switched to its window.", flush=True)
+            print("Ped Bot is already running; switched to its window.", flush=True)
             return 0
     except Exception:
         pass
@@ -1456,7 +1660,7 @@ def run(model: str, port: int = 8765) -> int:
     server, state = serve(model, port)
     url = f"http://127.0.0.1:{server.server_address[1]}/"
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    print(f"Pedro_Agent chat app: {url}  (Ctrl+C to quit)", flush=True)
+    print(f"Ped Bot chat app: {url}  (Ctrl+C to quit)", flush=True)
     bots.Scheduler().start()  # scheduled bot tasks
     start_routines(state)  # Routines scheduler (includes the 7 PM Wingz scan + report in the "daily-report" chat)
     try:

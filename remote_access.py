@@ -416,12 +416,12 @@ def _note(text: str) -> None:
 # ---- login page (self-contained, no external assets) ----
 
 LOGIN_HTML = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Pedro_Agent - sign in</title><meta name="theme-color" content="#0b0b0f"><link rel="manifest" href="/manifest.webmanifest">
+<title>Ped Bot - sign in</title><meta name="theme-color" content="#0b0b0f"><link rel="manifest" href="/manifest.webmanifest">
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0b0f;color:#ececf1;font:16px system-ui,sans-serif}
 form{background:#111116;border:1px solid #23232d;border-radius:16px;padding:28px;width:min(360px,88vw)}h1{font-size:20px;margin:0 0 6px}
 p{color:#8e8ea0;font-size:14px;margin:0 0 16px}input{width:100%;box-sizing:border-box;padding:12px;border-radius:10px;border:1px solid #23232d;background:#17171e;color:#fff;font-size:16px}
 button{margin-top:12px;width:100%;padding:12px;border:0;border-radius:10px;background:#7c8cff;color:#fff;font-size:16px}#e{color:#ff6b6b;font-size:14px;min-height:20px;margin-top:8px}</style></head>
-<body><form id="f"><h1>Pedro_Agent</h1><p>Enter your access token or PIN.</p><input id="s" type="password" autocomplete="current-password" autofocus>
+<body><form id="f"><h1>Ped Bot</h1><p>Enter your access token or PIN.</p><input id="s" type="password" autocomplete="current-password" autofocus>
 <button>Sign in</button><div id="e"></div></form><script>
 async function go(secret){const r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({secret})});
 const j=await r.json();if(j.ok){location.replace('/');}else{document.getElementById('e').textContent=j.error||'Failed';}}
@@ -790,7 +790,7 @@ def _announce(url: str, token: str) -> None:
         import remote_bridge
 
         if remote_bridge.paired():
-            remote_bridge.notify(f"Pedro_Agent on your phone: {link_with_token(url, token)}\n"
+            remote_bridge.notify(f"Ped Bot on your phone: {link_with_token(url, token)}\n"
                                  "Open it, then use 'Add to Home screen' to install. Don't share this link.")
     except Exception:
         pass

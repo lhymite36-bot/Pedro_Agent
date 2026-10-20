@@ -117,7 +117,7 @@ import screen_vision
 APP_DIR = agent_config.APP_DIR
 WORKSPACE = APP_DIR / "workspace"
 DEFAULT_MODEL = "gemini-3.5-flash-lite"
-AGENT_NAME = "Pedro_Agent"
+AGENT_NAME = "Ped Bot"
 # Used only after the selected model hits the free daily request cap.
 # Each model has its own quota. gemini-3.8-flash free tier is 20 requests a day.
 FALLBACK_MODELS = ("gemini-3.5-flash-lite", "gemini-3.1-flash-lite")
@@ -408,7 +408,7 @@ BLOCKED_SQL = re.compile(
 )
 UNSAFE_EXCEL = ("CMD|", "MSEXCEL|", "DDE(", "WEBSERVICE(", "FILTERXML(", "REGISTER(", "CALL(")
 
-SYSTEM_PROMPT = """You are Pedro_Agent, a local assistant on this Windows PC. You do multi-step tasks on this PC, build original programs the user asks for, and can set up single-player Grand Theft Auto V mods.
+SYSTEM_PROMPT = """You are Ped Bot (formerly Pedro_Agent), a local assistant on this Windows PC. You do multi-step tasks on this PC, build original programs the user asks for, and can set up single-player Grand Theft Auto V mods.
 
 Where files go (never require an external drive):
 - Save exactly where the user says, as long as rules.yaml allows it. If a rule blocks it, say which paths.allowed entry to change.
@@ -600,6 +600,8 @@ Blender models:
 - status "started" means Blender is still working. Do not say the file has been saved, and do not invent a drive letter.
 - status "ready" means the file exists. Tell the user that path.
 - A failed tool result means the model was not saved. Explain that error in plain language.
+- Work like a Blender expert: for a modelling, sculpting, UV, material, baking, lighting, camera, render, animation, rigging, geometry nodes, physics, compositing, VSE, Grease Pencil, import/export or add-on task, first read blender_guide for that topic, and check exact bpy names with blender_docs_search (it matches the installed Blender version) instead of guessing.
+- A ready result carries scene (objects, modifiers, materials) and preview (a small render). Check them against the request before saying it is done; look at the preview with analyze_image when it matters. On a traceback, look the failing call up with blender_docs_search, fix it, and run again.
 - "Are you done?" or "open it" calls blender_job_status. Do not call run_blender_task again unless the user asks to rebuild or change the model. Pass open_file true only when blender_job_status says the file is ready and the user wants it opened.
 
 Programs you build on this computer:
@@ -6127,6 +6129,12 @@ import ui_controls  # noqa: E402
 
 TOOL_DECLARATIONS.extend(ui_controls.DECLARATIONS)
 TOOLS.update(ui_controls.TOOLS)
+import blender_docs  # noqa: E402
+import google_connections  # noqa: E402
+
+TOOL_DECLARATIONS.extend(blender_docs.DECLARATIONS + google_connections.DECLARATIONS)
+TOOLS.update(blender_docs.TOOLS)
+TOOLS.update(google_connections.TOOLS)
 
 
 def _tool_timeout_seconds() -> float:
@@ -6204,6 +6212,14 @@ def invoke_tool(name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
     scope = getattr(_tool_scope, "allowed", None)
     if scope is not None and name not in scope:
         return _err(f"{name} is not one of this team member's tools.", blocked_by_scope=True)
+    try:
+        import safe_mode
+
+        held = safe_mode.refuse(name)
+    except Exception:
+        held = None
+    if held is not None:
+        return held
     blocked = _plan_blocks(name)
     if blocked is not None:
         return blocked
@@ -8979,7 +8995,7 @@ def run_init() -> int:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Pedro_Agent, a local assistant for files, voice, and desktop tools."
+        description="Ped Bot, a local assistant for files, voice, and desktop tools."
     )
     parser.add_argument(
         "prompt",
@@ -9005,6 +9021,11 @@ def _parser() -> argparse.ArgumentParser:
         "--app",
         action="store_true",
         help="Open the desktop chat window (local web UI) instead of the console.",
+    )
+    parser.add_argument(
+        "--background",
+        action="store_true",
+        help="With --app: start hidden in the tray (used by Start with Windows).",
     )
     parser.add_argument(
         "--port", type=int, default=int(os.environ.get("PEDRO_APP_PORT", "8765")),
@@ -9055,6 +9076,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.init:
         return run_init()
     if args.app:
+        os.environ["PEDBOT_PORT"] = str(args.port)
+        if getattr(args, "background", False):
+            os.environ["PEDBOT_START_HIDDEN"] = "1"
         import chat_app
 
         try:

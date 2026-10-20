@@ -29,8 +29,8 @@
   function applyHeader() {
     const bot = current(); const hdr = $('#hdr-avatar');
     const grp = root.currentGroup && root.currentGroup();
-    $('.who b').textContent = grp ? grp.name : bot ? bot.name : 'Pedro_Agent';
-    $('#t').placeholder = 'Message ' + (grp ? grp.name + ' (@ to mention)' : bot ? bot.name : 'Pedro_Agent') + '…';
+    $('.who b').textContent = grp ? grp.name : bot ? bot.name : 'Ped Bot';
+    $('#t').placeholder = 'Message ' + (grp ? grp.name + ' (@ to mention)' : bot ? bot.name : 'Ped Bot') + '…';
     const l = grp ? { color: grp.color || DEFAULT.color, shape: grp.avatar || 'round' } : look(bot); const key = l.color + l.shape;
     let pic = $('#hdr-pic'); if (!pic) { pic = document.createElement('img'); pic.id = 'hdr-pic'; pic.alt = ''; hdr.appendChild(pic); }
     pic.hidden = !(grp && grp.picture); if (grp && grp.picture) pic.src = grp.picture;

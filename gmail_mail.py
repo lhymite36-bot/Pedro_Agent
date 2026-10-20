@@ -318,6 +318,15 @@ def _deliver(recipient: str, subject: str, body: str) -> dict[str, Any]:
             to=recipient,
             subject=subject,
         )
+    try:
+        import google_connections as _gc
+
+        if _gc._read("gmail"):
+            _gc.gmail_send(recipient, subject, body, sender)
+            return _ok(f"Email successfully sent to {recipient}.", to=recipient, subject=subject, via="gmail sign-in")
+    except Exception as exc:  # fall back to the app password below, if there is one
+        if _configured() is None:
+            return _err(f"The email was not sent: {_safe(str(exc))}")
     setup = _configured()
     if setup is None:
         return _err(

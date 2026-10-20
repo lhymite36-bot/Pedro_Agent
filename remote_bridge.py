@@ -899,7 +899,7 @@ def poll_once() -> dict[str, Any]:
             if not _conflict_logged:
                 _conflict_logged = True
                 print("[phone] Another copy of the bot is polling Telegram (409). "
-                      "Close the other Pedro_Agent window.", flush=True)
+                      "Close the other Ped Bot window.", flush=True)
             return agent._err("Telegram conflict (409): another bridge is polling.", conflict=True)
         return agent._err(f"Telegram could not be reached. {_scrubbed(str(exc))}")
     updates = payload.get("result") if isinstance(payload, dict) else None
@@ -1038,7 +1038,7 @@ def start_remote_bridge() -> None:
     if _thread is not None and _thread.is_alive():
         return
     if not _acquire_instance_lock():
-        print("[phone] Telegram bridge is already running in another Pedro_Agent "
+        print("[phone] Telegram bridge is already running in another Ped Bot "
               "window; this one will not poll.", flush=True)
         return
     _stop.clear()

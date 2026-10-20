@@ -458,6 +458,7 @@ async function pollStatus() {
     $('#st-voice').className = 'dot ' + (st.speaking || st.listening ? 'busy' : (speakOn ? 'on' : ''));
     $('#st-voice-t').textContent = st.speaking ? 'speaking' : st.listening ? 'listening' : (speakMode === 'always' ? 'on' : speakMode === 'never' ? 'off' : 'replies to voice');
     $('#st-model').textContent = st.model || '-';
+    showPaused(!!st.paused);
     if (typeof st.speech_level === 'number' && st.speaking) applyLevel(st.speech_level);
     if (typeof st.mic_level === 'number') level = st.mic_level;
     else if (!st.listening) level = 0;
@@ -667,7 +668,7 @@ async function send(text, isVoice, files) {
   let act = activity(bot.body.parentNode); const labels = {};
   const chipsByName = {}; let barge = ''; let finalText = ''; let speaking = false;
   try {
-    const body = { text: payload, session: turnKey, voice: isVoice, files: files.map((f) => f.id) };
+    const body = { text: payload, session: turnKey, voice: isVoice, files: files.map((f) => f.id), client: CLIENT_ID };
     if (window.avatarMode && window.avatarMode.wantsVoice()) body.speak = true;
     const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const rd = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
@@ -818,7 +819,7 @@ const ON_PC = /^(127\.0\.0\.1|localhost)$/.test(location.hostname);
 const PhoneSR = window.SpeechRecognition || window.webkitSpeechRecognition;
 let phoneRec = null;
 function phoneListen() {
-  if (!PhoneSR) { setStatus('Voice typing is not available in this browser. Use the keyboard mic, or the Pedro Agent app.', true); return; }
+  if (!PhoneSR) { setStatus('Voice typing is not available in this browser. Use the keyboard mic, or the Ped Bot app.', true); return; }
   if (phoneRec) { try { phoneRec.stop(); } catch (e) {} return; }
   const r = new PhoneSR(); phoneRec = r;
   r.lang = navigator.language || 'en-IN'; r.interimResults = false; r.maxAlternatives = 1;
@@ -945,3 +946,54 @@ $('#undo-last') && ($('#undo-last').onclick = async () => { const r = await api(
     } catch (e) {}
   }, 2500);
 })();
+
+
+// ---------- live sync (1.4.14): the PC window and the phone show the same thing, live ----------
+const CLIENT_ID = (() => { try { return sessionStorage.pbClient || (sessionStorage.pbClient = Math.random().toString(36).slice(2, 12)); } catch (e) { return Math.random().toString(36).slice(2, 12); } })();
+(function liveSync() {
+  if (!window.EventSource) return;
+  let reloadTimer = null, listTimer = null, lastSeq = 0, es = null, watching = false;
+  const reloadSoon = (tries) => { clearTimeout(reloadTimer); reloadTimer = setTimeout(() => { if (!running && session) openSession(session); else if (running && (tries || 0) < 240) reloadSoon((tries || 0) + 1); }, 250); };
+  const listSoon = () => { clearTimeout(listTimer); listTimer = setTimeout(() => loadSessions(), 400); };
+  function handle(ev) {
+    if (ev.seq) lastSeq = Math.max(lastSeq, ev.seq);
+    if (ev.event === 'hello' || ev.event === 'resync') { if (ev.event === 'resync') { reloadSoon(); listSoon(); } return; }
+    if (ev.event === 'changed' || ev.event === 'paused' || ev.event === 'resumed') { listSoon(); reloadSoon(); if (window.refreshRoutines) window.refreshRoutines(); return; }
+    if (ev.event === 'update') {                                     // natural progress note (1.4.14)
+      if (ev.session === session) { setLiveStep(ev.text); setStatus(ev.text); reloadSoon(); }
+      listSoon(); return;
+    }
+    if (ev.origin && ev.origin === CLIENT_ID) return;            // this window started it and already shows it
+    if (ev.event === 'saved') listSoon();
+    if (!ev.session || ev.session !== session) { if (ev.session) { runningSessions.add(ev.session); markWorkingChats(); if (ev.event === 'speech_end' || ev.event === 'final') { runningSessions.delete(ev.session); markWorkingChats(); } } return; }
+    if (ev.event === 'token' || ev.event === 'step' || ev.event === 'tool_start' || ev.event === 'speaker') {
+      watching = true; setMood('working');
+      const label = ev.label || (ev.name ? ('Running ' + String(ev.name).replace(/_/g, ' ')) : 'Typing…');
+      setLiveStep(stripStage(label));
+    }
+    if (ev.event === 'saved' || ev.event === 'done' || ev.event === 'reactions' || ev.event === 'card') reloadSoon();
+    if (ev.event === 'speech_end' || ev.event === 'final' || ev.event === 'error') { if (watching) { watching = false; setMood('idle'); setLiveStep(''); } reloadSoon(); }
+  }
+  function connect() {
+    try { if (es) es.close(); } catch (e) {}
+    es = new EventSource('/api/live' + (lastSeq ? ('?since=' + lastSeq) : ''));
+    es.onmessage = (m) => { try { handle(JSON.parse(m.data)); } catch (e) {} };
+    es.onerror = () => { try { es.close(); } catch (e) {} setTimeout(connect, 2000); };   // reconnect + catch up with ?since=
+  }
+  connect();
+  window.liveSyncClient = CLIENT_ID;
+})();
+
+
+// ---------- Safe mode / Pause all (1.4.14) ----------
+let pausedNow = false;
+function showPaused(on) {
+  pausedNow = on; const b = $('#pause-all'); if (!b) return;
+  b.textContent = on ? 'Resume' : 'Pause all'; b.classList.toggle('on', on);
+  b.title = on ? 'Safe mode is on: everything is paused. Click to let bots act again.' : 'Safe mode: pause every bot, routine and task now';
+  document.body.classList.toggle('safe-mode', on);
+}
+if ($('#pause-all')) $('#pause-all').onclick = async () => {
+  const r = await api(pausedNow ? '/api/resume_all' : '/api/pause_all', {});
+  showPaused(!!r.paused); setStatus(r.message || '');
+};

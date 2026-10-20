@@ -57,6 +57,7 @@ playwright>=1.49.0
 pyyaml>=6.0
 # Optional: opens the chat app in its own desktop window instead of a browser tab.
 pywebview>=5.0
+pystray>=0.19; sys_platform == "win32"
 # Optional: delete_path moves files to the Recycle Bin instead of deleting permanently.
 send2trash>=1.8
 # Optional, faster clicking: find buttons by name with Windows UI Automation

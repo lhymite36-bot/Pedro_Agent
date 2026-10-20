@@ -500,3 +500,11 @@ body.dropping #composer .box { outline: 2px dashed #5b6cff; }
 @media (max-width:760px){.cn-panel{width:100%;bottom:64px}.row.bot .msg-time{padding-left:40px}}
 
 .rt-ic{width:22px;height:22px;vertical-align:middle;margin-right:8px}
+
+/* 1.4.14 Safe mode */
+.ib.pause-all { width:auto; padding:0 10px; font-size:12px; font-weight:600; border:1px solid #c0392b55; color:#c0392b; border-radius:8px; }
+.ib.pause-all.on { background:#c0392b; color:#fff; }
+body.safe-mode header { box-shadow: inset 0 -3px 0 #c0392b; }
+.field.col { flex-direction: column; align-items: stretch; gap: 6px; }
+.conn-row { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:4px 0; }
+.update-banner { margin-left:8px; background:#2e7d32; color:#fff; }

@@ -6,8 +6,8 @@ setlocal
 set "AUTO="
 if /i "%~1"=="/auto" set "AUTO=1"
 cd /d "%~dp0"
-title Pedro Agent setup
-echo Pedro Agent setup in %CD%
+title Ped Bot setup
+echo Ped Bot setup in %CD%
 set "PY="
 for %%V in (3.12 3.13 3.14 3.11 3.10) do (
   if not defined PY ( py -%%V -c "import sys" >nul 2>&1 && set "PY=py -%%V" )
@@ -38,9 +38,10 @@ if errorlevel 1 (
 if not exist ".env" copy ".env.example" ".env" >nul
 for %%D in (storage logs data temp) do if not exist "%%D" mkdir "%%D"
 if not exist "rules.yaml" copy "rules.default.yaml" "rules.yaml" >nul
-> "Start Pedro Agent.cmd" echo @start "" "%%~dp0.venv\Scripts\pythonw.exe" "%%~dp0main.py" --app
+if exist "Start Pedro Agent.cmd" del "Start Pedro Agent.cmd"
+> "Start Ped Bot.cmd" echo @start "" "%%~dp0.venv\Scripts\pythonw.exe" "%%~dp0main.py" --app
 echo.
-echo Done. Double-click "Start Pedro Agent.cmd" in this folder to open the app.
+echo Done. Double-click "Start Ped Bot.cmd" in this folder to open the app.
 echo On first start it asks for your free Gemini API key.
 if not defined AUTO pause
 exit /b 0

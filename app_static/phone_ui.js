@@ -14,7 +14,7 @@
   async function pair() {
     const r = await post('/api/phone/pair');
     if (!r.ok) { $('#phone-msg').textContent = r.error; clearTimeout(timer); timer = setTimeout(pair, 3000); return; }
-    $('#phone-msg').textContent = 'Ready. Scan with the Pedro Agent app.';
+    $('#phone-msg').textContent = 'Ready. Scan with the Ped Bot app.';
     $('#phone-qr').innerHTML = r.qr_svg; $('#phone-code').textContent = r.code; show(r);
   }
   async function refresh() { const st = await (await fetch('/api/phone')).json(); show(st); if (st.enabled) pair(); }

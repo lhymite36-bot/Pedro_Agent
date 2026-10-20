@@ -237,7 +237,7 @@ def mentions(text: str, group: dict[str, Any]) -> list[str]:
 
 def display(speaker: str) -> dict[str, Any]:
     if speaker == MAIN:
-        return {"id": MAIN, "name": "Pedro_Agent", "color": "#5b6cff", "avatar": "round"}
+        return {"id": MAIN, "name": "Ped Bot", "color": "#5b6cff", "avatar": "round"}
     b = bots.get_bot(speaker) or {"id": speaker, "name": speaker, "color": "#5b6cff", "avatar": "round"}
     return {"id": b["id"], "name": b["name"], "color": b.get("color"), "avatar": b.get("avatar")}
 
@@ -276,7 +276,7 @@ def _member_labels(group: dict[str, Any], speaker: str) -> list[tuple[str, str]]
 def _name_pattern(mid: str, label: str) -> str:
     tokens = {label, label.split()[0]}
     if mid == MAIN:
-        tokens.update({"Pedro", "Pedro_Agent"})
+        tokens.update({"Pedro", "Pedro_Agent", "Ped", "PedBot", "Ped Bot"})
     parts = [re.escape(token) for token in tokens if token]
     parts.append("@" + re.escape(mid))
     return "(?:" + "|".join(f"@?{part}" if not part.startswith("@") else part for part in parts) + ")"
@@ -324,7 +324,7 @@ def promised_job(text: str, group: dict[str, Any], speaker: str) -> tuple[str, s
 
 
 def _roster(group: dict[str, Any]) -> str:
-    return ", ".join(["@pedro (Pedro_Agent)"] + [f"@{m} ({display(m)['name']})" for m in group["members"]])
+    return ", ".join(["@pedro (Ped Bot)"] + [f"@{m} ({display(m)['name']})" for m in group["members"]])
 
 
 def _tail(transcript: list[str], n: int = 14, cap: int = 1500) -> str:

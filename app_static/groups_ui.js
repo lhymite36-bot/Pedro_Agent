@@ -1,7 +1,7 @@
 // Bot groups: sidebar list, editor drawer, speaker name/avatar in group chats.
 (function (root) {
   const $ = (s) => document.querySelector(s);
-  let groups = [], main = { id: 'pedro', name: 'Pedro_Agent', color: '#5b6cff', avatar: 'round' }, editing = null;
+  let groups = [], main = { id: 'pedro', name: 'Ped Bot', color: '#5b6cff', avatar: 'round' }, editing = null;
   const post = async (u, b) => (await fetch(u, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) })).json();
   function current() { return (typeof session === 'string' && session.startsWith('group-')) ? groups.find((g) => 'group-' + g.id === session) : null; }
   root.currentGroup = current;
@@ -57,7 +57,7 @@
   }
   function memberBoxes(sel) {
     const box = $('#grp-members'); box.innerHTML = '';
-    const pa = document.createElement('label'); pa.innerHTML = '<input type="checkbox" checked disabled> Pedro_Agent (always in)'; box.appendChild(pa);
+    const pa = document.createElement('label'); pa.innerHTML = '<input type="checkbox" checked disabled> Ped Bot (always in)'; box.appendChild(pa);
     (root.pedroBots || []).forEach((b) => {
       const l = document.createElement('label'); const c = document.createElement('input'); c.type = 'checkbox'; c.value = b.id; c.checked = sel.includes(b.id);
       c.onchange = coordOptions; l.append(c, document.createTextNode(' ' + b.name)); box.appendChild(l);

@@ -11,12 +11,12 @@ from pathlib import Path
 from typing import Any
 
 APP_ID = "PedroAgent.Desktop.App"
-TITLE = "Pedro_Agent"
+TITLE = "Ped Bot"
 HERE = Path(__file__).resolve().parent
 
 
 def icon_path() -> Path | None:
-    for p in (HERE / "pedro3d.ico", HERE / "installer" / "pedro.ico", HERE / "app_static" / "favicon.ico"):
+    for p in (HERE / "pedbot.ico", HERE / "pedro3d.ico", HERE / "installer" / "pedro.ico", HERE / "app_static" / "favicon.ico"):
         if p.is_file():
             return p
     return None
@@ -116,6 +116,7 @@ class WindowApi:
         return self.maximized
 
     def close(self) -> bool:
+        # The title-bar X: goes through the same closing handler (hide to tray when on).
         if self._window:
             self._window.destroy()
         return True
@@ -150,6 +151,78 @@ def open_window(url: str) -> Any:
     win = webview.create_window(TITLE, url, width=width, height=height, x=x, y=y, min_size=(760, 520), frameless=frameless,
                                 easy_drag=False, js_api=api, background_color="#0b0b0f", text_select=True)
     api._window = win
+    _wire_background(win, api)
     threading.Thread(target=apply_icon, daemon=True).start()
     webview.start()
     return win
+
+
+QUITTING = threading.Event()
+HIDDEN = False
+
+
+def _wire_background(win: Any, api: "WindowApi") -> None:
+    """Close = hide to tray (bots keep working); tray Quit really exits. 1.4.14."""
+    try:
+        import background
+    except Exception:
+        return
+
+    def show() -> None:
+        global HIDDEN
+        HIDDEN = False
+        try:
+            win.show()
+            win.restore()
+        except Exception:
+            pass
+
+    def quit_app() -> None:
+        QUITTING.set()
+        background.stop_tray()
+        try:
+            win.destroy()
+        except Exception:
+            os._exit(0)
+
+    def pause() -> None:
+        try:
+            import json
+            import urllib.request
+            import safe_mode
+
+            path = "/api/resume_all" if safe_mode.paused() else "/api/pause_all"
+            port = os.environ.get("PEDBOT_PORT", "8765")
+            req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=b"{}", method="POST",
+                                         headers={"Content-Type": "application/json", "Origin": f"http://127.0.0.1:{port}"})
+            urllib.request.urlopen(req, timeout=10).read()
+        except Exception:
+            pass
+
+    tray = background.start_tray(show, quit_app, pause)
+
+    def on_closing() -> bool:
+        if QUITTING.is_set() or not tray or not background.settings()["keep_running"]:
+            return True
+        try:
+            win.hide()
+            global HIDDEN
+            HIDDEN = True
+        except Exception:
+            return True
+        background.notify("Ped Bot is still working", "Closed to the tray. Bots, routines and the phone keep running. "
+                          "Right-click the tray icon to open or quit.")
+        return False
+
+    try:
+        win.events.closing += on_closing
+    except Exception:
+        pass
+    if os.environ.get("PEDBOT_START_HIDDEN") == "1" and tray:
+        def hide_soon() -> None:
+            try:
+                win.events.shown.wait(15)
+                win.hide()
+            except Exception:
+                pass
+        threading.Thread(target=hide_soon, daemon=True).start()
