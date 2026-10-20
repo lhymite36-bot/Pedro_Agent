@@ -21,7 +21,7 @@ from typing import Any, Callable
 
 MANUAL = "https://docs.blender.org/manual/en/{v}/blender_manual_html.zip"
 API = "https://docs.blender.org/api/{v}/blender_python_reference_{u}.zip"
-GUIDES = Path(__file__).resolve().parent / "data" / "blender_guides"
+GUIDES = Path(__file__).resolve().parent / "blender_guides"
 DEFAULT_VERSION = "4.2"
 fetch: Callable[[str, Path], None] | None = None    # tests replace this
 version_override: str | None = None
