@@ -66,6 +66,17 @@
       el.onchange = async () => { const r = await post('/api/background', { [key]: el.checked }); el.checked = !!r[key]; };
     });
   }
+  async function showShorts() {
+    const st = await get('/api/shorts'); if (!q('#qbs-on')) return;
+    q('#qbs-on').checked = !!st.enabled; q('#qbs-vts').value = st.vts_dir || '';
+    q('#qbs-line').textContent = st.token_set ? 'Buffer token saved on this PC.' : 'No Buffer token yet.';
+    q('#qbs-on').onchange = async () => { const r = await post('/api/shorts', { enabled: q('#qbs-on').checked }); q('#qbs-on').checked = !!r.enabled; };
+    q('#qbs-vts').onchange = () => post('/api/shorts', { vts_dir: q('#qbs-vts').value.trim() });
+    q('#qbs-save').onclick = async () => { const r = await post('/api/shorts/token', { token: q('#qbs-token').value }); q('#qbs-token').value = ''; q('#qbs-line').textContent = r.message || r.error; };
+    q('#qbs-dry').onclick = async () => { q('#qbs-line').textContent = 'Planning (nothing is posted)…'; const r = await post('/api/shorts/dry_run'); q('#qbs-line').textContent = r.message || r.error; };
+  }
+  const tab0 = document.querySelector('[data-pane="p-more"]');
+  if (tab0) tab0.addEventListener('click', () => { showShorts().catch(() => {}); });
   const tab = document.querySelector('[data-pane="p-more"]');
   if (tab) tab.addEventListener('click', () => { showBackground().catch(() => {}); });
   if (tab) tab.addEventListener('click', () => { showUpdate(); showConnections(); showCrashes(); });

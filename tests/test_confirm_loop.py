@@ -80,7 +80,11 @@ class ConfirmLoopTests(unittest.TestCase):
         bots.engine = None
         try:
             self._chat("bot-helper", "remove b.txt", model)
-            self.assertIsNotNone(confirm_action.pending())
+            tok = confirm_action.bind_chat("bot-helper")   # approvals are per chat (1.4.14)
+            try:
+                self.assertIsNotNone(confirm_action.pending())
+            finally:
+                confirm_action.unbind_chat(tok)
             self._chat("bot-helper", "yes", model)
         finally:
             bots.engine = None

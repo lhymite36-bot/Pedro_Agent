@@ -6135,6 +6135,10 @@ import google_connections  # noqa: E402
 TOOL_DECLARATIONS.extend(blender_docs.DECLARATIONS + google_connections.DECLARATIONS)
 TOOLS.update(blender_docs.TOOLS)
 TOOLS.update(google_connections.TOOLS)
+import quiet_brain_shorts  # noqa: E402
+
+TOOL_DECLARATIONS.extend(quiet_brain_shorts.DECLARATIONS)
+TOOLS.update(quiet_brain_shorts.TOOLS)
 
 
 def _tool_timeout_seconds() -> float:

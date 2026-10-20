@@ -1025,6 +1025,9 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             elif url.path == "/api/background":
                 import background
                 self._json(background.settings())
+            elif url.path == "/api/shorts":
+                import quiet_brain_shorts
+                self._json(quiet_brain_shorts.settings())
             elif url.path == "/api/update":
                 import updater
                 self._json(updater.last() or {"current": updater.VERSION, "update_available": False})
@@ -1277,6 +1280,20 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     self._json({"ok": False, "error": "Open the folder on the PC."}, 403)
                 else:
                     self._json(crash_reports.open_folder())
+            elif url.path in {"/api/shorts", "/api/shorts/token", "/api/shorts/dry_run"}:
+                import quiet_brain_shorts as qbs
+                if self.remote and url.path != "/api/shorts/dry_run":
+                    self._json({"ok": False, "error": "Change this on the PC."}, 403)
+                elif url.path.endswith("token"):
+                    self._json(qbs.set_token(str(data.get("token") or "")))
+                elif url.path.endswith("dry_run"):
+                    try:
+                        self._json(qbs.run_day(dry_run=True))
+                    except Exception as exc:
+                        self._json({"ok": False, "error": str(exc)})
+                else:
+                    keys = {"enabled", "per_day", "vts_dir"}
+                    self._json(qbs.save_settings(**{k: v for k, v in data.items() if k in keys}))
             elif url.path == "/api/background":
                 import background
                 if self.remote:
@@ -1585,6 +1602,12 @@ def start_routines(state: "AppState") -> None:
 
     routines.runner = run
     routines.start()
+    try:
+        import quiet_brain_shorts
+
+        quiet_brain_shorts.start_routine()   # does nothing until switched on in Settings
+    except Exception as exc:
+        print(f"[quiet-brain] not started: {exc}", flush=True)
     try:
         import background
 
