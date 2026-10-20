@@ -991,6 +991,7 @@ const CLIENT_ID = (() => { try { return sessionStorage.pbClient || (sessionStora
   const listSoon = () => { clearTimeout(listTimer); listTimer = setTimeout(() => loadSessions(), 400); };
   function handle(ev) {
     if (ev.seq) lastSeq = Math.max(lastSeq, ev.seq);
+    if (ev.event === 'theme') { if (window.pbThemeEvent) window.pbThemeEvent(ev); return; }
     if (ev.event === 'hello' || ev.event === 'resync') { if (ev.event === 'resync') { reloadSoon(); listSoon(); } return; }
     if (ev.event === 'changed' || ev.event === 'paused' || ev.event === 'resumed') { listSoon(); reloadSoon(); if (window.refreshRoutines) window.refreshRoutines(); return; }
     if (ev.event === 'update') {                                     // natural progress note (1.4.14)

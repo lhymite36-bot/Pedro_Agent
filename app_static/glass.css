@@ -1,30 +1,40 @@
+@property --w1{syntax:"<color>";inherits:true;initial-value:rgba(124,77,255,.7)}
+@property --w2{syntax:"<color>";inherits:true;initial-value:rgba(46,120,255,.6)}
+@property --w3{syntax:"<color>";inherits:true;initial-value:rgba(255,64,170,.55)}
+@property --w4{syntax:"<color>";inherits:true;initial-value:rgba(70,40,200,.45)}
+@property --w5{syntax:"<color>";inherits:true;initial-value:rgba(160,90,255,.35)}
+@property --tint{syntax:"<color>";inherits:true;initial-value:rgb(30,30,42)}
+@property --acc{syntax:"<color>";inherits:true;initial-value:#8fa6ff}
+@property --acc2{syntax:"<color>";inherits:true;initial-value:#d08cff}
+@property --base{syntax:"<color>";inherits:true;initial-value:#07070c}
 /* Ped Bot 1.4.14 - dark "Liquid Glass" theme (loaded after app.css).
    Frosted translucent panels over a slowly moving colour wallpaper, specular edges,
    soft depth, pill controls, spring motion on transform/opacity only. */
 :root{
-  --g-bg:rgba(30,30,42,.46);--g-bg-strong:rgba(26,26,38,.66);--g-bg-soft:rgba(255,255,255,.06);
+  --g-alpha:.46;--g-blurpx:26px;--g-bg:color-mix(in srgb,var(--tint) calc(var(--g-alpha)*100%),transparent);--g-bg-strong:color-mix(in srgb,var(--tint) calc(min(1,var(--g-alpha) + .2)*100%),transparent);--g-bg-soft:rgba(255,255,255,.06);
   --g-edge:rgba(255,255,255,.16);--g-edge-lo:rgba(255,255,255,.05);
-  --g-blur:saturate(180%) blur(26px);
+  --g-blur:saturate(180%) blur(var(--g-blurpx));
   --g-sheen:linear-gradient(180deg,rgba(255,255,255,.13) 0%,rgba(255,255,255,.04) 38%,rgba(255,255,255,0) 60%,rgba(255,255,255,.03) 100%);
   --g-shadow:inset 0 1px 0 rgba(255,255,255,.22),inset 0 -1px 0 rgba(255,255,255,.04),inset 1px 0 0 rgba(255,255,255,.05),0 12px 34px rgba(0,0,0,.38);
   --g-shadow-sm:inset 0 1px 0 rgba(255,255,255,.2),0 4px 14px rgba(0,0,0,.28);
   --spring:linear(0,.009,.035 2.1%,.141,.281 6.7%,.723 12.9%,.938 16.7%,1.017,1.077,1.121 26.9%,1.137 29.5%,1.127 33.4%,1.051 42.2%,1.008 51.4%,.993 57.5%,1.001 76.8%,1);
   --spring-soft:linear(0,.06,.22 8%,.6 20%,.88 32%,1.02 44%,1.04 52%,1.01 66%,1);
-  --acc:#8fa6ff;--acc2:#d08cff;--text:#f4f4f8;--dim:#b4b4c4;
+  --text:#f4f4f8;--dim:#b4b4c4;
 }
 body.glass{font-family:system-ui,-apple-system,"SF Pro Text","Inter","Segoe UI Variable Text","Segoe UI",sans-serif;
-  letter-spacing:-.005em;background:#07070c;-webkit-font-smoothing:antialiased}
+  letter-spacing:-.005em;background:var(--base);-webkit-font-smoothing:antialiased;
+  transition:--w1 .9s ease,--w2 .9s ease,--w3 .9s ease,--w4 .9s ease,--w5 .9s ease,--tint .9s ease,--acc .6s ease,--acc2 .6s ease,--base .9s ease}
 /* animated wallpaper: two big gradient layers moved with transform only (GPU, 60fps) */
 body.glass::before,body.glass::after{content:"";position:fixed;inset:-25%;z-index:-1;pointer-events:none;will-change:transform}
 body.glass::before{background:
-  radial-gradient(38% 42% at 22% 28%,rgba(124,77,255,.7),transparent 70%),
-  radial-gradient(34% 40% at 78% 22%,rgba(46,120,255,.6),transparent 70%),
-  radial-gradient(40% 44% at 66% 78%,rgba(255,64,170,.55),transparent 70%),
-  radial-gradient(30% 34% at 18% 82%,rgba(70,40,200,.45),transparent 70%);
+  radial-gradient(38% 42% at 22% 28%,var(--w1),transparent 70%),
+  radial-gradient(34% 40% at 78% 22%,var(--w2),transparent 70%),
+  radial-gradient(40% 44% at 66% 78%,var(--w3),transparent 70%),
+  radial-gradient(30% 34% at 18% 82%,var(--w4),transparent 70%);
   animation:g-drift 38s ease-in-out infinite alternate}
 body.glass::after{background:
-  radial-gradient(26% 30% at 50% 50%,rgba(160,90,255,.35),transparent 70%),
-  radial-gradient(22% 26% at 85% 60%,rgba(255,110,200,.28),transparent 70%);
+  radial-gradient(26% 30% at 50% 50%,var(--w5),transparent 70%),
+  radial-gradient(22% 26% at 85% 60%,color-mix(in srgb,var(--w3) 55%,transparent),transparent 70%);
   animation:g-drift2 52s ease-in-out infinite alternate;mix-blend-mode:screen}
 @keyframes g-drift{0%{transform:translate3d(-3%,-2%,0) rotate(0deg) scale(1)}50%{transform:translate3d(3%,2%,0) rotate(8deg) scale(1.06)}100%{transform:translate3d(-2%,3%,0) rotate(-6deg) scale(1.02)}}
 @keyframes g-drift2{0%{transform:translate3d(4%,0,0) scale(1)}100%{transform:translate3d(-5%,-4%,0) scale(1.12)}}
@@ -51,8 +61,8 @@ body.glass .chat-find,body.glass .st-search,body.glass .nb-input,body.glass .fie
   background:rgba(255,255,255,.07)!important;border:1px solid rgba(255,255,255,.12)!important;border-radius:14px;color:var(--text);box-shadow:inset 0 1px 2px rgba(0,0,0,.25)}
 /* bubbles */
 body.glass .bubble{border-radius:22px}
-body.glass .user .bubble{background:linear-gradient(180deg,rgba(255,255,255,.2),rgba(255,255,255,.04) 45%,rgba(255,255,255,0)),linear-gradient(135deg,rgba(96,110,255,.72),rgba(170,90,255,.62));
-  border:1px solid rgba(255,255,255,.22);border-bottom-right-radius:8px;color:#fff;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 10px 28px rgba(90,80,255,.32)}
+body.glass .user .bubble{background:linear-gradient(180deg,rgba(255,255,255,.2),rgba(255,255,255,.04) 45%,rgba(255,255,255,0)),linear-gradient(135deg,color-mix(in srgb,var(--acc) 72%,transparent),color-mix(in srgb,var(--acc2) 62%,transparent));
+  border:1px solid rgba(255,255,255,.22);border-bottom-right-radius:8px;color:#fff;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 10px 28px color-mix(in srgb,var(--acc) 32%,transparent)}
 body.glass .bot .bubble{border-top-left-radius:8px;border-color:rgba(255,255,255,.1)}
 body.glass .bot .bubble:empty{display:none}
 body.glass .row{animation:g-in .6s var(--spring) both}
@@ -62,7 +72,7 @@ body.glass .msg-undo,body.glass .msg-copy,body.glass .msg-reply{border-radius:99
 body.glass .msg-time{color:rgba(230,230,245,.55)}
 /* composer */
 body.glass .box{border-radius:30px;border-color:rgba(255,255,255,.14)}
-body.glass .box:focus-within{border-color:rgba(190,170,255,.45);box-shadow:var(--g-shadow),0 0 0 4px rgba(150,120,255,.14)}
+body.glass .box:focus-within{border-color:color-mix(in srgb,var(--acc) 55%,transparent);box-shadow:var(--g-shadow),0 0 0 4px color-mix(in srgb,var(--acc) 16%,transparent)}
 body.glass #t{color:var(--text)}
 body.glass .ib{border-radius:999px;transition:transform .45s var(--spring),background .2s}
 body.glass .ib:hover{background:rgba(255,255,255,.1)}
@@ -79,7 +89,7 @@ body.glass .tabs{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,
 body.glass .tab{border-radius:999px;position:relative;z-index:1;transition:color .25s}
 body.glass .tab.active{background:transparent;color:#fff}
 body.glass .g-pill{position:absolute;top:4px;bottom:4px;left:0;border-radius:999px;background:linear-gradient(180deg,rgba(255,255,255,.24),rgba(255,255,255,.1));box-shadow:var(--g-shadow-sm);transition:transform .55s var(--spring),width .55s var(--spring);pointer-events:none;z-index:0}
-body.glass .switch input:checked+span{background:linear-gradient(180deg,#9fb1ff,#7b8cff)}
+body.glass .switch input:checked+span{background:var(--acc)}
 body.glass #overlay.open,body.glass #sidescrim{background:rgba(5,5,12,.35);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
 /* phone tab bar: floating glass pill with a morphing highlight */
 @media (max-width:700px){body.glass #bottomnav{left:10px;right:10px;bottom:calc(8px + env(safe-area-inset-bottom));height:62px;padding:0 6px;border-radius:999px;border:1px solid rgba(255,255,255,.16)}
@@ -87,7 +97,7 @@ body.glass #overlay.open,body.glass #sidescrim{background:rgba(5,5,12,.35);-webk
 body.glass #bottomnav button{position:relative;z-index:1;background:none!important}
 body.glass #bottomnav button.active{color:#fff}
 /* new bot + bots store on glass */
-body.glass .pb-screen{background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,0) 30%),rgba(12,10,24,.9);-webkit-backdrop-filter:saturate(160%) blur(34px);backdrop-filter:saturate(160%) blur(34px)}
+body.glass .pb-screen{background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,0) 30%),color-mix(in srgb,var(--base) 90%,transparent);-webkit-backdrop-filter:saturate(160%) blur(34px);backdrop-filter:saturate(160%) blur(34px)}
 body.glass .pb-top{background:rgba(255,255,255,.04)!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;box-shadow:none!important}
 body.glass .pb-top{border-radius:0;border:0;border-bottom:1px solid rgba(255,255,255,.08)}
 body.glass .nb-card,body.glass .st-fcard{border-radius:24px;border-color:rgba(255,255,255,.1);transition:transform .5s var(--spring),background .2s}
@@ -122,3 +132,16 @@ body.glass.no-glass-motion::before,body.glass.no-glass-motion::after{animation:n
 @media (max-width:700px){body.glass .bubble{border-radius:20px}body.glass .rt-panel,body.glass .cn-panel,body.glass #settings{border-radius:0}}
 
 body.glass #avatar-mode{background:transparent}
+
+/* Themes section */
+.th-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin:8px 0 14px}
+.th-card{border:1px solid rgba(255,255,255,.12);border-radius:18px;padding:8px;background:rgba(255,255,255,.04);color:inherit;cursor:pointer;text-align:left;transition:transform .45s var(--spring),border-color .2s}
+.th-card:hover{transform:translateY(-2px)}.th-card.on{border-color:#fff;box-shadow:0 0 0 3px rgba(255,255,255,.12)}
+.th-prev{position:relative;height:84px;border-radius:12px;overflow:hidden}
+.th-prev i{position:absolute;border-radius:7px;border:1px solid rgba(255,255,255,.18);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.th-prev .s{left:6px;top:6px;bottom:6px;width:30%}.th-prev .b{right:8px;top:14px;width:42%;height:16px;border-radius:9px}
+.th-prev .c{left:38%;right:8px;bottom:8px;height:16px;border-radius:9px}.th-prev .d{left:38%;top:38px;width:34%;height:14px;border-radius:9px}
+.th-name{display:block;font-weight:600;font-size:13px;margin:7px 2px 1px}.th-sub{display:block;font-size:11.5px;color:var(--dim);margin:0 2px}
+.th-custom{display:grid;grid-template-columns:auto 1fr;gap:10px 14px;align-items:center;padding:12px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}
+.th-custom input[type=range]{width:100%;accent-color:var(--acc)}.th-custom select{background:rgba(255,255,255,.08);color:inherit;border:1px solid rgba(255,255,255,.14);border-radius:10px;padding:6px 8px}
+.th-custom input[type=color]{width:44px;height:30px;border:0;background:none;padding:0}

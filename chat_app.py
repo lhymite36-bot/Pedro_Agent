@@ -61,6 +61,7 @@ STATIC_FILES = {
     "glass.css": "text/css; charset=utf-8",
     "pedbot-avatars.js": "application/javascript; charset=utf-8",
     "glass.js": "application/javascript; charset=utf-8",
+    "themes.js": "application/javascript; charset=utf-8",
     "avatar_mode.js": "application/javascript; charset=utf-8",
     "handsfree.js": "application/javascript; charset=utf-8",
     "bots_ui.js": "application/javascript; charset=utf-8",
@@ -1040,6 +1041,9 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             elif url.path == "/api/shorts":
                 import quiet_brain_shorts
                 self._json(quiet_brain_shorts.settings())
+            elif url.path == "/api/theme":
+                import themes
+                self._json(themes.get())
             elif url.path == "/api/update":
                 import updater
                 self._json(updater.last() or {"current": updater.VERSION, "update_available": False})
@@ -1292,6 +1296,9 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     self._json({"ok": False, "error": "Open the folder on the PC."}, 403)
                 else:
                     self._json(crash_reports.open_folder())
+            elif url.path == "/api/theme":   # the phone may change it too: it is only colours
+                import themes
+                self._json(themes.save(data))
             elif url.path in {"/api/shorts", "/api/shorts/token", "/api/shorts/dry_run"}:
                 import quiet_brain_shorts as qbs
                 if self.remote and url.path != "/api/shorts/dry_run":
