@@ -91,3 +91,19 @@ class CmdQuotingTest(unittest.TestCase):
         with mock.patch.object(terminal_tool.os, "name", "nt"):
             a = terminal_tool.argv_for('dir /b | find /c /v ""', "cmd")
         self.assertIsInstance(a, str); self.assertIn('/s /c "dir /b | find /c /v """', a)
+
+class CardOutsideChatTest(unittest.TestCase):
+    def test_open_card_stays_open_when_viewed_without_chat(self):
+        import os, tempfile
+        os.environ["STORAGE_DIR"] = tempfile.mkdtemp()
+        import polls
+        confirm_action.reset()
+        tok = confirm_action.bind_chat("s1")
+        try:
+            confirm_action.remember("run_terminal_command", {"command": "ver"}, "run this cmd command: ver")
+        finally:
+            confirm_action.unbind_chat(tok)
+        card = polls.approval_card("run this cmd command: ver", "run_terminal_command")
+        self.assertEqual(polls.view(card["id"], confirm_action.pending())["status"], "open")
+        confirm_action.reset()
+        self.assertEqual(polls.view(card["id"], None)["status"], "expired")

@@ -177,6 +177,11 @@ def remember(name: str, arguments: dict[str, Any], label: str) -> None:
     }
 
 
+def waiting_labels() -> set[str]:
+    """Labels of every action waiting for a yes, in any chat (cards are drawn outside the chat's context)."""
+    return {str(v.get("label") or "") for v in list(_pending_by.values()) if v}
+
+
 def pending() -> dict[str, Any] | None:
     """The action waiting for a yes in this chat, or None."""
     item = _pending_by.get(_bucket())

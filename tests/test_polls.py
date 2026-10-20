@@ -56,6 +56,8 @@ class PollTests(unittest.TestCase):
         confirm_action.remember("delete_path", {"path": "C:/x.txt"}, "delete C:/x.txt")
         c = polls.approval_card("delete C:/x.txt", "delete_path")
         self.assertEqual(polls.view(c["id"], confirm_action.pending())["status"], "open")
+        self.assertEqual(polls.view(c["id"], None)["status"], "open")   # 1.4.14: still waiting in its own chat
+        confirm_action.reset()
         self.assertEqual(polls.view(c["id"], None)["status"], "expired")
         a = polls.answer(c["id"], decision="approve"); self.assertEqual(a["text"], "yes")
         c2 = polls.approval_card("send email", "gmail_send_message")
