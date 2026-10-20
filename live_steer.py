@@ -115,9 +115,10 @@ def respond(session: str, text: str, kind: str) -> str:
         from google.genai import types
 
         keys = agent_core.gemini_api_keys()
-        if not keys:
+        import cloud_fallback
+        if not keys and not cloud_fallback.providers_for("busy"):
             return _template(text, st, kind)
-        client = agent_core._gemini_client(genai, keys[0])
+        client = agent_core._gemini_client(genai, keys[0]) if keys else None
         state = (f"Task: {st.get('task', '')[:300]}\nRunning for: {st.get('elapsed', 0)} s\nCurrent step: {st.get('step')}\n"
                  f"Finished steps: {'; '.join(st.get('done', [])[-8:]) or 'none yet'}\nPlan: {'; '.join(st.get('plan', [])) or 'none'}")
         system = ("You are Ped Bot, replying to Pedro while you are in the middle of a task on his PC. "
@@ -129,7 +130,15 @@ def respond(session: str, text: str, kind: str) -> str:
         box: dict[str, Any] = {}
 
         def call() -> None:
-            for model in [m for m in agent_core.model_candidates(None) if "lite" in m][:2]:
+            try:   # the saved backup (Groq) answers a short reply in under a second
+                import cloud_fallback
+                quick = cloud_fallback.quick_chat(system, [{"role": "user", "content": text}], 160)
+                if quick:
+                    box["text"] = quick.strip()
+                    return
+            except Exception:
+                pass
+            for model in ([m for m in agent_core.model_candidates(None) if "lite" in m][:2] if client else []):
                 try:
                     r = client.models.generate_content(model=model, contents=text, config=cfg)
                     box["text"] = (r.text or "").strip()

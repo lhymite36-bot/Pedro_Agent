@@ -108,6 +108,13 @@ def _post(body: dict[str, Any], provider: dict[str, Any] | None = None) -> dict[
         code = getattr(exc, "code", None)
         if code == 413:
             raise _TooLarge("request too large for the backup model") from exc
+        if code == 400:
+            try:
+                detail = exc.read()[:2000]  # type: ignore[attr-defined]
+            except Exception:
+                detail = b""
+            if b"tool_use_failed" in detail:   # the model wrote a bad tool call; asking again usually works
+                raise _BadToolCall(f"{chosen['id']} wrote a tool call that did not match its schema") from exc
         if isinstance(code, int) and code >= 400:
             raise _Switch(f"{chosen['id']} returned {code}") from exc
         if isinstance(exc, (TimeoutError, OSError)):
@@ -142,6 +149,14 @@ class _TooLarge(RuntimeError):
     pass
 
 
+class _BadToolCall(RuntimeError):
+    pass
+
+
+BAD_CALL_HINT = ("Your last tool call did not match the tool's parameters. Call the tool again with every "
+                 "parameter as the right type; use \"\" for an empty text value, never null.")
+
+
 class _Switch(RuntimeError):
     """This provider cannot take the turn. Try the next saved one."""
 
@@ -168,10 +183,26 @@ def _run_one(provider: dict[str, Any], user_text: str, *, on_event: Callable[[di
     ]
     tools = _tools(user_text, *sizes[0][:2])
     import stop_token
+    bad_calls = 0
     for _ in range(max_rounds):
         stop_token.checkpoint()   # 1.4.15: Stop / Pause between backup-model steps too
         try:
+            import live_steer
+            steer = live_steer.take()
+        except Exception:
+            steer = []
+        if steer:   # messages Pedro sent while this task runs
+            messages.append({"role": "user", "content": live_steer.STEER_NOTE + "\n".join(f"- {m}" for m in steer)})
+            emit({"event": "step", "label": "Got your message - adjusting the task.", "name": "steer"})
+        try:
             data = _post(_request_body(provider, messages, tools), provider)
+        except _BadToolCall:
+            bad_calls += 1
+            if bad_calls > 3:
+                raise _Switch(f"{provider['id']} kept writing bad tool calls")
+            if messages[-1].get("content") != BAD_CALL_HINT:
+                messages.append({"role": "user", "content": BAD_CALL_HINT})
+            continue
         except _TooLarge:
             if level >= len(sizes) - 1:
                 raise _Switch(f"{provider['id']} request too large")
@@ -186,6 +217,13 @@ def _run_one(provider: dict[str, Any], user_text: str, *, on_event: Callable[[di
         msg = choice.get("message") or {}
         calls = msg.get("tool_calls") or []
         if not calls:
+            try:
+                import live_steer
+                if live_steer.pending():
+                    messages.append({"role": "assistant", "content": msg.get("content") or ""})
+                    continue
+            except Exception:
+                pass
             return str(msg.get("content") or "").strip() or "The backup model returned no text."
         messages.append({"role": "assistant", "content": msg.get("content") or "", "tool_calls": calls})
         for call in calls:
