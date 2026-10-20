@@ -59,8 +59,8 @@ public class MainActivity extends Activity {
         l.setBackgroundColor(Color.parseColor("#0B0B0F")); int p = dp(24); l.setPadding(p, dp(56), p, p);
         ImageView logo = new ImageView(this); logo.setImageResource(R.drawable.splash_icon);
         l.addView(logo, new LinearLayout.LayoutParams(dp(96), dp(96)));
-        l.addView(text("Pedro Agent", 26, "#ECECF1"));
-        l.addView(text("On your PC open Pedro Agent › Settings › Connect phone, then scan the QR code.", 14, "#8E8EA0"));
+        l.addView(text("Ped Bot", 26, "#ECECF1"));
+        l.addView(text("On your PC open Ped Bot › Settings › Connect phone, then scan the QR code.", 14, "#8E8EA0"));
         Button scan = button("Scan QR"); scan.setOnClickListener(v -> startScan()); l.addView(scan);
         l.addView(text("No camera? Type the link and the pairing code (or your token) shown on the PC:", 14, "#8E8EA0"));
         linkIn = input("https://xxxx.trycloudflare.com/login#t=…", false); l.addView(linkIn);
@@ -120,7 +120,7 @@ public class MainActivity extends Activity {
         ImageView logo = new ImageView(this); logo.setImageResource(R.drawable.splash_icon);
         l.addView(logo, new LinearLayout.LayoutParams(dp(96), dp(96)));
         errText = text("Can't reach your PC.", 16, "#ECECF1"); errText.setGravity(Gravity.CENTER); l.addView(errText);
-        TextView hint = text("Is Pedro Agent running on your PC? The link changes each time it starts. Check Telegram for the new one.", 14, "#8E8EA0");
+        TextView hint = text("Is Ped Bot running on your PC? The link changes each time it starts. Check Telegram for the new one.", 14, "#8E8EA0");
         hint.setGravity(Gravity.CENTER); l.addView(hint);
         Button retry = button("Try again"); retry.setOnClickListener(v -> autoConnect(true)); l.addView(retry);
         Button newLink = button("Paste new link"); newLink.setOnClickListener(v -> { linkIn.setText(""); secretIn.setText(""); showSetup(); }); l.addView(newLink);
@@ -132,7 +132,7 @@ public class MainActivity extends Activity {
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true); s.setDomStorageEnabled(true); s.setDatabaseEnabled(true);
         s.setMediaPlaybackRequiresUserGesture(false); s.setAllowFileAccess(false);
-        s.setUserAgentString(s.getUserAgentString() + " PedroAgentApp/1.3");
+        s.setUserAgentString(s.getUserAgentString() + " PedroAgentApp/1.4.14 PedBotApp");
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, false);
         web.setBackgroundColor(Color.parseColor("#0B0B0F"));
@@ -190,7 +190,7 @@ public class MainActivity extends Activity {
 
     void handlePairUri(String data) {
         Uri u = Uri.parse(data == null ? "" : data.trim());
-        if (!"pedroagent".equals(u.getScheme()) || !"pair".equals(u.getHost())) { toast("That isn't a Pedro Agent QR code"); showSetup(); return; }
+        if (!"pedroagent".equals(u.getScheme()) || !"pair".equals(u.getHost())) { toast("That isn't a Ped Bot QR code"); showSetup(); return; }
         String base = baseFrom(u.getQueryParameter("u") == null ? "" : u.getQueryParameter("u")), code = u.getQueryParameter("c");
         if (base.isEmpty() || !base.startsWith("https://") || code == null) { toast("That QR code is incomplete"); showSetup(); return; }
         linkIn.setText(base); pairWith(base, code);

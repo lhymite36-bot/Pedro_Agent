@@ -1,0 +1,66 @@
+# Builds and signs the Ped Bot Android app on every android-v* tag (or by hand), and attaches the APK
+# to that release. The signing key lives only in GitHub Actions secrets:
+#   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_PASSWORD, ANDROID_KEY_ALIAS
+# It is never committed. The keystore file exists only in the runner's temp folder during the job.
+name: Android release (signed)
+on:
+  push:
+    tags: ["android-v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build and attach to (e.g. android-v1.4.14)"
+        required: true
+permissions:
+  contents: write
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - uses: android-actions/setup-android@v3
+        with: { packages: "build-tools;35.0.0 platforms;android-35" }
+      - name: Version from tag
+        id: v
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          VER="${TAG#android-v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"; echo "ver=$VER" >> "$GITHUB_OUTPUT"
+          IFS=. read -r A B C <<< "$VER"; echo "code=$((A*10000 + B*100 + C))" >> "$GITHUB_OUTPUT"
+      - name: Restore signing key (temp file only)
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$KS_B64" || { echo "ANDROID_KEYSTORE_BASE64 secret is missing"; exit 1; }
+          umask 077; printf '%s' "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+      - name: Build and sign
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          JAVA_HOME: ${{ env.JAVA_HOME }}
+          KEYSTORE: ${{ runner.temp }}/release.jks
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          VERSION_NAME: ${{ steps.v.outputs.ver }}
+          VERSION_CODE: ${{ steps.v.outputs.code }}
+        run: |
+          bash android_app/build.sh
+          cp android_app/build/PedBot.apk "PedBot-${{ steps.v.outputs.ver }}.apk"
+          sha256sum "PedBot-${{ steps.v.outputs.ver }}.apk" | tee apk.sha256
+      - name: Remove signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.jks"
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.v.outputs.tag }}"; APK="PedBot-${{ steps.v.outputs.ver }}.apk"
+          NOTES="Ped Bot phone app ${{ steps.v.outputs.ver }}.
+
+          **Important: uninstall the old Pedro Agent / Ped Bot phone app once before installing this one.** This build is signed with a new key, so Android will refuse to install it over the old app. After that, updates install normally.
+
+          SHA-256: $(cut -d' ' -f1 apk.sha256)  $APK"
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "Ped Bot Android ${{ steps.v.outputs.ver }}" --notes "$NOTES"
+          gh release upload "$TAG" "$APK" --clobber

@@ -9,7 +9,7 @@ Your own AI assistant for Windows. Chat or talk to it, let it work on your PC, m
 <p align="center">
   <a href="https://github.com/lhymite36-bot/Pedro_Agent/releases/download/v1.4.14-windows/PedBot-Setup-1.4.14.exe"><img alt="Download for Windows" src="https://img.shields.io/badge/Download%20for%20Windows-PedBot--Setup--1.4.14.exe-5b6cff?style=for-the-badge&logo=windows"></a>
   &nbsp;
-  <a href="https://github.com/lhymite36-bot/Pedro_Agent/releases/download/android-v1.3.0/PedroAgent-1.3.0.apk"><img alt="Android app" src="https://img.shields.io/badge/Android%20app-APK%201.3.0-3ad29f?style=for-the-badge&logo=android"></a>
+  <a href="https://github.com/lhymite36-bot/Pedro_Agent/releases/download/android-v1.4.14/PedBot-1.4.14.apk"><img alt="Android app" src="https://img.shields.io/badge/Android%20app-APK%201.4.14-3ad29f?style=for-the-badge&logo=android"></a>
 </p>
 
 ![Group chat](docs/group-picture-chat.png)
@@ -23,7 +23,7 @@ Your own AI assistant for Windows. Chat or talk to it, let it work on your PC, m
 ## Connect your phone
 
 1. On your PC open **Ped Bot › Settings › Connect phone** and switch it **on**. The first time it asks to download Cloudflare's free `cloudflared` tool. Click *Allow download*.
-2. Install the [Android app (APK)](https://github.com/lhymite36-bot/Pedro_Agent/releases/download/android-v1.3.0/PedroAgent-1.3.0.apk) on your phone. Allow "install unknown apps" for your browser when Android asks.
+2. **Had the old phone app? Uninstall it once first** — the 1.4.14 app is signed with a new key, so Android won't install it over the old one. Then install the [Android app (APK)](https://github.com/lhymite36-bot/Pedro_Agent/releases/download/android-v1.4.14/PedBot-1.4.14.apk) on your phone. Allow "install unknown apps" for your browser when Android asks.
 3. Open the app, tap **Scan QR** and scan the code on your PC. The code works once and lasts 10 minutes. No camera? Type the link and the code shown under the QR.
 
 After that the app finds your PC by itself, even when the link changes after a restart. **Unpair all devices** in the same Settings section signs out every phone.
