@@ -50,12 +50,14 @@ def check(command: str) -> str | None:
     return None
 
 
-def argv_for(command: str, shell: str) -> list[str]:
+def argv_for(command: str, shell: str) -> "list[str] | str":
     shell = (shell or "powershell").casefold()
     if os.name != "nt":
         return ["/bin/sh", "-c", command]
     if shell in {"cmd", "cmd.exe", "command prompt"}:
-        return [os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "cmd.exe"), "/d", "/c", command]
+        # A plain string with /s keeps the user's quotes intact (a list would turn "" into \"\").
+        exe = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "cmd.exe")
+        return f'"{exe}" /d /s /c "{command}"'
     if shell in {"pwsh", "powershell 7"}:
         return ["pwsh", "-NoProfile", "-NonInteractive", "-Command", command]
     return ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command]
@@ -78,7 +80,7 @@ def run_terminal_command(command: str, shell: str = "powershell", cwd: str = "",
                                 stdin=subprocess.DEVNULL, env=env, bufsize=1, text=True,
                                 encoding="utf-8", errors="replace")
     except OSError as exc:
-        return {"ok": False, "error": f"Could not start {argv[0]}: {exc}"}
+        return {"ok": False, "error": f"Could not start {shell}: {exc}"}
     out: list[str] = []
     size = 0
     timed_out = False

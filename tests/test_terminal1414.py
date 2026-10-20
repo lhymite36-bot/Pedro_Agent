@@ -83,3 +83,11 @@ class PedCliTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class CmdQuotingTest(unittest.TestCase):
+    def test_cmd_keeps_quotes(self):
+        import terminal_tool
+        from unittest import mock
+        with mock.patch.object(terminal_tool.os, "name", "nt"):
+            a = terminal_tool.argv_for('dir /b | find /c /v ""', "cmd")
+        self.assertIsInstance(a, str); self.assertIn('/s /c "dir /b | find /c /v """', a)
