@@ -172,7 +172,7 @@ def normalise(data: dict[str, Any], existing: dict[str, Any] | None = None) -> d
     if not name:
         raise ValueError("A bot needs a name.")
     bot_id = _slug(str(data.get("id") or "")) or _slug(name) or uuid.uuid4().hex[:8]
-    color = str(data.get("color") or "#7c5cff")
+    color = str(data.get("color") or "#1683f5")
     override = data.get("rules") or {}
     if isinstance(override, str):
         override = rules.parse_text(override, ".yaml") if override.strip() else {}

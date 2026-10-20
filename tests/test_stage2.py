@@ -259,7 +259,7 @@ class BotTests(_Tmp):
         self.assertFalse(self.bots.delete_bot("inbox-helper-2"))
         with self.assertRaises(ValueError):
             self.bots.save_bot({"name": "  "})
-        self.assertEqual(self.bots.save_bot({"name": "x", "color": "red"})["color"], "#7c5cff")
+        self.assertEqual(self.bots.save_bot({"name": "x", "color": "red"})["color"], "#1683f5")
 
     def test_run_uses_scope_rules_override_and_role(self) -> None:
         import agent_core
