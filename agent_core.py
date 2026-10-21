@@ -1533,7 +1533,12 @@ def _search_rows(query: str, limit: int) -> list[dict[str, str]]:
             from ddgs import DDGS
         except ImportError:
             from duckduckgo_search import DDGS  # type: ignore
-        raw = DDGS().text(query, max_results=limit) or []
+        try:   # 1.4.18: the "auto" backend tried many engines (10-13 s, sometimes 0 rows); DuckDuckGo alone answers in ~1.4 s
+            raw = DDGS(timeout=6).text(query, max_results=limit, backend="duckduckgo") or []
+        except Exception:
+            raw = []
+        if not raw:
+            raw = DDGS(timeout=6).text(query, max_results=limit) or []
         rows: list[dict[str, str]] = []
         for item in raw:
             href = _unwrap_search_url(str(item.get("href") or item.get("url") or ""))

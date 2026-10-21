@@ -188,8 +188,16 @@ def _post(body: dict[str, Any], provider: dict[str, Any] | None = None) -> dict[
                "User-Agent": "PedroAgent/1.4.13 (+https://github.com/lhymite36-bot/Pedro_Agent)"}  # Groq's Cloudflare blocks the urllib default (error 1010)
     if chosen["id"] == "openrouter":
         headers["X-Title"] = "Pedro Agent"
+    gate = None
     if chosen.get("local"):
         headers.pop("Authorization", None)   # local Ollama needs no key
+        try:   # one local answer at a time; when it is busy, use the next model instead of waiting
+            import local_llm
+            if not local_llm.GATE.acquire(timeout=1.0):
+                raise _Switch("the local model is busy")
+            gate = local_llm.GATE
+        except ImportError:
+            pass
     try:
         status, raw = _pooled_post(_provider_url(chosen), json.dumps(body).encode("utf-8"), headers,
                                    60 if chosen.get("local") else _TIMEOUT)
@@ -218,6 +226,9 @@ def _post(body: dict[str, Any], provider: dict[str, Any] | None = None) -> dict[
         if isinstance(exc, (TimeoutError, OSError)):
             raise _Switch(f"{chosen['id']} unreachable") from exc
         raise RuntimeError(f"The backup model could not be reached: {type(exc).__name__}.") from exc
+    finally:
+        if gate is not None:
+            gate.release()
 
 
 CORE_TOOLS = ("ask_user", "approval_card", "read_page_text", "navigate_browser", "take_screenshot", "click_screen_target",

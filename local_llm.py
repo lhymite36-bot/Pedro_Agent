@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+import threading
 import urllib.request
 from typing import Any
 
@@ -81,6 +82,10 @@ def _scrubbed(payload: dict[str, Any]) -> dict[str, Any]:
     return parsed
 
 
+# 1.4.18: the PC runs one local model answer at a time; parallel tasks queue here instead of timing out.
+GATE = threading.BoundedSemaphore(1)
+
+
 def _post(payload: dict[str, Any]) -> dict[str, Any]:
     agent = _agent()
     body = _scrubbed(payload)
@@ -97,13 +102,19 @@ def _post(payload: dict[str, Any]) -> dict[str, Any]:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
+    if not GATE.acquire(timeout=_CHAT_TIMEOUT):
+        raise RuntimeError("The local model is busy with another task. Answer without it.")
     try:
         with urllib.request.urlopen(request, timeout=_CHAT_TIMEOUT) as response:
             parsed = json.loads(response.read().decode("utf-8"))
     except Exception as exc:
+        if isinstance(exc, (TimeoutError, socket.timeout)) or "timed out" in str(exc):
+            raise RuntimeError("The local model was too slow to answer. Answer without it.") from exc
         raise RuntimeError(
             "Ollama is not running on this PC. Start Ollama, then ask again."
         ) from exc
+    finally:
+        GATE.release()
     if not isinstance(parsed, dict):
         raise RuntimeError("Ollama returned an unexpected response.")
     return parsed
