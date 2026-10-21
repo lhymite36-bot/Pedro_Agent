@@ -96,6 +96,19 @@ def _json(text: str) -> Any:
     return llm.json_from(text)
 
 
+def _ask_fix(problems: str, project: Path, job: dict[str, Any] | None) -> dict[str, Any]:
+    """Ask for fixed files. Large code inside JSON sometimes comes back broken or cut off,
+    so retry once asking for at most two files, then skip this round instead of failing the build."""
+    for attempt, extra in ((1, ""), (2, "\nReturn AT MOST 2 files, the most important ones, as strict JSON.")):
+        try:
+            out = _json(ask(FIX_PROMPT.format(problems=problems + extra, snapshot=_snapshot(project)), 16000))
+            if isinstance(out, dict):
+                return out
+        except Exception as exc:
+            _log(job, f"Fix reply unusable (try {attempt}): {type(exc).__name__}")
+    return {}
+
+
 # ---------- browser (run + screenshot + console errors) ----------
 def _browser() -> str:
     for cand in (shutil.which("msedge"), os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
@@ -231,7 +244,7 @@ def build(goal: str, name: str = "", job: dict[str, Any] | None = None) -> dict[
         _log(job, f"Run {round_no}: {len(res.get('errors', []))} error(s)")
         if not res.get("errors"):
             break
-        fix = _json(ask(FIX_PROMPT.format(problems="\n".join(res["errors"]), snapshot=_snapshot(project)), 12000))
+        fix = _ask_fix("\n".join(res["errors"]), project, job)
         for f in (fix.get("files") or [])[:8]:
             if f.get("path") and f.get("content"):
                 _safe_write(project, f["path"], f["content"])
@@ -255,7 +268,7 @@ def build(goal: str, name: str = "", job: dict[str, Any] | None = None) -> dict[
         if not probs or (isinstance(review.get("score"), (int, float)) and review["score"] >= 9):
             break
         _log(job, f"Polishing: {len(probs)} issue(s), score {review.get('score')}")
-        fix = _json(ask(FIX_PROMPT.format(problems="UI review:\n- " + "\n- ".join(probs), snapshot=_snapshot(project)), 12000))
+        fix = _ask_fix("UI review:\n- " + "\n- ".join(probs), project, job)
         for f in (fix.get("files") or [])[:8]:
             if f.get("path") and f.get("content"):
                 _safe_write(project, f["path"], f["content"])
