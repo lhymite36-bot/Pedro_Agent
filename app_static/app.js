@@ -1025,17 +1025,33 @@ $('#undo-last') && ($('#undo-last').onclick = async () => { const r = await api(
 (function approvalBar() {
   const bar = document.createElement('div');
   bar.id = 'approve-bar';
-  bar.style.cssText = 'display:none;position:fixed;left:50%;bottom:96px;transform:translateX(-50%);z-index:50;background:#2a2a2a;color:#eee;border:1px solid #444;border-radius:12px;padding:10px 14px;gap:10px;align-items:center;font-size:14px;max-width:92vw';
-  bar.innerHTML = '<span id="approve-text"></span><button id="approve-yes" type="button" class="pa-btn primary">Approve</button><button id="approve-no" type="button" class="pa-btn danger">Deny</button>';
-  document.body.appendChild(bar);
-  const answer = (word) => { bar.style.display = 'none'; try { send(word); } catch (e) {} };
-  bar.querySelector('#approve-yes').onclick = () => answer('yes');
-  bar.querySelector('#approve-no').onclick = () => answer('no');
+  bar.className = 'approve-bar';
+  bar.style.display = 'none';
+  bar.innerHTML = '<div id="approve-text"></div><div class="approve-btns"><button id="approve-yes" type="button" class="pa-btn primary">Approve</button><button id="approve-no" type="button" class="pa-btn danger">Deny</button></div>';
+  // 1.4.19: sits in the page flow right above the composer (never floats over messages)
+  const composer = document.querySelector('#composer, form.composer, .composer');
+  if (composer && composer.parentNode) composer.parentNode.insertBefore(bar, composer); else document.body.appendChild(bar);
+  // 1.4.19: answer the exact request id (never a typed yes into whatever chat is open); one tap, no repeats
+  const answered = new Set();
+  const answer = async (yes) => {
+    const id = bar.dataset.id || ''; bar.style.display = 'none';
+    if (!id) return; answered.add(id);
+    bar.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+    try {
+      const r = await api('/api/pending/answer', { id, approve: !!yes });
+      if (r && r.text && r.session === session) { const row = addBot().row; renderMd(row.querySelector('.md'), r.text, false); scrollDown(); }
+    } catch (e) {}
+    bar.querySelectorAll('button').forEach((b) => { b.disabled = false; });
+  };
+  bar.querySelector('#approve-yes').onclick = () => answer(true);
+  bar.querySelector('#approve-no').onclick = () => answer(false);
   setInterval(async () => {
     try {
       const r = await (await fetch('/api/pending', { cache: 'no-store' })).json();
       if (r.pending && document.querySelector('.pa-card.open[data-kind="approval"]')) { bar.style.display = 'none'; return; }   // the card in the chat is enough
+      if (r.pending && answered.has(r.pending.id)) { bar.style.display = 'none'; return; }
       if (r.pending) {
+        bar.dataset.id = r.pending.id || '';
         const o = r.pending.order; const t = bar.querySelector('#approve-text');
         if (o) {   // 1.4.10: order summary card; Approve is the only way an order is placed
           const key = JSON.stringify(o); if (t.dataset.k !== key) {
@@ -1047,7 +1063,7 @@ $('#undo-last') && ($('#undo-last').onclick = async () => { const r = await api(
             if (o.screenshot_url) { const im = document.createElement('img'); im.src = o.screenshot_url; im.style.cssText = 'max-width:100%;max-height:180px;border-radius:8px;margin-top:6px;cursor:zoom-in'; im.onclick = () => window.open(o.screenshot_url, '_blank'); t.appendChild(im); }
           }
           bar.style.flexDirection = 'column'; bar.style.alignItems = 'stretch';
-        } else { t.dataset.k = ''; t.textContent = 'Waiting for you: ' + (r.pending.label || 'an action'); bar.style.flexDirection = 'row'; bar.style.alignItems = 'center'; }
+        } else { t.dataset.k = ''; t.textContent = 'Waiting for you: ' + (r.pending.label || 'an action'); bar.style.flexDirection = 'column'; bar.style.alignItems = 'stretch'; }
         bar.style.display = 'flex';
       }
       else bar.style.display = 'none';

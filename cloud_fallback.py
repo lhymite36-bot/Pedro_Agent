@@ -267,6 +267,8 @@ def _tools(user_text: str = "", limit: int = 24, desc: int = 220) -> list[dict[s
     if re.search(r"\b(camera|webcam|cam|photo|picture|pic|selfie|video|record|film|clip|see me|look at me|what do you see)\b",
                  user_text or "", re.I):   # 1.4.19: camera requests always get the real camera tools
         need |= {"webcam_vision_tool", "capture_webcam_image", "record_pc_camera"}
+    if re.search(r"\b(log ?in|sign ?in)\b", user_text or "", re.I):
+        need.add("browser_login")
     must = [d for d in decls if d["name"] in need]
     picked = must + [d for d in ranked if d["name"] not in need][: max(0, limit - len(must))]
     return [{"type": "function", "function": {

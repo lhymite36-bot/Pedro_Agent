@@ -482,6 +482,7 @@ Desktop control on this PC:
 
 Webcam, only when the user wants to be seen:
 - "Look at me", "What am I holding?", or any request to see the person or the room calls capture_webcam_image once. The image comes back with that tool result.
+- Log in: "log in to <site>" calls browser_login once. Never ask for, read or type a password; for a one-time code ask in chat. Graded tests/marked submissions: guide and check only, never press the final Submit. Never go silent.
 - Never say an action happened (recorded, saved, sent, opened, done) unless a tool call for it ran and returned ok in this turn. If you have not called the tool, call it now or say you have not done it. Report the exact path the tool returned.
 - "Can you see me?", "look at me" or "what do you see" calls webcam_vision_tool (PC camera) and describes the picture. "Take a photo" calls capture_webcam_image. "Record N seconds" calls record_pc_camera with seconds=N. Files go to Pictures\\Ped Bot.
 - The camera opens for one frame and then closes. Do not call it on a timer, in a loop, or during ordinary chat. Do not call it again unless the user asks for another look. The picture can be downloaded from the chat. Use the path the tool returns. Do not invent a link.
@@ -6248,6 +6249,9 @@ TOOLS.update(task_board.TOOLS)
 TOOLS.update(shared_memory.TOOLS)
 _PLAN_FREE_TOOLS.update(task_board.TOOLS)
 _PLAN_FREE_TOOLS.update(shared_memory.TOOLS)
+import browser_login as _browser_login   # 1.4.19: log in with Chrome's saved login (never a password)
+TOOL_DECLARATIONS.append(_browser_login.DECLARATION)
+TOOLS.update(_browser_login.TOOLS)
 import pc_fast_tools   # 1.4.16: read-only list_files / pc_status (no terminal, no approval)
 TOOL_DECLARATIONS.extend(pc_fast_tools.DECLARATIONS)
 TOOLS.update(pc_fast_tools.TOOLS)
@@ -6374,6 +6378,14 @@ def invoke_tool(name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
         return _err(rule_block, blocked_by_rules=True)
     sensitive = confirm_action.is_sensitive(name, arguments)
     if sensitive:
+        if confirm_action.was_denied(name, arguments) and not confirm_action.consume_grant(name, arguments):
+            # 1.4.19: Pedro said no; never show the same card again in this chat
+            return _err("Pedro denied this. It was not done. Do not ask again or retry; tell him it was not done.",
+                        denied=True, needs_confirmation=False)
+        waiting_now = confirm_action.pending()
+        if waiting_now and confirm_action._same(waiting_now, name, arguments) and not confirm_action.consume_grant(name, arguments):
+            return _err(f"Still waiting for Pedro to tap Approve or Deny for: {waiting_now.get('label')}. "
+                        "Do not call this again; tell him the card is waiting.", needs_confirmation=True, approved=False)
         earlier = confirm_action.already_done(name, arguments)
         if earlier is not None:   # already ran after the user's yes: never ask or run it twice
             return {**earlier, "already_done": True}

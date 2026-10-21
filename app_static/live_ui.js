@@ -308,6 +308,7 @@
     if (on && focus) { const el = $(focus); if (el) el.scrollIntoView({ block: 'start' }); }
   }
   root.closeMobileSide = () => sideOpen(false);
+  root.pbCloseLive = () => { if (open) show(false); };   // 1.4.19: the tab controller closes Live when another tab opens
   document.querySelectorAll('#bottomnav button').forEach((b) => b.addEventListener('click', () => {
     const n = b.dataset.nav;
     if (n !== 'live' && open) show(false);

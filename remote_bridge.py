@@ -513,17 +513,18 @@ def _confirm_reply(text: str) -> str | None:
     """
     import confirm_action
 
+    folded = " ".join((text or "").casefold().split()).strip(" .!?")
+    confirm_action._lift_denied_by_request(confirm_action._bucket(), folded)   # 1.4.19: his own new request lifts a no
     waiting = confirm_action.pending()
     if waiting is None:
         return None
-    folded = " ".join((text or "").casefold().split()).strip(" .!?")
     agent = _agent()
     if folded in confirm_action.POSITIVE:
         _log("user", text)
         agent.begin_task_turn(text)  # grants the waiting action
         result = agent.invoke_tool(waiting["name"], waiting["arguments"])
         detail = str(result.get("message") or result.get("error") or "")
-        reply = ("Done: " if result.get("ok") else "That failed: ") + detail
+        reply = ("Done: " if result.get("ok") else "That failed: ") + __import__("confirm_action")._user_detail(result, detail)
         _log("assistant", reply)
         return reply
     if folded in NEGATIVE:

@@ -608,3 +608,19 @@ html.lite .mini *,html.lite #hdr-avatar *,html.lite .side-btn *{animation-iterat
 html.lite body.glass #side,html.lite body.glass header,html.lite body.glass .box,html.lite body.glass .rt-panel,html.lite body.glass #bottomnav,html.lite body.glass #settings{background:rgba(20,22,28,.94)!important}
 html.lite body.glass .bot .bubble,html.lite body.glass .user .bubble{background:rgba(34,37,46,.92)!important}
 .hist-more{display:block;margin:8px auto;background:transparent;color:inherit;border:1px solid var(--line,#3a3d44);border-radius:10px;padding:6px 12px;cursor:pointer;opacity:.8}
+
+/* 1.4.19: approval bar = full-width sheet above the composer; text uses the full width, buttons in a row below */
+.approve-bar{display:flex;flex-direction:column;gap:8px;margin:6px 10px;padding:10px 12px;background:var(--panel,#2a2a2a);
+  color:var(--text,#eee);border:1px solid var(--border,#444);border-radius:12px;font-size:14px;box-sizing:border-box;width:auto}
+.approve-bar #approve-text{width:100%;white-space:normal;word-break:break-word;line-height:1.35}
+.approve-bar .approve-btns{display:flex;gap:8px;justify-content:flex-end}
+@media (max-width:760px){.approve-bar .approve-btns .pa-btn{flex:1;min-height:40px}}
+/* 1.4.19: no separate black title strip or 1px line: the app's own header is the title bar (drag, double-click
+   maximise); min/max/close sit transparently on it in the UI colour. Snap and resize stay native. */
+.desktop-app body{padding-top:0;background:var(--bg,#0b0b0f)}
+.desktop-app #dragstrip{right:140px;height:8px;background:transparent;border:0}
+.desktop-app #winctl{height:34px;background:transparent;border:0}
+.desktop-app header{padding-right:150px}
+.desktop-app #settings,.desktop-app #boted,.desktop-app #grped,.desktop-app #overlay,.desktop-app #lightbox,.desktop-app .firstrun,
+.desktop-app #sidescrim,.desktop-app .cn-panel{top:0}
+.desktop-app .rz-r,.desktop-app .rz-l{top:34px}

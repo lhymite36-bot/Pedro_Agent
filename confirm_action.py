@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 import contextvars
 import os
+import re
 import threading
 import time
 from typing import Any, Callable, Iterator
@@ -133,6 +134,8 @@ def is_sensitive(name: str, arguments: dict[str, Any]) -> bool:
 
     if name == "run_terminal_command":   # every terminal command needs its own yes, whatever rules.yaml says
         return True
+    if name == "browser_login":   # 1.4.19: signing in always asks first
+        return True
     if name in CAMERA_TOOLS:   # 1.4.19: the camera never opens without a yes on the card
         if set(k for k in arguments if k) - {"seconds", "question"}:
             return False   # bad arguments are refused by the tool itself, no card for them
@@ -166,6 +169,8 @@ def label_for(name: str, arguments: dict[str, Any]) -> str:
         what = " ".join(str(arguments.get("name") or "a routine").split())[:60]
         when = " ".join(str(arguments.get("when") or "").split())[:40]
         return f"create the routine '{what}'" + (f" ({when})" if when else "")
+    if name == "browser_login":
+        return f"log in to {arguments.get('site') or 'that site'} in your Chrome with its saved login"
     if name == "record_pc_camera":
         return f"record {arguments.get('seconds') or 'a few'} seconds of video with the PC camera (saved to Pictures\\Ped Bot)"
     if name in ("capture_webcam_image", "webcam_vision_tool"):
@@ -199,10 +204,13 @@ def remember(name: str, arguments: dict[str, Any], label: str) -> None:
     if current is not None and _same(current, name, arguments):
         return   # already waiting on this exact yes: keep the one card, do not ask again
     _wait_for_approval_turn()
+    import uuid
     _pending_by[_bucket()] = {
         "name": name,
         "arguments": dict(arguments),
         "label": label,
+        "id": uuid.uuid4().hex[:12],   # 1.4.19: Approve/Deny answer this exact request
+        "bucket": _bucket(),
     }
 
 
@@ -266,9 +274,84 @@ def note_user_text(text: str) -> None:
         if item["name"] == "confirm_before":   # only a general "may I?" yes carries to the real action
             _recent_yes[key] = (_key(item["name"], item["arguments"])[0], _t.monotonic())
         return
-    _pending_by.pop(key, None)
+    _lift_denied_by_request(key, folded)
+    dropped = _pending_by.pop(key, None)
+    if dropped is not None and folded in NEGATIVE:
+        _note_denied(key, dropped)
     _granted_by.pop(key, None)
     _done.clear()
+
+
+# 1.4.19: a denied action is never asked again in that chat for a while (no card loops)
+DENY_MEMORY_SECONDS = 600.0
+_denied: dict[str, list[tuple[tuple[str, str], float]]] = {}
+
+
+def _note_denied(bucket: str, item: dict[str, Any]) -> None:
+    import time as _t
+    rows = [r for r in _denied.get(bucket, []) if _t.monotonic() - r[1] < DENY_MEMORY_SECONDS]
+    rows.append((_key(item["name"], item["arguments"]), _t.monotonic(), _words(str(item.get("label") or item["name"]))))
+    _denied[bucket] = rows[-20:]
+
+
+_STOP = {"with", "that", "this", "your", "from", "saved", "into", "file", "the", "pictures", "bot"}
+
+
+def _words(text: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z]{4,}", text.casefold()) if w not in _STOP}
+
+
+def _lift_denied_by_request(bucket: str, folded: str) -> None:
+    """Pedro asking for the same thing again in his own words lifts his earlier no (the bot may not re-ask by itself)."""
+    if folded in NEGATIVE or folded in POSITIVE:
+        return
+    rows = _denied.get(bucket)
+    if rows:
+        said = _words(folded)
+        _denied[bucket] = [r for r in rows if not (len(r) > 2 and r[2] & said)]
+
+
+def was_denied(name: str, arguments: dict[str, Any]) -> bool:
+    import time as _t
+    k = _key(name, arguments)
+    return any(r[0][0] == k[0] and (r[0][1] == k[1] or not r[0][1] or not k[1])
+               and _t.monotonic() - r[1] < DENY_MEMORY_SECONDS for r in _denied.get(_bucket(), []))
+
+
+def clear_denied(name: str = "") -> None:
+    """A new explicit request from Pedro (his own words) lifts an earlier no."""
+    rows = _denied.get(_bucket())
+    if rows:
+        _denied[_bucket()] = [r for r in rows if name and r[0][0] != _category(name, {})]
+
+
+def all_pending() -> list[dict[str, Any]]:
+    return [dict(v) for v in _pending_by.values() if v]
+
+
+def resolve(request_id: str, approve: bool, invoke: Callable[[str, dict[str, Any]], dict[str, Any]]) -> dict[str, Any]:
+    """Answer one exact pending request (from the Approve/Deny buttons). Unknown or already answered: nothing runs."""
+    hit = next(((b, v) for b, v in list(_pending_by.items()) if v and v.get("id") == request_id), None)
+    if hit is None:
+        return {"ok": False, "resolved": False, "error": "That request was already answered."}
+    bucket, item = hit
+    token = _chat.set(bucket)
+    try:
+        _pending_by.pop(bucket, None)
+        if not approve:
+            _note_denied(bucket, item)
+            _granted_by.pop(bucket, None)
+            return {"ok": True, "resolved": True, "session": bucket, "approved": False,
+                    "text": f"Cancelled: {item.get('label') or item['name']}. I won't ask again for this."}
+        _granted_by[bucket] = item
+        result = invoke(item["name"], item["arguments"])
+        detail = str(result.get("message") or result.get("error") or "")
+        return {"ok": True, "resolved": True, "session": bucket, "approved": True, "result_ok": bool(result.get("ok")),
+                "text": ("Done: " if result.get("ok") else "That failed: ") + _user_detail(result, detail),
+                "image": result.get("download_path") if str(result.get("download_path") or "").lower().endswith((".jpg", ".png")) else None,
+                "video": result.get("video")}
+    finally:
+        _chat.reset(token)
 
 
 def consume_grant(name: str, arguments: dict[str, Any]) -> bool:
@@ -309,6 +392,19 @@ def note_done(name: str, arguments: dict[str, Any], result: dict[str, Any]) -> N
     del _done[:-10]
 
 
+def _user_detail(result: dict[str, Any], detail: str) -> str:
+    """1.4.19: show Pedro the outcome, not instructions meant for the model; name the saved file."""
+    keep = [x for x in re.split(r"(?<=[.!?])\s+", detail) if x and not re.match(
+        r"(Describe|Do not|Use the path|Only describe|Answer)\b", x)]
+    text = " ".join(keep).strip() or detail
+    where = result.get("download_path") or result.get("video_path") or result.get("path") or ""
+    if result.get("ok") and where and str(where) not in text:
+        text += f" Saved to {where}"
+    if result.get("what_i_see"):
+        text += f" What I see: {result['what_i_see']}"
+    return text
+
+
 def answer_pending(text: str, invoke: Callable[[str, dict[str, Any]], dict[str, Any]]) -> str | None:
     """Chat layer: a yes/no to the waiting action. 'yes' runs it once right away (no model round,
     so it can't be re-asked); 'no' cancels. Returns the reply, or None to carry on normally
@@ -326,7 +422,7 @@ def answer_pending(text: str, invoke: Callable[[str, dict[str, Any]], dict[str, 
     note_user_text(text)            # pending -> granted
     result = invoke(waiting["name"], waiting["arguments"])
     detail = str(result.get("message") or result.get("error") or "")
-    return ("Done: " if result.get("ok") else "That failed: ") + detail
+    return ("Done: " if result.get("ok") else "That failed: ") + _user_detail(result, detail)
 
 
 def _positive(text: str) -> bool:

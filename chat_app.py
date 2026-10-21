@@ -37,6 +37,7 @@ STATIC_FILES = {
     "app.js": "application/javascript; charset=utf-8",
     "routines_ui.js": "application/javascript; charset=utf-8",
     "tasks_ui.js": "application/javascript; charset=utf-8",
+    "navtabs.js": "application/javascript; charset=utf-8",
     "lite.js": "application/javascript; charset=utf-8",
     "avatars/round.png": "image/png",
     "avatars/robot.png": "image/png",
@@ -1159,7 +1160,15 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 if p and p.get("name") == "place_order":
                     import order_flow
                     card = order_flow.pending_card()
-                self._json({"pending": {"label": str((p or {}).get("label") or ""), "order": card} if p else None})
+                if not p:   # 1.4.19: the bar is global; show the request of any chat, with its id and chat
+                    rows = confirm_action.all_pending()
+                    p = rows[0] if rows else None
+                    if p and p.get("name") == "place_order":
+                        import order_flow
+                        card = order_flow.pending_card()
+                self._json({"pending": {"label": str((p or {}).get("label") or ""), "order": card,
+                                        "id": str((p or {}).get("id") or ""), "session": str((p or {}).get("bucket") or "")}
+                            if p else None})
             elif url.path == "/api/checklist":
                 import extras149
                 self._json(extras149.setup_checklist())
@@ -1302,7 +1311,7 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
 
         _SYNC_PATHS = {"/api/card/answer", "/api/react", "/api/rename", "/api/delete_session", "/api/clear_chats", "/api/clear_chats/undo",
                        "/api/pin", "/api/routines/update", "/api/bots", "/api/bots/delete", "/api/groups",
-                       "/api/groups/delete", "/api/undo", "/api/stop", "/api/pause_all", "/api/resume_all", "/api/tasks"}
+                       "/api/groups/delete", "/api/undo", "/api/stop", "/api/pause_all", "/api/resume_all", "/api/tasks", "/api/pending/answer"}
 
         def do_POST(self) -> None:
             path = urlparse(self.path).path
@@ -1399,6 +1408,17 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 choices = data.get("choices") if isinstance(data.get("choices"), list) else []
                 self._json(polls.answer(str(data.get("id") or ""), [str(c) for c in choices],
                                         str(data.get("other") or ""), str(data.get("decision") or "")))
+            elif url.path == "/api/pending/answer":   # 1.4.19: Approve/Deny resolve this exact request id
+                import confirm_action
+                out = confirm_action.resolve(str(data.get("id") or ""), bool(data.get("approve")), _agent().invoke_tool)
+                if out.get("resolved") and out.get("session"):
+                    try:
+                        import chat_store, live_sync
+                        chat_store.add(out["session"], "assistant", out["text"])
+                        live_sync.notify("changed", what="pending", session=out["session"])
+                    except Exception:
+                        pass
+                self._json(out)
             elif url.path == "/api/listen":
                 self._json(listen_once(state, float(data.get("timeout") or 8)))
             elif url.path == "/api/wake":

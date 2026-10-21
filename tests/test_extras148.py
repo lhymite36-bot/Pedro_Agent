@@ -107,7 +107,7 @@ class ApprovalBarTests(unittest.TestCase):
         js = (ROOT / "app_static" / "app.js").read_text(encoding="utf-8")
         self.assertIn('url.path == "/api/pending"', src)
         self.assertIn("approve-yes", js)
-        self.assertIn("send(word)", js)  # it answers in chat; the normal confirm flow does the rest
+        self.assertIn("/api/pending/answer", js)  # 1.4.19: answers the exact request id
 
     def test_evening_job_started_by_app(self):
         src = (ROOT / "chat_app.py").read_text(encoding="utf-8")
