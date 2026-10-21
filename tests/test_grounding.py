@@ -36,7 +36,7 @@ class GroundingTests(unittest.TestCase):
         )
         self.assertIn(r"C:\notes\real.txt", reply)
         self.assertNotIn("made-up", reply)
-        self.assertIn("[not returned by a tool]", reply)
+        self.assertNotIn("[not returned by a tool]", reply)   # 1.5.3: dropped silently
 
     def test_a_failed_turn_cannot_claim_success(self) -> None:
         self.g.note("click_element", {"ok": False, "error": "The control was not there."})

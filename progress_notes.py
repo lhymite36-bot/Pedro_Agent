@@ -17,8 +17,8 @@ import re
 import time
 from typing import Any, Callable
 
-LONG_STEPS = 3
-LONG_SECONDS = 15.0
+LONG_STEPS = 5   # 1.5.3: quick questions stay quiet
+LONG_SECONDS = 30.0
 GAP_SECONDS = 60.0   # 1.5.2: at most about one update a minute
 RESULT_TOOLS = {"ui_click", "ui_set_text", "write_file", "write_text_file", "create_file", "save_file", "run_blender_task",
                 "send_email", "gmail_send", "youtube_upload", "download_file", "browser_download", "run_python",

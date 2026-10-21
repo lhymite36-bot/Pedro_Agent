@@ -60,7 +60,7 @@ _NAME_TAIL = frozenset({
 TEXT_CALL = re.compile(r"\[\[\s*([A-Za-z_][A-Za-z0-9_]{2,60})\s*\((?:[^\[\]]|\[[^\[\]]*\])*\)\s*\]\]")
 _STRONG_DONE = re.compile(
     r"\b(completed|finished|all done|it is done|it's done|task is complete|have done it|recorded|"
-    r"submitted|uploaded|saved|sent|placed the order|deleted)\b",
+    r"submitted|uploaded|saved|sent|placed the order|deleted|fully built|is built|been built|built and ready|ready to use)\b",
     re.I,
 )
 
@@ -309,10 +309,12 @@ def ground_reply(user_text: str, reply: str) -> str:
         token = match.group(0)
         if _keep_token(token, evidence):
             return token
-        return "[not returned by a tool]"
+        return "\x00"   # 1.5.3: dropped silently (no placeholder text in replies)
 
     cleaned = _PATH.sub(missing, text)
     cleaned = _URL.sub(missing, cleaned)
+    cleaned = re.sub(r"`?\x00`?", "", cleaned)
+    cleaned = re.sub(r"[ \t]+([,.;:)])", r"\1", cleaned).replace("()", "")
     last = calls[-1]
     if not any(row["ok"] for row in calls) and _claims_done(cleaned):
         reason = last["message"] or "the tool failed"

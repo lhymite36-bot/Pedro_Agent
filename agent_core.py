@@ -30,6 +30,7 @@ Setup and example prompts are in README.md.
 
 from __future__ import annotations
 
+import contextvars
 import ctypes
 import sys
 
@@ -6300,7 +6301,8 @@ def _call_with_timeout(name: str, function: Callable[..., Any], arguments: dict[
         finally:
             box["turn"] = dict(_turn_local.__dict__)
 
-    worker = threading.Thread(target=runner, name=f"tool-{name}", daemon=True)
+    _ctx = contextvars.copy_context()   # 1.5.3: the tool sees the caller's chat (bg_progress.SESSION etc.)
+    worker = threading.Thread(target=lambda: _ctx.run(runner), name=f"tool-{name}", daemon=True)
     worker.start()
     deadline = time.monotonic() + limit
     while worker.is_alive() and time.monotonic() < deadline:

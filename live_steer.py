@@ -19,7 +19,8 @@ _inbox: dict[str, list[str]] = {}
 _local = threading.local()
 responder_override: Callable[[str, dict[str, Any]], str] | None = None
 STOP_WORDS = re.compile(r"^\s*(stop|cancel|abort|halt|quit|never ?mind|stop (it|that|the task|now)|forget it)\b[\s.!]*$", re.I)
-STATUS_WORDS = re.compile(r"\b(status|progress|how('?s| is) it going|where are you|what are you doing|done yet|eta|how long)\b", re.I)
+THANKS_WORDS = re.compile(r"^\s*(thanks?( you)?|thx|ty|ok(ay)?|cool|great|nice|got it|👍)[\s.!]*$", re.I)
+STATUS_WORDS = re.compile(r"^\s*(done|finished|ready|is it done|are you done)\s*\??\s*$|\btell me wh[e]?n\b|\b(status|progress|how('?s| is) it going|where are you|what are you doing|done yet|eta|how long)\b", re.I)
 
 
 def begin(session: str, text: str) -> None:
@@ -85,6 +86,8 @@ def take(session: str | None = None) -> list[str]:
 def kind_of(text: str) -> str:
     if STOP_WORDS.match(text or ""):
         return "stop"
+    if THANKS_WORDS.match(text or ""):
+        return "thanks"
     if STATUS_WORDS.search(text or "") and len(text) < 80:
         return "status"
     return "steer"
@@ -96,6 +99,8 @@ def _template(text: str, st: dict[str, Any], kind: str) -> str:
     took = f"{mins} min in" if mins else f"{int(st.get('elapsed', 0))} s in"
     if kind == "stop":
         return "Stopping the task now."
+    if kind == "thanks":
+        return f"You're welcome! Still on it ({took}): {step}. I'll post here when it's done."
     if kind == "status":
         done = ", ".join(st.get("done", [])[-3:]) or "nothing finished yet"
         return f"Still on it ({took}). Now: {step}. Done so far: {done}."
@@ -107,7 +112,7 @@ def respond(session: str, text: str, kind: str) -> str:
     st = snapshot(session)
     if responder_override is not None:
         return responder_override(text, st)
-    if kind == "stop":
+    if kind in ("stop", "thanks"):
         return _template(text, st, kind)
     try:
         import agent_core

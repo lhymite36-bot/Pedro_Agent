@@ -93,7 +93,7 @@ def add(session: str, role: str, text: str, path: Path | None = None) -> int:
 import re as _re
 
 QUICK = ["👍", "❤️", "😂", "😮", "😢", "🎉", "✅"]
-REACT_RE = _re.compile(r"\s*\[\[react:([^\]\s]{1,16})\]\]")
+REACT_RE = _re.compile(r"\s*\[{1,2}react:([^\]\s]{1,16})\]{1,2}")  # 1.5.3: tolerate [react:X]]
 _TAG = _re.compile(r"^\[\[@([a-z0-9-]+)\]\]")
 added_hook = None   # chat_app sets it to push fresh reactions to the window
 
