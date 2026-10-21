@@ -204,34 +204,46 @@ def _register_aumid() -> None:
         pass
 
 
+def _toast_once(title: str, message: str) -> None:
+    import win_chrome
+    from windows_toasts import InteractableWindowsToaster, Toast  # type: ignore
+    try:
+        import pythoncom  # type: ignore
+        pythoncom.CoInitializeEx(0)   # MTA: WinRT objects stay valid on this thread
+    except Exception:
+        pass
+    if win_chrome.register_shortcut_app_id() not in ("set", "ok"):
+        raise RuntimeError("no Start Menu shortcut with the app id")
+    # 1.4.19: a new toaster per toast; a cached one died with its thread ("Object is not connected to server")
+    InteractableWindowsToaster("Ped Bot", notifierAUMID=win_chrome.APP_ID).show_toast(Toast([title[:60], message[:250]]))
+
+
 def _toast(title: str, message: str) -> bool:
-    """1.4.18: a real Windows toast sent as Ped Bot's app ID (the Start Menu shortcut carries it),
-    so Windows shows 'Ped Bot' and its icon instead of 'Python'."""
-    global _toaster
+    """A real Windows toast sent as Ped Bot's app ID, so Windows shows 'Ped Bot' and its icon, not 'Python'.
+    Runs on its own short thread (fresh COM apartment) so the calling thread's state never matters."""
     if os.name != "nt":
         return False
     try:
-        from windows_toasts import InteractableWindowsToaster, Toast  # type: ignore
-        import win_chrome
+        import windows_toasts  # type: ignore  # noqa: F401
     except Exception:
         return False
-    try:   # 1.4.19: WinRT needs COM on the calling thread; app threads had none (OSError -> "Python" tray balloon)
-        import pythoncom  # type: ignore
-        pythoncom.CoInitialize()
-    except Exception:
-        pass
     _register_aumid()
-    try:
-        if _toaster is None:
-            if win_chrome.register_shortcut_app_id() not in ("set", "ok"):
-                return False
-            _toaster = InteractableWindowsToaster("Ped Bot", notifierAUMID=win_chrome.APP_ID)
-        toast = Toast([title[:60], message[:250]])
-        _toaster.show_toast(toast)
+    box: dict[str, Any] = {}
+
+    def run() -> None:
+        try:
+            _toast_once(title, message)
+            box["ok"] = True
+        except Exception as exc:
+            box["err"] = exc
+    t = threading.Thread(target=run, daemon=True, name="pb-toast")
+    t.start()
+    t.join(8)
+    if box.get("ok"):
         return True
-    except Exception as exc:
-        print(f"[notify] toast failed, using the tray: {type(exc).__name__}: {str(exc)[:160]}", flush=True)
-        return False
+    exc = box.get("err")
+    print(f"[notify] toast failed, using the tray: {type(exc).__name__}: {str(exc)[:160]}", flush=True)
+    return False
 
 
 def start_tray(show: Callable[[], Any], quit_app: Callable[[], Any], pause: Callable[[], Any]) -> bool:
