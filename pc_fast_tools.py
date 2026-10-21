@@ -17,17 +17,52 @@ _KNOWN = {"downloads": "Downloads", "desktop": "Desktop", "documents": "Document
           "videos": "Videos", "music": "Music", "home": ""}
 
 
+# 1.4.19: Windows known-folder ids, so redirected (OneDrive or moved) Documents/Pictures/Videos resolve correctly
+_FOLDERIDS = {"Downloads": "{374DE290-123F-4565-9164-39C4925E467B}", "Desktop": "{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}",
+              "Documents": "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}", "Pictures": "{33E28130-4E1E-4676-835A-98395C3BC3BB}",
+              "Videos": "{18989B1D-99B5-455B-841C-AB7C74E4DDFC}", "Music": "{4BD8D571-6D19-48D3-BE97-422220080E43}"}
+
+
+def known_folder(sub: str) -> Path:
+    """The real location of Documents, Pictures, Videos... (follows OneDrive and folder redirection)."""
+    home = Path.home()
+    if not sub:
+        return home
+    if os.name == "nt" and sub in _FOLDERIDS:
+        try:
+            import ctypes
+            import uuid
+            from ctypes import wintypes
+
+            class GUID(ctypes.Structure):
+                _fields_ = [("d1", wintypes.DWORD), ("d2", wintypes.WORD), ("d3", wintypes.WORD), ("d4", ctypes.c_ubyte * 8)]
+            u = uuid.UUID(_FOLDERIDS[sub])
+            g = GUID(u.time_low, u.time_mid, u.time_hi_version, (ctypes.c_ubyte * 8)(*u.bytes[8:]))
+            out = ctypes.c_wchar_p()
+            if ctypes.windll.shell32.SHGetKnownFolderPath(ctypes.byref(g), 0, None, ctypes.byref(out)) == 0:
+                found = Path(out.value or "")
+                ctypes.windll.ole32.CoTaskMemFree(out)
+                if found.is_dir():
+                    return found
+        except Exception:
+            pass
+    for cand in (home / sub, home / "OneDrive" / sub):
+        if cand.is_dir():
+            return cand
+    return home / sub
+
+
 def _folder(path: str) -> Path:
     raw = os.path.expandvars(os.path.expanduser(str(path or "").strip().strip('"')))
-    key = raw.casefold().strip("\\/ ")
-    if key in _KNOWN or key.replace("my ", "") in _KNOWN:
-        sub = _KNOWN.get(key, _KNOWN.get(key.replace("my ", ""), ""))
-        home = Path.home()
-        if sub:
-            one = home / "OneDrive" / sub   # OneDrive-backed Desktop/Documents
-            return one if not (home / sub).is_dir() and one.is_dir() else home / sub
-        return home
-    return Path(raw) if raw else Path.home()
+    if not raw:
+        return Path.home()
+    parts = [x for x in raw.replace("/", "\\").split("\\") if x]
+    head = parts[0].casefold().strip() if parts else ""
+    head = head[3:] if head.startswith("my ") else head
+    if head in _KNOWN and not Path(raw).is_absolute():
+        # "Documents", "Documents\\PedroAgent", "my pictures/Ped Bot" -> under the real known folder
+        return known_folder(_KNOWN[head]).joinpath(*parts[1:])
+    return Path(raw)
 
 
 def list_files(path: str = "", sort: str = "newest", limit: int = 20, pattern: str = "*",

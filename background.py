@@ -183,6 +183,27 @@ def notify(title: str, message: str) -> None:
 _toaster: Any = None
 
 
+_AUMID_DONE = {"v": False}
+
+
+def _register_aumid() -> None:
+    """1.4.19: name the app ID in the registry too, so the toast header says Ped Bot even before the
+    Start Menu shortcut is indexed (HKCU\\Software\\Classes\\AppUserModelId\\<id>: DisplayName, IconUri)."""
+    if _AUMID_DONE["v"] or os.name != "nt":
+        return
+    _AUMID_DONE["v"] = True
+    try:
+        import winreg
+        import win_chrome
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, "Software\\Classes\\AppUserModelId\\" + win_chrome.APP_ID) as key:
+            winreg.SetValueEx(key, "DisplayName", 0, winreg.REG_SZ, "Ped Bot")
+            icon = win_chrome.icon_path()
+            if icon:
+                winreg.SetValueEx(key, "IconUri", 0, winreg.REG_SZ, str(icon))
+    except Exception:
+        pass
+
+
 def _toast(title: str, message: str) -> bool:
     """1.4.18: a real Windows toast sent as Ped Bot's app ID (the Start Menu shortcut carries it),
     so Windows shows 'Ped Bot' and its icon instead of 'Python'."""
@@ -194,6 +215,12 @@ def _toast(title: str, message: str) -> bool:
         import win_chrome
     except Exception:
         return False
+    try:   # 1.4.19: WinRT needs COM on the calling thread; app threads had none (OSError -> "Python" tray balloon)
+        import pythoncom  # type: ignore
+        pythoncom.CoInitialize()
+    except Exception:
+        pass
+    _register_aumid()
     try:
         if _toaster is None:
             if win_chrome.register_shortcut_app_id() not in ("set", "ok"):
@@ -203,7 +230,7 @@ def _toast(title: str, message: str) -> bool:
         _toaster.show_toast(toast)
         return True
     except Exception as exc:
-        print(f"[notify] toast failed, using the tray: {type(exc).__name__}", flush=True)
+        print(f"[notify] toast failed, using the tray: {type(exc).__name__}: {str(exc)[:160]}", flush=True)
         return False
 
 

@@ -124,11 +124,20 @@ def _folded_action(value: Any) -> str:
     return " ".join(str(value or "").casefold().replace("-", " ").replace("_", " ").split())
 
 
+CAMERA_TOOLS = frozenset({"capture_webcam_image", "webcam_vision_tool", "record_pc_camera"})
+
+
 def is_sensitive(name: str, arguments: dict[str, Any]) -> bool:
     """The user's rules.yaml (confirm section) decides what needs a yes."""
     import rules
 
     if name == "run_terminal_command":   # every terminal command needs its own yes, whatever rules.yaml says
+        return True
+    if name in CAMERA_TOOLS:   # 1.4.19: the camera never opens without a yes on the card
+        if set(k for k in arguments if k) - {"seconds", "question"}:
+            return False   # bad arguments are refused by the tool itself, no card for them
+        if name == "record_pc_camera":   # no length: the tool records nothing and asks, so no card yet
+            return _agent()._record_length(arguments.get("seconds")) is not None
         return True
     return rules.needs_confirmation(name, arguments)
 
@@ -157,6 +166,10 @@ def label_for(name: str, arguments: dict[str, Any]) -> str:
         what = " ".join(str(arguments.get("name") or "a routine").split())[:60]
         when = " ".join(str(arguments.get("when") or "").split())[:40]
         return f"create the routine '{what}'" + (f" ({when})" if when else "")
+    if name == "record_pc_camera":
+        return f"record {arguments.get('seconds') or 'a few'} seconds of video with the PC camera (saved to Pictures\\Ped Bot)"
+    if name in ("capture_webcam_image", "webcam_vision_tool"):
+        return "take one photo with the PC camera (saved to Pictures\\Ped Bot)"
     if name == "send_remote_update":
         return "send a message to your phone"
     if name not in {"kill_process", "shutdown_computer", "manage_windows_and_processes", "network_manager"}:

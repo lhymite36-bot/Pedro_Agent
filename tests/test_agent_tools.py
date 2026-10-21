@@ -4543,7 +4543,7 @@ class AgentToolTests(unittest.TestCase):
         self.assertIn("Notes", focused)
         self.assertTrue(started)
 
-        self.assertIs(agent_core.TOOLS["webcam_vision_tool"], agent_core.capture_webcam_image)
+        self.assertIs(agent_core.TOOLS["webcam_vision_tool"], agent_core.look_through_camera)   # 1.4.19: capture + describe
         description = next(
             item["description"]
             for item in agent_core.TOOL_DECLARATIONS

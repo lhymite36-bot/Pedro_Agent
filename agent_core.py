@@ -482,6 +482,8 @@ Desktop control on this PC:
 
 Webcam, only when the user wants to be seen:
 - "Look at me", "What am I holding?", or any request to see the person or the room calls capture_webcam_image once. The image comes back with that tool result.
+- Never say an action happened (recorded, saved, sent, opened, done) unless a tool call for it ran and returned ok in this turn. If you have not called the tool, call it now or say you have not done it. Report the exact path the tool returned.
+- "Can you see me?", "look at me" or "what do you see" calls webcam_vision_tool (PC camera) and describes the picture. "Take a photo" calls capture_webcam_image. "Record N seconds" calls record_pc_camera with seconds=N. Files go to Pictures\\Ped Bot.
 - The camera opens for one frame and then closes. Do not call it on a timer, in a loop, or during ordinary chat. Do not call it again unless the user asks for another look. The picture can be downloaded from the chat. Use the path the tool returns. Do not invent a link.
 - "Record me for 10 seconds", "take a video with the PC camera", or "film this for 5 seconds" calls record_pc_camera with seconds set to that number. It records this PC's camera for that many seconds, saves the video, and closes the camera. The video can be downloaded from the chat. If the user does not say how long, ask. Do not guess a length. The maximum is 600 seconds.
 - A live feed is a different request. Use stream_pc_camera or stream_phone_camera only when the user asks to watch a live camera. Do not use the live feed when they asked for a file.
@@ -3529,6 +3531,12 @@ def _grab_webcam_jpeg() -> tuple[bytes, int, int]:
 
 def _camera_dir() -> Path:
     folder = WORKSPACE / "camera"
+    if os.name == "nt" and webcam_override is None and record_override is None:
+        try:   # 1.4.19: photos and clips go where Pedro looks for them
+            import pc_fast_tools
+            folder = pc_fast_tools.known_folder("Pictures") / "Ped Bot"
+        except Exception:
+            pass
     folder.mkdir(parents=True, exist_ok=True)
     return folder
 
@@ -3877,6 +3885,55 @@ def _record_on_camera(seconds: int) -> dict[str, Any]:
     return box["value"]
 
 
+def _describe_image(data: bytes, mime: str, question: str = "") -> str:
+    """1.4.19: a free Gemini vision model describes the picture, so text-only backup models can 'see' too."""
+    key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not key or genai_client_override is not None:
+        return ""
+    try:
+        from google import genai
+        from google.genai import types
+        client = _gemini_client(genai, key)
+        ask = ("Describe what this PC webcam photo shows in 2-4 plain sentences: people (expression, clothing, "
+               "what they hold or do), objects and the setting. Do not guess identities. " + (question or ""))
+        for model in ("gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-2.5-flash-lite"):
+            try:
+                resp = client.models.generate_content(model=model, contents=[
+                    types.Part.from_bytes(data=data, mime_type=mime), ask])
+                text = " ".join(str(getattr(resp, "text", "") or "").split())
+                if text:
+                    return text
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return ""
+
+
+def look_through_camera(question: str = "") -> dict[str, Any]:
+    """Capture one PC webcam frame, save it, and describe it with a free vision model."""
+    result = capture_webcam_image()
+    if not result.get("ok"):
+        return result
+    data = result.get("_screenshot_bytes") or b""
+    seen = _describe_image(data, str(result.get("_screenshot_mime") or "image/jpeg"), str(question or "")) if data else ""
+    if seen:
+        result["what_i_see"] = seen
+        result["message"] = (f"Captured one webcam frame (saved to {result.get('download_path')}). "
+                             f"What the camera sees: {seen}")
+    return result
+
+
+def _recording_indicator(seconds: int) -> None:
+    """A visible sign the camera is recording: a Windows notification plus the live status line."""
+    try:
+        import background
+        background._toast("Ped Bot is recording", f"The PC camera is recording for {seconds} s.")
+    except Exception:
+        pass
+    print(f"[camera] recording {seconds} s", flush=True)
+
+
 def record_pc_camera(seconds: Any = None) -> dict[str, Any]:
     """Record the PC webcam for the given seconds and save a downloadable mp4.
 
@@ -3890,6 +3947,7 @@ def record_pc_camera(seconds: Any = None) -> dict[str, Any]:
     try:
         if record_override is not None:
             return _record_from_override(length)
+        _recording_indicator(length)
         return _record_on_camera(length)
     except AssertionError:
         raise
@@ -4736,7 +4794,7 @@ TOOLS: dict[str, Callable[..., dict[str, Any]]] = {
     "clipboard_action_dispatcher": clipboard_context.clipboard_action_dispatcher,
     "desktop_ui_automation": desktop_automation.desktop_ui_automation,
     "network_manager": network_manager.network_manager,
-    "webcam_vision_tool": capture_webcam_image,
+    "webcam_vision_tool": look_through_camera,
     "system_diagnostics": diagnostics.system_diagnostics,
     "file_content_rag_search": local_search.file_content_rag_search,
     "job_scheduler": task_schedule.job_scheduler,
@@ -5864,10 +5922,9 @@ TOOL_DECLARATIONS.append(
     {
         "name": "webcam_vision_tool",
         "description": (
-            "Snap one webcam frame for a desk, a document, or an object, then "
-            "close the camera. On Windows this uses DirectShow. The image comes "
-            "back with the tool result. Same capture as capture_webcam_image. "
-            "Do not call it in a loop."
+            "Look through the PC webcam: snap one frame, save it to Pictures\\Ped Bot, close the camera, and "
+            "get a description of what it sees (people, objects, desk, documents). Use for 'can you see me', "
+            "'look at me', 'what do you see'. Do not call it in a loop."
         ),
         "parameters": {"type": "object", "properties": {}},
     }
@@ -6466,6 +6523,7 @@ def _execute_logged_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]
     status = "ok" if result.get("ok") else "error"
     detail = _scrub(str(result.get("message") or result.get("error") or ""))
     print(f"[tool] {status}: {detail}", flush=True)
+    _note_tool_result(name, bool(result.get("ok")))
     return result
 
 
@@ -6505,8 +6563,10 @@ def parallel_results(calls: list[tuple[str, dict[str, Any]]]) -> dict[int, dict[
             return {"ok": False, "error": f"{item[0]} failed: {_scrub(str(exc))[:200]}"}
 
     started = time.monotonic()
+    import contextvars
+    ctx = contextvars.copy_context()   # 1.4.19: the turn's tool log (grounding) follows the parallel look-ups
     with ThreadPoolExecutor(max_workers=min(4, len(calls)), thread_name_prefix="tool-par") as pool:
-        results = list(pool.map(one, calls))
+        results = list(pool.map(lambda item: ctx.copy().run(one, item), calls))
     try:
         agent_log.event("parallel_tools", n=len(calls), ms=int((time.monotonic() - started) * 1000))
     except Exception:
@@ -7447,7 +7507,9 @@ _VOICE_TOOLISH = re.compile(
     r"\b(open|close|launch|start|run|click|type|send|email|mail|message|whatsapp|call|file|folder|download|"
     r"desktop|documents|screen|screenshot|search|look up|google|find|delete|remove|move|copy|install|order|buy|"
     r"pay|remind|routine|schedule|timer|alarm|music|play|youtube|volume|pc|computer|drive|disk|space|memory|"
-    r"weather|news|price|latest|today|tomorrow|bot|task|code|build|app|website|page|browser)\b", re.I)
+    r"weather|news|price|latest|today|tomorrow|bot|task|code|build|app|website|page|browser|"
+    r"camera|webcam|cam|photo|picture|pic|selfie|video|record|recording|film|clip|see|look|watch|show|view|"
+    r"save|take|capture|snap|check|turn|set|make|create|write|note|upload|post|print|share|scan|read)\b", re.I)
 
 
 _VOICE_WARM = {"at": 0.0}
@@ -7479,6 +7541,50 @@ def prewarm_voice() -> None:
     threading.Thread(target=go, daemon=True, name="pb-voice-warm").start()
 
 
+# 1.4.19: a reply may only say an action happened when a tool really ran and succeeded this turn.
+_ACTION_CLAIM = re.compile(
+    r"\b(i(?:'ve| have)? (?:just )?(?:saved|recorded|captured|taken|took|sent|emailed|deleted|removed|created|made|"
+    r"opened|closed|started|installed|downloaded|uploaded|posted|moved|copied|renamed|scheduled|set up|turned)|"
+    r"(?:is|are|was|were|has been|have been) (?:now )?(?:saved|recorded|captured|sent|deleted|created|uploaded|posted|"
+    r"scheduled|installed|downloaded)|all done|done!|recording now|i'?m recording|it'?s saved|saved to|"
+    r"here(?:'s| is) (?:the|your) (?:photo|picture|video|clip|recording|file))\b", re.I)
+_TURN_TOOLS: Any = None
+
+
+def _turn_tool_log() -> list[tuple[str, bool]]:
+    import contextvars
+    global _TURN_TOOLS
+    if _TURN_TOOLS is None:
+        _TURN_TOOLS = contextvars.ContextVar("pb_turn_tools", default=None)
+    log = _TURN_TOOLS.get()
+    return log if log is not None else []
+
+
+def _note_tool_result(name: str, ok: bool) -> None:
+    if _TURN_TOOLS is not None:
+        log = _TURN_TOOLS.get()
+        if log is not None:
+            log.append((name, bool(ok)))
+
+
+_INFO_TOOLS = frozenset({"ask_user", "read_shared", "task_board_status", "recall_memory", "list_routines"})
+
+
+def ground_reply(reply: str, tools: list[tuple[str, bool]]) -> str:
+    """Flag a reply that claims an action when no action tool succeeded this turn."""
+    text = str(reply or "")
+    if not text or not _ACTION_CLAIM.search(text):
+        return text
+    if any(ok and name not in _INFO_TOOLS for name, ok in tools):
+        return text
+    failed = [name for name, ok in tools if not ok]
+    agent_log.event("ungrounded_claim", tools=len(tools), failed=len(failed))
+    note = ("I have to correct that: no action actually ran" +
+            (f" ({', '.join(sorted(set(failed)))} failed)" if failed else "") +
+            ", so nothing was done or saved. Ask again and I'll really do it.")
+    return note
+
+
 def _voice_chat_only(text: str) -> bool:
     t = " ".join(str(text or "").split())
     return 0 < len(t) <= 240 and not _VOICE_TOOLISH.search(t)
@@ -7492,21 +7598,36 @@ def _voice_fast_reply(user_text: str, history: list[Any], on_text: Callable[[str
         prior = []
     messages = [{"role": "system", "content": (
         "You are Ped Bot, Pedro's friendly assistant on his PC, talking out loud. Answer in one to three short "
-        "spoken sentences, warm and natural. No lists, no markdown, no stage directions. If he asks you to do "
-        "something on the PC, say you'll do it.")}]
+        "spoken sentences, warm and natural. No lists, no markdown, no stage directions. You have NO tools here: "
+        "if he asks you to do, check, see, record, save, open or find anything, reply with exactly ACT and nothing "
+        "else. Never say you did, are doing or saved something.")}]
     messages += [m for m in prior if isinstance(m, dict) and m.get("role") in ("user", "assistant")]
     messages.append({"role": "user", "content": user_text})
     started = time.monotonic()
     first = {"t": None}
 
+    held = {"buf": "", "open": False}
+
     def feed(chunk: str) -> None:
+        # 1.4.19: hold the first few characters, so an "ACT" (needs a tool) is never spoken
         if first["t"] is None:
             first["t"] = time.monotonic() - started
-        on_text(chunk)
+        if held["open"]:
+            on_text(chunk)
+            return
+        held["buf"] += chunk
+        if len(held["buf"].strip()) >= 4:
+            if held["buf"].strip().upper().startswith("ACT"):
+                return
+            held["open"] = True
+            on_text(held["buf"])
 
     reply = cloud_fallback.stream_text(messages, feed, cancel=cancel_event)
-    if not reply:
-        return None
+    if not reply or reply.strip().upper().startswith("ACT") or _ACTION_CLAIM.search(reply):
+        agent_log.event("voice_fast_handoff", spoken=held["open"])
+        return None if not held["open"] else (reply if not reply.strip().upper().startswith("ACT") else None)
+    if not held["open"] and held["buf"]:
+        on_text(held["buf"])
     try:
         from google.genai import types
         history.append(types.Content(role="user", parts=[types.Part.from_text(text=user_text)]))
@@ -7518,6 +7639,28 @@ def _voice_fast_reply(user_text: str, history: list[Any], on_text: Callable[[str
 
 
 def run_agent(user_text: str, history: list[Any], model: str, **kwargs: Any) -> str:
+    """1.4.19: every reply is checked against the tools that really ran (no invented "done/saved")."""
+    _turn_tool_log()
+    token = _TURN_TOOLS.set([])
+    try:
+        reply = _run_agent_turn(user_text, history, model, **kwargs)
+        tools = list(_TURN_TOOLS.get() or [])
+    finally:
+        _TURN_TOOLS.reset(token)
+    if isinstance(reply, str) and not str(user_text).startswith("[resume]"):
+        fixed = ground_reply(reply, tools)
+        if fixed != reply:
+            on_text = kwargs.get("on_text")
+            try:
+                if callable(on_text):
+                    on_text("\n\n" + fixed)
+            except Exception:
+                pass
+            return reply.rstrip() + "\n\n" + fixed
+    return reply
+
+
+def _run_agent_turn(user_text: str, history: list[Any], model: str, **kwargs: Any) -> str:
     """Run a turn; if the model service drops mid-task, wait and resume from the screen.
 
     Voice turns are never resumed. The history (with all finished steps) is kept.

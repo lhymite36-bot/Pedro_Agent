@@ -32,6 +32,9 @@ class WebcamCallTests(unittest.TestCase):
 
         agent_core.TOOLS["capture_webcam_image"] = fake_camera
         self.addCleanup(agent_core.TOOLS.__setitem__, "capture_webcam_image", original)
+        import confirm_action   # 1.4.19: the camera asks first; this test checks argument handling, so skip the card
+        self.addCleanup(setattr, confirm_action, "CAMERA_TOOLS", confirm_action.CAMERA_TOOLS)
+        confirm_action.CAMERA_TOOLS = frozenset()
         agent_core.begin_task_turn("look at me")
         result = agent_core.invoke_tool("capture_webcam_image", {"": {}})
         self.assertTrue(result["ok"], result)

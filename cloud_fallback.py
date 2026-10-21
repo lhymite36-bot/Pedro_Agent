@@ -263,8 +263,12 @@ def _tools(user_text: str = "", limit: int = 24, desc: int = 220) -> list[dict[s
 
     ranked = sorted(decls, key=score, reverse=True)
     # 1.4.18: the everyday look-ups are always offered (a long tool list once pushed web_search out)
-    must = [d for d in decls if d["name"] in ESSENTIAL_TOOLS]
-    picked = must + [d for d in ranked if d["name"] not in ESSENTIAL_TOOLS][: max(0, limit - len(must))]
+    need = set(ESSENTIAL_TOOLS)
+    if re.search(r"\b(camera|webcam|cam|photo|picture|pic|selfie|video|record|film|clip|see me|look at me|what do you see)\b",
+                 user_text or "", re.I):   # 1.4.19: camera requests always get the real camera tools
+        need |= {"webcam_vision_tool", "capture_webcam_image", "record_pc_camera"}
+    must = [d for d in decls if d["name"] in need]
+    picked = must + [d for d in ranked if d["name"] not in need][: max(0, limit - len(must))]
     return [{"type": "function", "function": {
         "name": item["name"],
         "description": (item.get("description") or "")[:desc],
