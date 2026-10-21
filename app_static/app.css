@@ -601,3 +601,10 @@ main{position:relative}
 .tb-child{margin-left:18px;border-style:dashed}.tb-done .tb-bar i{background:#3ecf8e}.tb-failed .tb-bar i,.tb-stopped .tb-bar i{background:#c0504d}
 .tb-approval{border-color:#ffb400}.tb-count{display:inline-block;min-width:18px;margin-left:6px;padding:0 5px;border-radius:9px;background:#7c8cff;color:#fff;font-size:11px;text-align:center}
 .rt-acts button[data-a="approve"]{border-color:#3ecf8e;color:#3ecf8e}
+/* 1.4.18 Lite mode (phones): no blur layers, no moving background, no endless CSS loops */
+html.lite *,html.lite *::before,html.lite *::after{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+html.lite body.glass::before,html.lite body.glass::after{animation:none!important;mix-blend-mode:normal!important}
+html.lite .mini *,html.lite #hdr-avatar *,html.lite .side-btn *{animation-iteration-count:1!important}
+html.lite body.glass #side,html.lite body.glass header,html.lite body.glass .box,html.lite body.glass .rt-panel,html.lite body.glass #bottomnav,html.lite body.glass #settings{background:rgba(20,22,28,.94)!important}
+html.lite body.glass .bot .bubble,html.lite body.glass .user .bubble{background:rgba(34,37,46,.92)!important}
+.hist-more{display:block;margin:8px auto;background:transparent;color:inherit;border:1px solid var(--line,#3a3d44);border-radius:10px;padding:6px 12px;cursor:pointer;opacity:.8}

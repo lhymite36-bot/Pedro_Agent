@@ -18,7 +18,7 @@
 
   const side = document.createElement('button');
   side.className = 'side-btn'; side.id = 'tbbtn'; side.type = 'button';
-  side.innerHTML = ICON + 'Tasks <span class="tb-count" id="tb-count" hidden></span>';
+  side.innerHTML = ICON + 'Tasks <span class="tb-count" id="tb-count" style="visibility:hidden"></span>';
   const anchor = $('#rtbtn') || $('#setbtn'); if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(side, anchor);
   const nav = $('#bottomnav'); let navb = null;
   if (nav) {
@@ -52,30 +52,66 @@
     if (!live) b.push(['remove', 'Remove']);
     return b.map(([a, l]) => '<button data-a="' + a + '"' + (a === 'stop' ? ' class="danger"' : '') + '>' + l + '</button>').join('');
   }
+  // 1.4.18: rows are keyed by task id and updated in place. Only the parts that changed are touched
+  // (a full innerHTML re-render every poll made the board flicker on phones).
+  const rows = new Map();
+  function setText(el, t) { if (el.textContent !== t) el.textContent = t; }
+  function makeRow(id) {
+    const el = document.createElement('div'); el.dataset.id = id;
+    el.innerHTML = '<div class="rt-name"></div><div class="rt-sub tb-state"></div><div class="tb-bar"><i></i></div>' +
+      '<div class="rt-sub tb-step"></div><div class="rt-prompt tb-result"></div><div class="rt-sub tb-err"></div><div class="rt-acts"></div>';
+    el.querySelector('.rt-acts').addEventListener('click', async (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      const r = await post('/api/tasks', { action: b.dataset.a, id }); setText($('#tb-stat'), r.message || r.error || ''); load();
+    });
+    return el;
+  }
+  function fill(el, t, child) {
+    const cls = 'rt-item tb-item tb-' + t.status + (child ? ' tb-child' : '');
+    if (el.className !== cls) el.className = cls;
+    setText(el.querySelector('.rt-name'), t.title + (t.bot ? '  \u00b7 ' + t.bot : ''));
+    setText(el.querySelector('.tb-state'), (LABEL[t.status] || t.status) + (t.seconds ? ' \u00b7 ' + Math.round(t.seconds) + ' s' : '') +
+      (t.model ? ' \u00b7 ' + t.model.replace('backup:', '') : '') + (t.needs ? ' \u00b7 ' + t.needs : ''));
+    const bar = el.querySelector('.tb-bar i'); const w = (t.progress || 0) + '%'; if (bar.style.width !== w) bar.style.width = w;
+    const step = t.steps && t.steps.length && t.status !== 'done' ? t.steps[t.steps.length - 1] : '';
+    const se = el.querySelector('.tb-step'); setText(se, step); se.style.display = step ? '' : 'none';
+    const res = t.result && (t.status === 'done' || t.status === 'approval') && !child ? t.result.slice(0, 600) : '';
+    const re = el.querySelector('.tb-result'); setText(re, res); re.style.display = res ? '' : 'none';
+    const ee = el.querySelector('.tb-err'); setText(ee, t.error || ''); ee.style.display = t.error ? '' : 'none';
+    const acts = buttons(t); const box = el.querySelector('.rt-acts'); if (box.dataset.k !== acts) { box.dataset.k = acts; box.innerHTML = acts; }
+  }
+  let busy = false;
   async function load() {
-    let d; try { d = await get('/api/tasks'); } catch (e) { return; }
-    const list = d.tasks || []; const box = $('#tb-list');
-    const cnt = $('#tb-count'); cnt.hidden = !d.running; cnt.textContent = d.running || '';
-    $('#tb-max').textContent = d.max_running || 5;
+    if (busy || document.hidden) return; busy = true;
+    let d; try { d = await get('/api/tasks'); } catch (e) { busy = false; return; }
+    busy = false;
+    const list = d.tasks || [];
+    const cnt = $('#tb-count'); const c = String(d.running || ''); setText(cnt, c); cnt.style.visibility = d.running ? 'visible' : 'hidden';
+    setText($('#tb-max'), String(d.max_running || 5));
     if (panel.hidden) return;
-    const kids = new Set(); list.forEach((t) => (t.children || []).forEach((c) => kids.add(c)));
-    const html = (t, child) => '<div class="rt-item tb-item tb-' + t.status + (child ? ' tb-child' : '') + '" data-id="' + t.id + '">' +
-      '<div class="rt-name">' + esc(t.title) + (t.bot ? ' <span class="rt-bot">' + esc(t.bot) + '</span>' : '') + '</div>' +
-      '<div class="rt-sub">' + esc(LABEL[t.status] || t.status) + (t.seconds ? ' &middot; ' + t.seconds + ' s' : '') + (t.model ? ' &middot; ' + esc(t.model.replace('backup:', '')) : '') + (t.needs ? ' &middot; ' + esc(t.needs) : '') + '</div>' +
-      '<div class="tb-bar"><i style="width:' + (t.progress || 0) + '%"></i></div>' +
-      (t.steps && t.steps.length && t.status !== 'done' ? '<div class="rt-sub">' + esc(t.steps[t.steps.length - 1]) + '</div>' : '') +
-      (t.result && (t.status === 'done' || t.status === 'approval') && !child ? '<div class="rt-prompt">' + esc(t.result.slice(0, 600)) + '</div>' : '') +
-      (t.error ? '<div class="rt-sub">' + esc(t.error) + '</div>' : '') +
-      '<div class="rt-acts">' + buttons(t) + '</div></div>';
+    const box = $('#tb-list');
+    const kids = new Set(); list.forEach((t) => (t.children || []).forEach((k) => kids.add(k)));
     const byId = {}; list.forEach((t) => byId[t.id] = t);
-    let out = '';
-    list.slice().reverse().forEach((t) => { if (kids.has(t.id)) return; out += html(t, false); (t.children || []).forEach((c) => { if (byId[c]) out += html(byId[c], true); }); });
-    box.innerHTML = out || '<p class="rt-empty">No tasks yet. Ask any bot to do something "in the background", or add one here.</p>';
-    box.querySelectorAll('.tb-item button').forEach((b) => b.onclick = async () => {
-      const id = b.closest('.tb-item').dataset.id; const a = b.dataset.a;
-      const r = await post('/api/tasks', { action: a, id }); $('#tb-stat').textContent = r.message || r.error || ''; load();
+    const wanted = [];
+    list.slice().reverse().forEach((t) => { if (kids.has(t.id)) return; wanted.push([t, false]); (t.children || []).forEach((k) => { if (byId[k]) wanted.push([byId[k], true]); }); });
+    const keep = new Set(wanted.map(([t]) => t.id));
+    rows.forEach((el, id) => { if (!keep.has(id)) { el.remove(); rows.delete(id); } });
+    let empty = box.querySelector('.rt-empty');
+    if (!wanted.length && !empty) { empty = document.createElement('p'); empty.className = 'rt-empty'; empty.textContent = 'No tasks yet. Ask any bot to do something "in the background", or add one here.'; box.appendChild(empty); }
+    if (wanted.length && empty) empty.remove();
+    let prev = null;
+    wanted.forEach(([t, child]) => {
+      let el = rows.get(t.id); if (!el) { el = makeRow(t.id); rows.set(t.id, el); }
+      fill(el, t, child);
+      const want = prev ? prev.nextSibling : box.firstChild;
+      if (want !== el) box.insertBefore(el, want);   // moves only rows whose place changed
+      prev = el;
     });
   }
   window.refreshTasks = load;
-  setInterval(load, 1500); load();
+  // Poll fast only while the board is open; the badge refreshes slowly otherwise. Nothing runs while hidden.
+  setInterval(() => { if (!panel.hidden) load(); }, 1500);
+  setInterval(() => { if (panel.hidden) load(); }, 8000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
+  load();
 })();

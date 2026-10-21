@@ -41,9 +41,10 @@
   }
   function stopView() { clearInterval(frameTimer); $('#live-img').src = ''; }
   async function feed() {
+    if (document.hidden) return;   // 1.4.18: no polling while the app is in the background
     try {
       const r = await (await fetch('/live/activity?after=' + lastId)).json();
-      $('#live-now').textContent = r.busy ? 'Working: ' + r.now : 'Idle';
+      setText($('#live-now'), r.busy ? 'Working: ' + r.now : 'Idle');   // 1.4.18: only touch the DOM when it changed
       $('#live-now').classList.toggle('busy', !!r.busy);
       localMode = !!r.local;
       control = true;
@@ -58,12 +59,18 @@
       });
       if (atTop) feedBox.scrollTop = 0;
       while (feedBox.children.length > 80) feedBox.lastChild.remove();
-    } catch (e) { $('#live-now').textContent = 'Offline'; }
-    if (open && narrowScreen()) {
-      const slider = $('#live-size');
-      if (slider) applySize(slider.value);
-    }
+    } catch (e) { setText($('#live-now'), 'Offline'); }
   }
+  function setText(el, t) { if (el && el.textContent !== t) el.textContent = t; }
+  // 1.4.18: the picture is placed when its size or the screen changes, not on every activity poll
+  // (re-placing it every 1.5 s made the live area flicker on phones).
+  let naturalKey = '';
+  const picEl = $('#live-img');
+  if (picEl) picEl.addEventListener('load', () => {
+    const k = picEl.naturalWidth + 'x' + picEl.naturalHeight;
+    if (k !== naturalKey && open) { naturalKey = k; const sl = $('#live-size'); applySize(sl ? sl.value : 100); }
+  });
+  window.addEventListener('resize', () => { if (open) { const sl = $('#live-size'); applySize(sl ? sl.value : 100); } });
   function show(on) {
     open = on; pane.classList.toggle('open', on); document.body.classList.toggle('live-open', on);
     clearInterval(feedTimer);
@@ -91,6 +98,9 @@
     if (!(sw > 0) || !(sh > 0)) return;
     const nw = img.naturalWidth > 0 ? img.naturalWidth : 16;
     const nh = img.naturalHeight > 0 ? img.naturalHeight : 9;
+    const placeKey = [sw, sh, nw, nh, n, viewPan].join(',');
+    if (img.dataset.placed === placeKey) return;   // same size: leave it alone (no restyle, no flicker)
+    img.dataset.placed = placeKey;
     const h = Math.max(1, sh * (n / 100));
     const w = h * (nw / nh);
     img.style.objectFit = 'fill';
@@ -159,8 +169,8 @@
   function aiming() { return $('#live-ctl-on') && $('#live-ctl-on').checked; }
   function aimCursor() { const img = $('#live-img'); if (img) img.classList.toggle('live-aim', aiming()); }
   function armControl() {
-    const bar = $('#live-control'); if (bar) bar.style.display = '';
-    const allowBtn = $('#live-allow'); if (allowBtn) allowBtn.hidden = true;
+    const bar = $('#live-control'); if (bar && bar.style.display) bar.style.display = '';
+    const allowBtn = $('#live-allow'); if (allowBtn && !allowBtn.hidden) allowBtn.hidden = true;
     const box = $('#live-ctl-on');
     if (box && !box.dataset.set) {
       try { box.checked = localStorage.liveControl !== '0'; } catch (e) { box.checked = true; }

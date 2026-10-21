@@ -483,7 +483,17 @@ if ($('#clear-chats')) $('#clear-chats').onclick = clearAllChats;
 async function openSession(s) {
   if (!keepReply) clearReply();
   session = s; localStorage.session = s; $('#log').innerHTML = '';
-  const rows = await api('/api/history?session=' + encodeURIComponent(s));
+  let rows = await api('/api/history?session=' + encodeURIComponent(s));
+  // 1.4.18: Lite mode shows the newest messages of a long chat; the rest load on request
+  const limit = window.LITE && window.LITE.on && !window.__allHistory ? window.LITE.historyLimit : 0;
+  window.__allHistory = false;
+  if (limit && rows.length > limit) {
+    const hidden = rows.length - limit; rows = rows.slice(-limit);
+    const more = document.createElement('button'); more.type = 'button'; more.className = 'hist-more';
+    more.textContent = 'Show ' + hidden + ' earlier message' + (hidden === 1 ? '' : 's');
+    more.onclick = () => { window.__allHistory = true; openSession(s); };
+    $('#log').appendChild(more);
+  }
   rows.forEach((m) => { if (m.card) { renderCard(m.card, m.ts); return; } if (/^\[\[card:[0-9a-f]{12}\]\]$/.test(m.text || '')) return; if (m.role === 'user') { const u = addUser(m.text, m.files, m.ts); if (window.Reactions) Reactions.attach(u, m.id, m.reactions); } else { const t = /^\[\[@([a-z0-9-]+)\]\]\s?/.exec(m.text || ''); const b = addBot(m.ts); b.row.dataset.replyText = t ? m.text.slice(t[0].length) : (m.text || ''); if (window.Reactions) Reactions.attach(b.row, m.id, m.reactions); if (t && window.markSpeaker) window.markSpeaker(b, t[1]); renderMd(b.body, t ? m.text.slice(t[0].length) : m.text); groupChips(b, m.chips); if (m.writes && m.writes.length) { addUndo(b.row, m.writes); addSavedMedia(b.row, m.writes); } } });
   showEmpty(); loadSessions(); syncRunningButton(); if (window.applyBotHeader) window.applyBotHeader();
 }

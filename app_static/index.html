@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Ped Bot</title>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<script src="/lite.js"></script>
 <link rel="stylesheet" href="/avatars.css">
 <link rel="stylesheet" href="/app.css">
 <link rel="stylesheet" href="/glass.css">
@@ -130,6 +131,7 @@
     <div class="field col"><div>Quiet Brain Shorts (backup for Grok Bot)<small>6 funny 2D psychology Shorts a day to YouTube + TikTok through Buffer, skipping ideas already posted. Off until you switch it on. The token stays in your local .env.</small></div>
       <span><label class="switch"><input type="checkbox" id="qbs-on"><span></span></label> <input id="qbs-token" type="password" placeholder="Buffer access token" autocomplete="off"> <button class="btn" id="qbs-save" type="button">Save token</button> <button class="btn" id="qbs-dry" type="button">Dry run</button></span>
       <input id="qbs-vts" placeholder="Voice to Short folder (e.g. C:\Users\you\Projects\voice-to-short)"><small id="qbs-line"></small></div>
+    <div class="field"><div>Lite mode<small>Lighter and smoother on phones: no glass blur or moving background, avatars move when you tap them, long chats show the newest messages first. Auto turns it on for phones.</small></div><select id="lite-mode"><option value="auto">Auto</option><option value="on">On</option><option value="off">Off</option></select></div>
     <div class="field"><div>Keep working when closed<small>Closing the window hides Ped Bot in the tray; bots, routines and the phone keep running. Quit from the tray icon.</small></div><label class="switch"><input type="checkbox" id="bg-keep"><span></span></label></div>
     <div class="field"><div>Start with Windows<small>Starts hidden in the tray when you sign in. Off unless you turn it on.</small></div><label class="switch"><input type="checkbox" id="bg-start"><span></span></label></div>
     <div class="field"><div>Windows notifications<small>Progress and results of long tasks.</small></div><label class="switch"><input type="checkbox" id="bg-notes"><span></span></label></div>
@@ -227,22 +229,20 @@
 <script src="/reactions.js"></script>
 <script src="/app.js"></script>
 <script src="/bots_ui.js"></script>
-<script src="/newbot_ui.js"></script>
 <script src="/glass.js"></script>
 <script src="/themes.js"></script>
 <script src="/titlebar.js"></script>
 <script src="/mention_pick.js"></script>
 <script src="/groups_ui.js"></script>
 <script src="/phone_ui.js"></script>
-<script src="/live_ui.js"></script>
-<script src="/routines_ui.js"></script>
-<script src="/tasks_ui.js"></script>
-<script src="/connectors_ui.js"></script>
-<script src="/avatar_mode.js"></script>
-<script src="/maintenance_ui.js"></script>
 <div id="firstrun" class="firstrun" hidden><form id="fr-form"><h2>Welcome to Ped Bot</h2>
 <p>Paste your own free Gemini API key to start. Get one free at aistudio.google.com/apikey. It is saved only in the .env file on this PC.</p>
 <input id="fr-key" type="password" placeholder="Gemini API key" autocomplete="off">
 <details><summary>Telegram (optional)</summary><input id="fr-tg" type="password" placeholder="Telegram bot token" autocomplete="off"><input id="fr-chat" placeholder="Your Telegram chat ID"></details>
 <p id="fr-err" class="fr-err"></p><button type="submit">Save and start</button></form></div>
+<script>/* 1.4.18: secondary screens load after the first paint (right away on PC, when idle in Lite mode) */
+(function () { var late = ["/newbot_ui.js", "/live_ui.js", "/routines_ui.js", "/tasks_ui.js", "/connectors_ui.js", "/avatar_mode.js", "/maintenance_ui.js"];
+  function go() { late.forEach(function (n) { var s = document.createElement('script'); s.src = n; s.async = false; document.body.appendChild(s); }); }
+  if (window.LITE && window.LITE.on) (window.requestIdleCallback || function (f) { setTimeout(f, 300); })(go, { timeout: 1200 }); else go();
+})();</script>
 </body></html>

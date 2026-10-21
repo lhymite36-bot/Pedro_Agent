@@ -85,7 +85,7 @@ function create(host,o={}){
  const fit=o.fit!==false&&!o.size;const svg=el('svg',fit?{viewBox:'0 0 200 230',width:'100%',height:'100%',preserveAspectRatio:'xMidYMid meet',style:'overflow:visible;touch-action:none;display:block'}:{viewBox:'0 0 200 230',width:size,height:size*1.15,style:'overflow:visible;touch-action:none;cursor:grab'});
  const defs=el('defs',{},svg);
  const g=el('radialGradient',{id:id+'g',gradientUnits:'userSpaceOnUse'},defs);const stops=[0,.42,1].map(of=>el('stop',{offset:of},g));
- const sg=el('radialGradient',{id:id+'s'},defs);el('stop',{offset:0,'stop-color':'#000','stop-opacity':.55},sg);el('stop',{offset:1,'stop-color':'#000','stop-opacity':0},sg);
+ const sg=el('radialGradient',{id:id+'s'},defs);el('stop',{offset:0,'stop-color':'#000','stop-opacity':.16},sg);el('stop',{offset:1,'stop-color':'#000','stop-opacity':0},sg);
  const shadow=el('ellipse',{cx:100,cy:200,rx:62,ry:11,fill:`url(#${id}s)`},svg);
  const gPos=el('g',{},svg),gSq=el('g',{},gPos),gRot=el('g',{},gSq);
  const body=el('path',{fill:`url(#${id}g)`},gRot);const sideDots=[0,1].map(()=>el('circle',{r:0,fill:`url(#${id}g)`},gPos));
@@ -102,9 +102,9 @@ function create(host,o={}){
  B.morph.t=1;
  function pick(){const l=STATES[B.state]||STATES.idle;B.clip=CLIPS[l[Math.floor(r()*l.length)]];B.ct=0;}
  function setShape(k){if(!SHAPES[k]||k===B.shape)return;B.shape=k;B.mFrom=JSON.parse(JSON.stringify(B.cur));B.mTo=snapshotShape(k,B.color);B.morph.x=0;B.morph.v=0;B.morph.t=1}
- function setState(s){B.from={...B.last};B.bridge=0;B.state=s;pick();setShape(STATE_SHAPE[s]||B.base)}
+ function setState(s){wake(B,4000);B.from={...B.last};B.bridge=0;B.state=s;pick();setShape(STATE_SHAPE[s]||B.base)}
  function blink(){B.blinkT=0}
- function poke(){B.pokeS.v-=6;blink()}
+ function poke(){wake(B,3000);B.pokeS.v-=6;blink()}
  pick();
  svg.addEventListener('pointerdown',e=>{B.drag={x:e.clientX,y:e.clientY,yaw:B.gyaw.x,pitch:B.gpitch.x,moved:0};svg.setPointerCapture(e.pointerId);svg.style.cursor='grabbing'});
  svg.addEventListener('pointermove',e=>{if(!B.drag)return;const dx=e.clientX-B.drag.x,dy=e.clientY-B.drag.y;B.drag.moved=Math.max(B.drag.moved,Math.hypot(dx,dy));B.gyaw.t=Math.max(-60,Math.min(60,B.drag.yaw+dx*.6));B.gpitch.t=Math.max(-40,Math.min(40,B.drag.pitch-dy*.6))});
@@ -130,7 +130,7 @@ function create(host,o={}){
   const M=B.cur=lerpShape(B.mFrom,B.mTo,mw);const R=M.R,[cx,cy]=M.c;
   const ec=(SHAPES[B.shape]||{}).eye||'#fff';if(ec!==B._ec){B._ec=ec;eyesG.setAttribute('fill',ec);arcs.forEach(q=>q.setAttribute('stroke',ec))}
   const isDark=M.col.reduce((a,b)=>a+b)<.3,col=mix(M.col,[1,1,1],isDark?.32*B.think.x:0);
-  [mix(col,[1,1,1],isDark?.32:.38),col,mix(col,[0,0,0],isDark?.6:.5)].forEach((c,i)=>stops[i].setAttribute('stop-color',toHex(c)));
+  [mix(col,[1,1,1],isDark?.06:.08),col,mix(col,[0,0,0],isDark?.16:.12)].forEach((c,i)=>stops[i].setAttribute('stop-color',toHex(c)));
   // thinking: body collapses into the middle of three dots
   const dotR=15,ease=bez(EASE.io,th),bob=k=>-9*Math.max(0,Math.sin(B.time*6-k*1.1))*th;
   const pts=M.r.map((rv,i)=>{const t=i/N*2*Math.PI,rr=rv+(dotR-rv)*ease;return[cx+Math.cos(t)*rr,cy-(cy-(M.gy-dotR))*ease+Math.sin(t)*rr+bob(1)]});
@@ -145,7 +145,7 @@ function create(host,o={}){
   const lx=cx-R*.38*(1-th)-yaw*.9,ly=cy+(M.gy-dotR-cy)*th-R*.42*(1-th)+pitch*.9;
   g.setAttribute('cx',lx);g.setAttribute('cy',ly);g.setAttribute('fx',lx);g.setAttribute('fy',ly);g.setAttribute('r',R*1.55*(1-th*.35));
   spec.setAttribute('cx',lx+R*.05);spec.setAttribute('cy',ly-R*.02);spec.setAttribute('rx',R*.26);spec.setAttribute('ry',R*.14);spec.setAttribute('transform',`rotate(-30 ${lx} ${ly})`);
-  spec.setAttribute('opacity',(isDark?.16:.22)*(1-th));
+  spec.setAttribute('opacity',0);
   const Y=yaw*Math.PI/180,P=pitch*Math.PI/180,eyeOn=Math.max(0,1-th*2.2);
   M.eyes.forEach((e,i)=>{let vx=(e.x-cx)/R,vy=(e.y-cy)/R,vz=Math.sqrt(Math.max(.05,1-vx*vx-vy*vy));
    let x1=vx*Math.cos(Y)+vz*Math.sin(Y),z1=-vx*Math.sin(Y)+vz*Math.cos(Y);
@@ -162,9 +162,13 @@ function create(host,o={}){
  };
  B.svg=svg;B.host=host;B.setColor=c=>{B.color=c||'';B.mFrom=JSON.parse(JSON.stringify(B.cur));B.mTo=snapshotShape(B.shape,B.color);B.morph.x=0;B.morph.v=0;B.morph.t=1};B.destroy=()=>{const i=BOTS.indexOf(B);if(i>=0)BOTS.splice(i,1);svg.remove()};B.setState=setState;B.morphTo=setShape;B.setShape=k=>{B.base=k;setShape(k)};B.blink=blink;B.poke=poke;B.big=!!o.follow||(o.size||0)>=80;BOTS.push(B);B.update(0);return B;}
 let lastT=null,manual=false;
-let tick=0;function frame(now){if(!manual){const gap=document.hasFocus()?33:250;if(lastT!=null&&now-lastT<gap){requestAnimationFrame(frame);return}tick++;const dt=lastT==null?0:Math.min(.25,(now-lastT)/1000);lastT=now;if(!document.hidden){for(let i=BOTS.length-1;i>=0;i--){const b=BOTS[i];if(!b.svg.isConnected){if(b.seen)BOTS.splice(i,1);continue}b.seen=true;if(b.visible&&(b.big||tick%3===0)&&b.svg.getClientRects().length)b.update(b.big?dt:dt*3)}}}requestAnimationFrame(frame)}
+// 1.4.18 Lite mode (on by default on phones): avatars sit still and animate only after a tap, a state
+// change or a pointer move near them; nothing animates offscreen or while the tab is hidden.
+const LITE={on:false};function wake(b,ms){b.wakeUntil=Math.max(b.wakeUntil||0,performance.now()+(ms||2500))}
+addEventListener('pointerdown',()=>BOTS.forEach(b=>wake(b,3000)),{passive:true});
+let tick=0;function frame(now){if(!manual){const gap=LITE.on?50:(document.hasFocus()?33:250);if(document.hidden){lastT=null;setTimeout(()=>requestAnimationFrame(frame),500);return}if(lastT!=null&&now-lastT<gap){requestAnimationFrame(frame);return}tick++;const dt=lastT==null?0:Math.min(.25,(now-lastT)/1000);lastT=now;if(!document.hidden){for(let i=BOTS.length-1;i>=0;i--){const b=BOTS[i];if(!b.svg.isConnected){if(b.seen)BOTS.splice(i,1);continue}b.seen=true;if(b.visible&&(!LITE.on||(b.wakeUntil||0)>now||!b.drawn)&&(b.big||tick%3===0)&&b.svg.getClientRects().length){b.update(b.big?dt:dt*3);b.drawn=true}}}}requestAnimationFrame(frame)}
 requestAnimationFrame(frame);
 addEventListener('pointermove',e=>BOTS.forEach(b=>b.look(e.clientX,e.clientY)));
 function step(sec,fps=60){manual=true;for(let i=0;i<Math.round(sec*fps);i++)BOTS.forEach(b=>b.update(1/fps))}
-window.PedBot={create,step,SHAPES,CLIPS,STATES,bots:BOTS,REDUCED};
+window.PedBot={create,step,lite:LITE,wake,SHAPES,CLIPS,STATES,bots:BOTS,REDUCED};
 })();

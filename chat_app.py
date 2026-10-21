@@ -37,6 +37,7 @@ STATIC_FILES = {
     "app.js": "application/javascript; charset=utf-8",
     "routines_ui.js": "application/javascript; charset=utf-8",
     "tasks_ui.js": "application/javascript; charset=utf-8",
+    "lite.js": "application/javascript; charset=utf-8",
     "avatars/round.png": "image/png",
     "avatars/robot.png": "image/png",
     "avatars/cat.png": "image/png",
@@ -1012,14 +1013,38 @@ def listen_once(state: AppState, timeout: float = 8.0) -> dict[str, Any]:
     return {"ok": False, "text": "", "error": error, "kind": "error"}
 
 
+_GZ: dict[int, tuple[bytes, bytes]] = {}
+
+
+def _gzip_cached(body: bytes) -> bytes:
+    import gzip, hashlib
+    key = hash(body)
+    hit = _GZ.get(key)
+    if hit and hit[0] == hashlib.sha1(body).digest():
+        return hit[1]
+    out = gzip.compress(body, compresslevel=6, mtime=0)
+    if len(body) > 8000:   # static files repeat; small JSON answers do not
+        if len(_GZ) > 64:
+            _GZ.clear()
+        _GZ[key] = (hashlib.sha1(body).digest(), out)
+    return out
+
+
 def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args: Any) -> None:  # quiet console
             return
 
         def _send(self, code: int, body: bytes, kind: str = "application/json") -> None:
+            gz = (len(body) > 1400 and ("javascript" in kind or "css" in kind or "html" in kind or "json" in kind)
+                  and "gzip" in (self.headers.get("Accept-Encoding") or ""))
+            if gz:   # 1.4.18: about 4x less to send to the phone over the tunnel
+                body = _gzip_cached(body)
             self.send_response(code)
             self.send_header("Content-Type", kind)
+            if gz:
+                self.send_header("Content-Encoding", "gzip")
+                self.send_header("Vary", "Accept-Encoding")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()

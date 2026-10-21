@@ -28,6 +28,9 @@ PROVIDERS: tuple[dict[str, Any], ...] = (
      "model": "openrouter/free", "model_env": "OPENROUTER_MODEL", "quota": True},
     {"id": "cerebras", "env": "CEREBRAS_API_KEY", "url": "https://api.cerebras.ai/v1/chat/completions",
      "model": "qwen-3.8-27b", "model_env": "CEREBRAS_MODEL", "quota": True},
+    # 1.4.18: the PC's own Ollama (free, local) takes work when the cloud models are at their limits.
+    {"id": "ollama", "env": "OLLAMA_MODEL", "url": "http://127.0.0.1:11434/v1/chat/completions",
+     "model": "qwen2.5:7b", "model_env": "OLLAMA_MODEL", "quota": False, "local": True},
     {"id": "nvidia", "env": "NVIDIA_API_KEY", "url": "https://integrate.api.nvidia.com/v1/chat/completions",
      "model": "openai/gpt-oss-20b", "model_env": "NVIDIA_MODEL", "quota": True},
 )
@@ -89,10 +92,11 @@ def providers_for(kind: str) -> list[dict[str, Any]]:
 class _HttpStatus(Exception):
     """A non-2xx answer from the pooled connection (same handling as urllib's HTTPError)."""
 
-    def __init__(self, code: int, body: bytes) -> None:
+    def __init__(self, code: int, body: bytes, retry_after: float = 0.0) -> None:
         super().__init__(f"HTTP {code}")
         self.code = code
         self._body = body
+        self.retry_after = retry_after
 
     def read(self) -> bytes:
         return self._body
@@ -106,6 +110,7 @@ import urllib.parse
 
 _POOL: dict[str, list[http.client.HTTPSConnection]] = {}
 _POOL_LOCK = threading.Lock()
+_LAST_RETRY: dict[int, float] = {}
 
 
 def _pooled_post(url: str, data: bytes, headers: dict[str, str], timeout: float) -> tuple[int, bytes]:
@@ -118,7 +123,8 @@ def _pooled_post(url: str, data: bytes, headers: dict[str, str], timeout: float)
             conn = idle.pop() if idle else None
         fresh = conn is None
         if conn is None:
-            conn = http.client.HTTPSConnection(host, timeout=timeout)
+            conn = (http.client.HTTPConnection(host, timeout=timeout) if parts.scheme == "http"
+                    else http.client.HTTPSConnection(host, timeout=timeout))
         try:
             conn.timeout = timeout
             if conn.sock is not None:
@@ -126,6 +132,10 @@ def _pooled_post(url: str, data: bytes, headers: dict[str, str], timeout: float)
             conn.request("POST", path, body=data, headers={**headers, "Connection": "keep-alive"})
             resp = conn.getresponse()
             raw = resp.read()
+            try:
+                _LAST_RETRY[threading.get_ident()] = float(resp.getheader("retry-after") or 0)
+            except ValueError:
+                _LAST_RETRY[threading.get_ident()] = 0.0
         except (http.client.HTTPException, ConnectionError, OSError) as exc:
             conn.close()
             if fresh or attempt:   # a fresh connection failing is a real network problem
@@ -168,7 +178,8 @@ def _post(body: dict[str, Any], provider: dict[str, Any] | None = None) -> dict[
     chosen = provider or PROVIDERS[0]
     try:   # 1.4.18: count the call against this model's per-minute limit (waits a moment when it is full)
         import model_pool
-        if not model_pool.acquire(_pool_key(chosen), max_wait=4.0):
+        est = len(json.dumps(body)) // 4 + 600   # rough token estimate for the request and its answer
+        if not model_pool.acquire(_pool_key(chosen), max_wait=4.0, tokens=est):
             raise _Switch(f"{chosen['id']} is at its per-minute limit")
     except ImportError:
         pass
@@ -177,10 +188,13 @@ def _post(body: dict[str, Any], provider: dict[str, Any] | None = None) -> dict[
                "User-Agent": "PedroAgent/1.4.13 (+https://github.com/lhymite36-bot/Pedro_Agent)"}  # Groq's Cloudflare blocks the urllib default (error 1010)
     if chosen["id"] == "openrouter":
         headers["X-Title"] = "Pedro Agent"
+    if chosen.get("local"):
+        headers.pop("Authorization", None)   # local Ollama needs no key
     try:
-        status, raw = _pooled_post(_provider_url(chosen), json.dumps(body).encode("utf-8"), headers, _TIMEOUT)
+        status, raw = _pooled_post(_provider_url(chosen), json.dumps(body).encode("utf-8"), headers,
+                                   60 if chosen.get("local") else _TIMEOUT)
         if status >= 400:
-            raise _HttpStatus(status, raw)
+            raise _HttpStatus(status, raw, _LAST_RETRY.get(threading.get_ident(), 0.0))
         return json.loads(raw.decode("utf-8"))
     except Exception as exc:  # never echo the key
         code = getattr(exc, "code", None)
@@ -193,6 +207,12 @@ def _post(body: dict[str, Any], provider: dict[str, Any] | None = None) -> dict[
                 detail = b""
             if b"tool_use_failed" in detail:   # the model wrote a bad tool call; asking again usually works
                 raise _BadToolCall(f"{chosen['id']} wrote a tool call that did not match its schema") from exc
+        if code == 429:   # 1.4.18: rest this model; other tasks move to the next free one
+            try:
+                import model_pool
+                model_pool.cooldown(_pool_key(chosen), float(getattr(exc, "retry_after", 0) or 20))
+            except Exception:
+                pass
         if isinstance(code, int) and code >= 400:
             raise _Switch(f"{chosen['id']} returned {code}") from exc
         if isinstance(exc, (TimeoutError, OSError)):
@@ -211,6 +231,9 @@ PC_HINT = ("PC look-ups: use list_files (one call: sort newest/largest, pattern 
            "look-ups together in one step. Answer from tool results only.\n\n")
 
 
+ESSENTIAL_TOOLS = frozenset({"web_search", "list_files", "pc_status", "read_file", "ask_user"})
+
+
 def _tools(user_text: str = "", limit: int = 24, desc: int = 220) -> list[dict[str, Any]]:
     """Free backup tiers have small request limits, so send only the most relevant tools, briefly described."""
     words = {w for w in re.findall(r"[a-z]{3,}", user_text.lower())}
@@ -221,7 +244,10 @@ def _tools(user_text: str = "", limit: int = 24, desc: int = 220) -> list[dict[s
         hit = sum(1 for w in words if w in text)
         return hit + (2 if item["name"] in CORE_TOOLS else 0) + (3 if any(w in item["name"] for w in words) else 0)
 
-    picked = sorted(decls, key=score, reverse=True)[:limit]
+    ranked = sorted(decls, key=score, reverse=True)
+    # 1.4.18: the everyday look-ups are always offered (a long tool list once pushed web_search out)
+    must = [d for d in decls if d["name"] in ESSENTIAL_TOOLS]
+    picked = must + [d for d in ranked if d["name"] not in ESSENTIAL_TOOLS][: max(0, limit - len(must))]
     return [{"type": "function", "function": {
         "name": item["name"],
         "description": (item.get("description") or "")[:desc],
@@ -398,4 +424,6 @@ GROQ_SECOND_MODEL = "openai/gpt-oss-20b"
 
 
 def _pool_key(provider: dict[str, Any]) -> str:
-    return f"groq:{_provider_model(provider)}" if provider.get("id") == "groq" else str(provider.get("id"))
+    if provider.get("id") == "groq":
+        return f"groq:{_provider_model(provider)}"
+    return str(provider.get("id"))
