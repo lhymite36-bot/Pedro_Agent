@@ -7031,6 +7031,31 @@ def _spent_models() -> set[str]:
         return set()
 
 
+_LOCAL_FAIL = ("ollama is not running", "the local model was too slow", "the local model is busy",
+               "ollama returned", "this request was not sent online")
+
+
+def _local_failed(reply: Any) -> bool:
+    folded = str(reply or "").strip().casefold()
+    return not folded or any(m in folded for m in _LOCAL_FAIL)
+
+
+def _busy_fallback(user_text: str, history: list[Any], types: Any, on_event: Any, cancel_event: Any) -> str:
+    """1.5.6: Gemini busy and no local answer: retry the free backups (Groq etc.) twice, then say so plainly."""
+    for wait in (0, 6):
+        if wait and stop_token.wait(wait, cancel_event):
+            break
+        try:
+            for kind in ("busy", "net"):
+                switched = _switch_providers(user_text, history, types, on_event, kind)
+                if switched and not _local_failed(switched):
+                    return switched
+        except Exception:
+            pass
+    return ("Gemini is busy right now and my free backup models didn't answer either. "
+            "Nothing was done; please ask again in a minute.")
+
+
 def _switch_providers(user_text: str, history: list[Any], types: Any, on_event: Callable[[dict[str, Any]], None] | None, kind: str) -> str | None:
     """Answer with the next saved free provider. None when none are set or all decline."""
     import cloud_fallback
@@ -7934,7 +7959,7 @@ def _run_agent_core(
                             if switched is not None:
                                 return switched
                         if not local_llm.ollama_reachable():
-                            raise RuntimeError(cloud_fallback.NO_BACKUP_MESSAGE) from exc
+                            return _busy_fallback(user_text, history, types, on_event, cancel_event)
                     if (
                         _transient_network_error(exc)
                         and not spoke["yes"]
@@ -7949,6 +7974,9 @@ def _run_agent_core(
                             voice=voice,
                             on_sentence=on_sentence,
                         )
+                        if _local_failed(reply):   # 1.5.6: never answer "Ollama is not running" for a busy Gemini
+                            reply = _busy_fallback(user_text, history, types, on_event, cancel_event)
+                            return reply
                         history.append(
                             types.Content(
                                 role="model",

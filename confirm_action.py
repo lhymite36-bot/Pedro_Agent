@@ -38,6 +38,15 @@ _NETWORK = {
 
 NEGATIVE = {"no", "nope", "nah", "cancel", "stop", "don't", "dont", "n"}
 
+# 1.5.6: public posts need their own fresh Approve tap on the card; typed "ok"/"yes" never runs them,
+# a card expires after CARD_TTL seconds, and every grant is used once and then cleared everywhere.
+CARD_ONLY_TOOLS = {"make_quiet_brain_short", "youtube_upload"}
+CARD_TTL = 600.0
+
+
+def card_only(item: dict[str, Any] | None) -> bool:
+    return bool(item) and item.get("name") in CARD_ONLY_TOOLS
+
 # One waiting action per chat. Texting a different bot does not cancel this chat's yes.
 _pending_by: dict[str, dict[str, Any]] = {}
 _granted_by: dict[str, dict[str, Any]] = {}
@@ -227,6 +236,7 @@ def remember(name: str, arguments: dict[str, Any], label: str) -> None:
         "label": label,
         "id": uuid.uuid4().hex[:12],   # 1.4.19: Approve/Deny answer this exact request
         "bucket": _bucket(),
+        "ts": __import__("time").monotonic(),
     }
 
 
@@ -282,6 +292,8 @@ def note_user_text(text: str) -> None:
     if not folded:
         return
     key = _bucket()
+    if folded in POSITIVE and card_only(_pending_by.get(key)):
+        return   # typed yes/ok never approves a public post; the card stays for a real tap
     if folded in POSITIVE and _pending_by.get(key) is not None:
         item = _pending_by.pop(key)
         _granted_by[key] = item
@@ -354,13 +366,24 @@ def resolve(request_id: str, approve: bool, invoke: Callable[[str, dict[str, Any
     token = _chat.set(bucket)
     try:
         _pending_by.pop(bucket, None)
+        import time as _t
+        if approve and card_only(item) and _t.monotonic() - float(item.get("ts") or 0) > CARD_TTL:
+            return {"ok": True, "resolved": True, "session": bucket, "approved": False,
+                    "text": "That approval card expired, so nothing was posted. Ask again for a fresh card."}
         if not approve:
             _note_denied(bucket, item)
             _granted_by.pop(bucket, None)
             return {"ok": True, "resolved": True, "session": bucket, "approved": False,
                     "text": f"Cancelled: {item.get('label') or item['name']}. I won't ask again for this."}
         _granted_by[bucket] = item
-        result = invoke(item["name"], item["arguments"])
+        try:
+            result = invoke(item["name"], item["arguments"])
+        finally:
+            if card_only(item):   # used once, success or failure; nothing left for a later "ok"
+                _granted_by.pop(bucket, None)
+                for b, v in list(_pending_by.items()):
+                    if v and v.get("name") == item["name"]:
+                        _pending_by.pop(b, None)
         detail = str(result.get("message") or result.get("error") or "")
         return {"ok": True, "resolved": True, "session": bucket, "approved": True, "result_ok": bool(result.get("ok")),
                 "text": ("Done: " if result.get("ok") else "That failed: ") + _user_detail(result, detail),
@@ -374,6 +397,11 @@ def consume_grant(name: str, arguments: dict[str, Any]) -> bool:
     """True once for the approved action (or the real action a confirm_before yes was about)."""
     key = _bucket()
     granted = _granted_by.get(key)
+    if name in CARD_ONLY_TOOLS:
+        if granted is not None and granted.get("name") == name and _same(granted, name, arguments):
+            _granted_by.pop(key, None)
+            return True
+        return False
     if granted is None or not _same(granted, name, arguments):
         # Asked once: a yes to confirm_before for this kind of action covers the real action
         # that follows in the next few minutes, so the user is not asked again and again.
@@ -433,6 +461,8 @@ def answer_pending(text: str, invoke: Callable[[str, dict[str, Any]], dict[str, 
     if folded in NEGATIVE:
         note_user_text(text)
         return f"Cancelled: {label}."
+    if folded in POSITIVE and card_only(waiting):
+        return f"To {label}, tap Approve on the card. A typed reply doesn't approve public posts."
     if folded not in POSITIVE or waiting["name"] == "confirm_before":
         return None
     note_user_text(text)            # pending -> granted

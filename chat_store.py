@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+import re
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -66,13 +67,18 @@ def message_time(msg_id: int, path: Path | None = None) -> float:
 def add(session: str, role: str, text: str, path: Path | None = None) -> int:
     """Save one message; returns its id. [[react:EMOJI]] markers in a reply become reactions on the
     user's latest message (by the speaker) instead of text."""
+    if role == "assistant" and not str(text or "").strip():
+        return 0   # 1.5.6: never save (or show) an empty bot message
     text, emojis = extract_reactions(text) if role == "assistant" else (text, [])
+    empty = role == "assistant" and not re.sub(r"^\[\[@[a-z0-9-]+\]\]", "", str(text or "")).strip()
     with _lock, _session(path) as con:
-        cur = con.execute(
-            "INSERT INTO messages(session, role, text, ts) VALUES (?,?,?,?)",
-            (session, role, text, time.time()),
-        )
-        new_id = int(cur.lastrowid)
+        new_id = 0
+        if not empty:   # 1.5.6: a reaction-only reply adds the reaction, not an empty bubble
+            cur = con.execute(
+                "INSERT INTO messages(session, role, text, ts) VALUES (?,?,?,?)",
+                (session, role, text, time.time()),
+            )
+            new_id = int(cur.lastrowid)
         if emojis:
             row = con.execute("SELECT id FROM messages WHERE session=? AND role='user' ORDER BY id DESC LIMIT 1",
                               (session,)).fetchone()

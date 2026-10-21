@@ -494,7 +494,7 @@ async function openSession(s) {
     more.onclick = () => { window.__allHistory = true; openSession(s); };
     $('#log').appendChild(more);
   }
-  rows.forEach((m) => { if (m.card) { renderCard(m.card, m.ts); return; } if (/^\[\[card:[0-9a-f]{12}\]\]$/.test(m.text || '')) return; if (m.role === 'user') { const u = addUser(m.text, m.files, m.ts); if (window.Reactions) Reactions.attach(u, m.id, m.reactions); } else { const t = /^\[\[@([a-z0-9-]+)\]\]\s?/.exec(m.text || ''); const b = addBot(m.ts); b.row.dataset.replyText = t ? m.text.slice(t[0].length) : (m.text || ''); if (window.Reactions) Reactions.attach(b.row, m.id, m.reactions); if (t && window.markSpeaker) window.markSpeaker(b, t[1]); renderMd(b.body, t ? m.text.slice(t[0].length) : m.text); groupChips(b, m.chips); if (m.writes && m.writes.length) { addUndo(b.row, m.writes); addSavedMedia(b.row, m.writes); } } });
+  rows.forEach((m) => { if (m.card) { renderCard(m.card, m.ts); return; } if (/^\[\[card:[0-9a-f]{12}\]\]$/.test(m.text || '')) return; if (m.role === 'user') { const u = addUser(m.text, m.files, m.ts); if (window.Reactions) Reactions.attach(u, m.id, m.reactions); } else { if (!String(m.text || '').replace(/^\[\[@[a-z0-9-]+\]\]/, '').trim() && !(m.writes && m.writes.length)) return; const t = /^\[\[@([a-z0-9-]+)\]\]\s?/.exec(m.text || ''); const b = addBot(m.ts); b.row.dataset.replyText = t ? m.text.slice(t[0].length) : (m.text || ''); if (window.Reactions) Reactions.attach(b.row, m.id, m.reactions); if (t && window.markSpeaker) window.markSpeaker(b, t[1]); renderMd(b.body, t ? m.text.slice(t[0].length) : m.text); groupChips(b, m.chips); if (m.writes && m.writes.length) { addUndo(b.row, m.writes); addSavedMedia(b.row, m.writes); } } });
   showEmpty(); loadSessions(); syncRunningButton(); if (window.applyBotHeader) window.applyBotHeader();
 }
 $('#new').onclick = () => { session = ''; localStorage.session = ''; $('#log').innerHTML = ''; showEmpty(); loadSessions(); syncRunningButton(); if (window.applyBotHeader) window.applyBotHeader(); $('#t').focus(); };
@@ -804,6 +804,7 @@ async function send(text, isVoice, files) {
           else finalText = bot.text;
           bot.row.dataset.replyText = bot.text || '';
           renderMd(bot.body, bot.text || '', false); if (!bot.text) bot.body.innerHTML = '';
+          if (!String(bot.text || '').trim() && !bot.row.querySelector('img,video,.card,.chip')) bot.row.remove();   // 1.5.6: no empty bubbles
           if (talk && bot.text) { voiceOpen = true; setMood('speaking'); } else if (!voiceOpen) setMood('idle');
         }
         else if (ev.event === 'audio') { clip = ev.url; }
@@ -817,6 +818,7 @@ async function send(text, isVoice, files) {
     if (here) {
       act.end();
       renderMd(bot.body, bot.text || '', false); if (!bot.text) bot.body.innerHTML = '';
+          if (!String(bot.text || '').trim() && !bot.row.querySelector('img,video,.card,.chip')) bot.row.remove();   // 1.5.6: no empty bubbles
       if (performance.now() - turnStarted > 8000 && document.hidden) finishPing();
       if (clip) await playClip(clip);
       voiceOpen = false; setMood('idle'); rowFace = null;
