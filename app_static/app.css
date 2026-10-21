@@ -595,3 +595,9 @@ main{position:relative}
 .cn-accounts button{background:transparent;color:inherit;border:1px solid var(--line,#3a3d44);border-radius:8px;font-size:12px;padding:3px 9px;cursor:pointer}
 .cn-accounts .cn-rm{color:#ff8a80}
 .cn-acts label.cn-check{flex-direction:row;align-items:center;gap:6px;font-size:13px;flex:0 0 auto;min-width:0}
+/* 1.4.18 task board */
+.tb-new textarea{width:100%;box-sizing:border-box;background:transparent;color:inherit;border:1px solid var(--line,#3a3d44);border-radius:10px;padding:8px;font:inherit;resize:vertical}
+.tb-bar{height:6px;border-radius:4px;background:rgba(255,255,255,.08);margin:6px 0;overflow:hidden}.tb-bar i{display:block;height:100%;background:linear-gradient(90deg,#7c8cff,#3ecf8e);transition:width .4s}
+.tb-child{margin-left:18px;border-style:dashed}.tb-done .tb-bar i{background:#3ecf8e}.tb-failed .tb-bar i,.tb-stopped .tb-bar i{background:#c0504d}
+.tb-approval{border-color:#ffb400}.tb-count{display:inline-block;min-width:18px;margin-left:6px;padding:0 5px;border-radius:9px;background:#7c8cff;color:#fff;font-size:11px;text-align:center}
+.rt-acts button[data-a="approve"]{border-color:#3ecf8e;color:#3ecf8e}

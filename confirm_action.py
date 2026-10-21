@@ -11,6 +11,7 @@ import contextlib
 import contextvars
 import os
 import threading
+import time
 from typing import Any, Callable, Iterator
 
 POSITIVE = {
@@ -184,11 +185,44 @@ def remember(name: str, arguments: dict[str, Any], label: str) -> None:
     current = _pending_by.get(_bucket())
     if current is not None and _same(current, name, arguments):
         return   # already waiting on this exact yes: keep the one card, do not ask again
+    _wait_for_approval_turn()
     _pending_by[_bucket()] = {
         "name": name,
         "arguments": dict(arguments),
         "label": label,
     }
+
+
+APPROVAL_QUEUE_WAIT = 600.0
+
+
+def _board_bucket(bucket: str) -> bool:
+    return bucket.startswith("task-") or "#task-" in bucket
+
+
+def _wait_for_approval_turn() -> None:
+    """1.4.18: background tasks ask for approval one at a time.
+
+    A board task that reaches a change while another board task's card is still open waits here
+    (Stop still works) until that card is answered. Chats Pedro is typing in are never held.
+    """
+    me = _bucket()
+    if not _board_bucket(me):
+        return
+    import stop_token
+    deadline = time.monotonic() + APPROVAL_QUEUE_WAIT
+    while time.monotonic() < deadline:
+        others = [b for b in list(_pending_by) if b != me and _board_bucket(b)]
+        if not others:
+            return
+        if stop_token.wait(0.5):
+            return
+
+
+def drop_pending(bucket: str) -> None:
+    """1.4.18: a stopped board task's open card is withdrawn (nothing runs)."""
+    _pending_by.pop(bucket, None)
+    _granted_by.pop(bucket, None)
 
 
 def waiting_labels() -> set[str]:

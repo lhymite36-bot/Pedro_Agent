@@ -505,6 +505,7 @@ Clipboard:
 Local files:
 - "Where did I save ..." or "find my notes about ..." calls search_local_files. Answer with the paths it returns. Do not invent a path. The index covers the Desktop, Documents, Downloads, the user home folder, and the external drive when that drive is connected. It does not open or run those files.
 - PC look-ups (1.4.16): "newest files in Downloads", "how many files on my Desktop", "PDFs in Documents" -> ONE list_files call (sort, pattern, limit, recursive). "Free space", "memory", "what is using RAM" -> ONE pc_status call. Do not use run_terminal_command, search_local_files or search_files_by_time for these. When several independent look-ups are needed, request them together in the same step.
+- Multitasking (1.4.18): a slow or long job ("in the background", "while I keep chatting", a long report, many sites) -> start_background_task, then reply in one line that it is on the task board. A big job with several independent parts -> split_big_job (parts run in parallel, answers are merged). Quick questions are answered here directly. Results other bots shared: read_shared.
 - "Where is the Excel file I saved yesterday?", "videos from last week", or "photos from yesterday" calls search_files_by_time. With no folder named, search the Desktop, Documents, Downloads, the home folder, and the external drive when it is connected. "On the external drive", "on the desktop", "in my documents", "in downloads", or "in my project folder" searches only that place. Excel means .xlsx, .xlsm, .xls, and .csv. Do not open or run the files it returns.
 
 Phone bridge:
@@ -6159,6 +6160,12 @@ TOOL_DECLARATIONS.extend(quiet_brain_shorts.DECLARATIONS)
 TOOLS.update(quiet_brain_shorts.TOOLS)
 import terminal_tool  # noqa: E402
 TOOL_DECLARATIONS.extend(terminal_tool.DECLARATIONS)
+import task_board, shared_memory   # 1.4.18: background tasks, manager split, shared notebook
+TOOL_DECLARATIONS.extend(task_board.DECLARATIONS + shared_memory.DECLARATIONS)
+TOOLS.update(task_board.TOOLS)
+TOOLS.update(shared_memory.TOOLS)
+_PLAN_FREE_TOOLS.update(task_board.TOOLS)
+_PLAN_FREE_TOOLS.update(shared_memory.TOOLS)
 import pc_fast_tools   # 1.4.16: read-only list_files / pc_status (no terminal, no approval)
 TOOL_DECLARATIONS.extend(pc_fast_tools.DECLARATIONS)
 TOOLS.update(pc_fast_tools.TOOLS)
@@ -6440,7 +6447,7 @@ def _execute_logged_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]
 # 1.4.16: independent read-only look-ups asked for in the same step run at the same time.
 PARALLEL_SAFE_TOOLS = frozenset({"list_files", "pc_status", "read_file", "read_page_text", "web_search", "recall_memory",
                                  "get_task_progress", "list_routines", "search_files_by_time", "search_local_files",
-                                 "get_clipboard_text", "list_connectors"})
+                                 "get_clipboard_text", "list_connectors", "read_shared", "task_board_status"})
 
 
 def parallel_results(calls: list[tuple[str, dict[str, Any]]]) -> dict[int, dict[str, Any]]:
@@ -6877,6 +6884,11 @@ def _turn_models(order: list[str], current: str, skipped: set[str]) -> list[str]
         if name and name not in skipped and name not in names:
             names.append(name)
     now = time.monotonic()
+    try:   # 1.4.18: a Gemini model already at its per-minute limit (other tasks are using it) goes after the free ones
+        import model_pool
+        names = sorted(names, key=lambda n: model_pool.at_limit("gemini:" + n))
+    except Exception:
+        pass
     return [n for n in names if _COOLING.get(n, 0) <= now] + [n for n in names if _COOLING.get(n, 0) > now]
 
 
@@ -7026,6 +7038,11 @@ def _request_voice_model(
 
     emit.raw_tokens = bool(getattr(on_sentence, "raw_tokens", False))  # type: ignore[attr-defined]
 
+    try:
+        import model_pool
+        model_pool.note("gemini:" + str(model))
+    except Exception:
+        pass
     stream = client.models.generate_content_stream(
         model=model,
         contents=history,

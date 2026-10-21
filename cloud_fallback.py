@@ -166,6 +166,12 @@ def _post(body: dict[str, Any], provider: dict[str, Any] | None = None) -> dict[
     if transport_override is not None:
         return transport_override(body)
     chosen = provider or PROVIDERS[0]
+    try:   # 1.4.18: count the call against this model's per-minute limit (waits a moment when it is full)
+        import model_pool
+        if not model_pool.acquire(_pool_key(chosen), max_wait=4.0):
+            raise _Switch(f"{chosen['id']} is at its per-minute limit")
+    except ImportError:
+        pass
     key = os.environ.get(str(chosen["env"]), "").strip()
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {key}",
                "User-Agent": "PedroAgent/1.4.13 (+https://github.com/lhymite36-bot/Pedro_Agent)"}  # Groq's Cloudflare blocks the urllib default (error 1010)
@@ -196,7 +202,8 @@ def _post(body: dict[str, Any], provider: dict[str, Any] | None = None) -> dict[
 
 CORE_TOOLS = ("ask_user", "approval_card", "read_page_text", "navigate_browser", "take_screenshot", "click_screen_target",
               "type_text", "perform_actions", "search_local_files", "open_local_file", "create_routine", "list_routines",
-              "web_search", "read_file", "list_files", "pc_status", "get_clipboard_text")
+              "web_search", "read_file", "list_files", "pc_status", "get_clipboard_text",
+              "start_background_task", "split_big_job", "task_board_status", "share_result", "read_shared")
 
 PC_HINT = ("PC look-ups: use list_files (one call: sort newest/largest, pattern like *.pdf, limit, recursive) to list, "
            "count or find files, and pc_status for free disk space, memory or busy programs. They need no approval. "
@@ -371,6 +378,13 @@ def run_chain(user_text: str, *, on_event: Callable[[dict[str, Any]], None] | No
             # 1.4.17: Groq limits each model separately; a second free model takes over when the first is
             # rate-limited mid-task. Look-ups it already did come from the result cache, so nothing reruns.
             rows.append({**item, "model": GROQ_SECOND_MODEL, "model_env": "BACKUP_MODEL_2"})
+    try:   # 1.4.18: with several tasks running, start on the least-loaded free model
+        import model_pool
+        keys = [_pool_key(r) for r in rows]
+        ranked = model_pool.order(keys)
+        rows = [rows[keys.index(k)] for k in ranked]
+    except Exception:
+        pass
     for item in rows:
         try:
             return _run_one(item, user_text, on_event=on_event, max_rounds=max_rounds, history=history)
@@ -381,3 +395,7 @@ def run_chain(user_text: str, *, on_event: Callable[[dict[str, Any]], None] | No
 
 
 GROQ_SECOND_MODEL = "openai/gpt-oss-20b"
+
+
+def _pool_key(provider: dict[str, Any]) -> str:
+    return f"groq:{_provider_model(provider)}" if provider.get("id") == "groq" else str(provider.get("id"))

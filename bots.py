@@ -273,7 +273,7 @@ def session_for(bot: dict[str, Any]) -> str:
 def bot_for_session(session: str) -> dict[str, Any] | None:
     if not str(session or "").startswith(SESSION_PREFIX):
         return None
-    return get_bot(session[len(SESSION_PREFIX):])
+    return get_bot(session[len(SESSION_PREFIX):].split("#", 1)[0])   # 1.4.18: "bot-<id>#task-<n>" is that bot's task
 
 
 def _bind(bot_id: str, handoff: bool) -> tuple[str, bool, list[str]]:
@@ -362,7 +362,7 @@ def _work_sense(bot: dict[str, Any]) -> list[str]:
         if not owner or owner == mine:
             continue
         if owner.startswith(SESSION_PREFIX):
-            who = get_bot(owner[len(SESSION_PREFIX):])
+            who = get_bot(owner[len(SESSION_PREFIX):].split("#", 1)[0])
             name = str(who["name"]) if who else "another bot"
         else:
             name = "another chat"

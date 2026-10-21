@@ -174,10 +174,37 @@ def notify(title: str, message: str) -> None:
     try:
         if notifier is not None:
             notifier(title, message)
-        elif _tray is not None:
-            _tray.notify(message[:250], title[:60])
+        elif not _toast(title, message) and _tray is not None:
+            _tray.notify(message[:250], title[:60])   # older Windows / toast package missing: tray balloon
     except Exception:
         pass
+
+
+_toaster: Any = None
+
+
+def _toast(title: str, message: str) -> bool:
+    """1.4.18: a real Windows toast sent as Ped Bot's app ID (the Start Menu shortcut carries it),
+    so Windows shows 'Ped Bot' and its icon instead of 'Python'."""
+    global _toaster
+    if os.name != "nt":
+        return False
+    try:
+        from windows_toasts import InteractableWindowsToaster, Toast  # type: ignore
+        import win_chrome
+    except Exception:
+        return False
+    try:
+        if _toaster is None:
+            if win_chrome.register_shortcut_app_id() not in ("set", "ok"):
+                return False
+            _toaster = InteractableWindowsToaster("Ped Bot", notifierAUMID=win_chrome.APP_ID)
+        toast = Toast([title[:60], message[:250]])
+        _toaster.show_toast(toast)
+        return True
+    except Exception as exc:
+        print(f"[notify] toast failed, using the tray: {type(exc).__name__}", flush=True)
+        return False
 
 
 def start_tray(show: Callable[[], Any], quit_app: Callable[[], Any], pause: Callable[[], Any]) -> bool:

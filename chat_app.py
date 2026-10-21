@@ -36,6 +36,7 @@ STATIC_FILES = {
     "app.css": "text/css; charset=utf-8",
     "app.js": "application/javascript; charset=utf-8",
     "routines_ui.js": "application/javascript; charset=utf-8",
+    "tasks_ui.js": "application/javascript; charset=utf-8",
     "avatars/round.png": "image/png",
     "avatars/robot.png": "image/png",
     "avatars/cat.png": "image/png",
@@ -1199,6 +1200,9 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                         r["text"], ids = attachments.split_marker(str(r["text"]))
                         r["files"] = attachments.info(ids)
                 self._json(rows)
+            elif url.path == "/api/tasks":   # 1.4.18: task board (PC and phone)
+                import task_board, model_pool
+                self._json({**task_board.snapshot(), "models": model_pool.snapshot()})
             elif url.path == "/api/routines":
                 import routines
                 self._json(routines.list_routines())
@@ -1263,7 +1267,7 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
 
         _SYNC_PATHS = {"/api/card/answer", "/api/react", "/api/rename", "/api/delete_session", "/api/clear_chats", "/api/clear_chats/undo",
                        "/api/pin", "/api/routines/update", "/api/bots", "/api/bots/delete", "/api/groups",
-                       "/api/groups/delete", "/api/undo", "/api/stop", "/api/pause_all", "/api/resume_all"}
+                       "/api/groups/delete", "/api/undo", "/api/stop", "/api/pause_all", "/api/resume_all", "/api/tasks"}
 
         def do_POST(self) -> None:
             path = urlparse(self.path).path
@@ -1351,6 +1355,8 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             elif url.path == "/api/checkins":
                 import checkins
                 self._json(checkins.save_settings(**{k: data[k] for k in ("enabled", "frequency") if k in data}))
+            elif url.path == "/api/tasks":   # 1.4.18: add / split / pause / resume / stop / up / down / approve / decline
+                self._json(task_action(data))
             elif url.path == "/api/routines/update":   # Routines page buttons
                 self._json(routine_action(data))
             elif url.path == "/api/card/answer":   # tap on a question / approval card; the page then sends r.text
@@ -1780,9 +1786,45 @@ def serve(model: str, port: int = 8765) -> tuple[ThreadingHTTPServer, AppState]:
     bot_mind.busy_hook = state.any_busy
     bot_mind.freeze_hook = state.cancel_all
     bots.lock_for = state.session_lock
+    _wire_task_board(state)
     server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(state))
     server.daemon_threads = True
     return server, state
+
+
+def _wire_task_board(state: AppState) -> None:
+    """1.4.18: board tasks run as ordinary turns in their own session, each on its own worker thread."""
+    import task_board
+
+    def run(session: str, text: str, emit: Any) -> str:
+        return stream_turn(state, session, text, emit, speak=False, origin="board")
+
+    def stop(session: str) -> None:
+        import stop_token
+        state.cancel_session(session)
+        stop_token.fire_async(state.session_cancel(session))
+
+    def post(session: str, text: str) -> None:
+        mid = chat_store.add(session, "assistant", text)
+        try:
+            import live_sync
+            live_sync.publish(session, {"event": "update", "kind": "final", "text": text, "id": mid})
+            live_sync.notify("changed", what="task")
+        except Exception:
+            pass
+
+    task_board.runner, task_board.stopper, task_board.poster = run, stop, post
+
+
+def task_action(data: dict[str, Any]) -> dict[str, Any]:
+    import task_board
+    action = str(data.get("action") or "").strip().casefold()
+    if action == "add":
+        return task_board.add(str(data.get("goal") or ""), bot=str(data.get("bot") or ""),
+                              origin=str(data.get("session") or ""))
+    if action == "split":
+        return task_board.split(str(data.get("goal") or ""), origin=str(data.get("session") or ""))
+    return task_board.control(str(data.get("id") or ""), action)
 
 
 def shutdown(server: Any) -> None:
