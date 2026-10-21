@@ -292,7 +292,7 @@ public class MainActivity extends Activity {
         + "document.addEventListener('click',function(e){var m=e.target.closest&&e.target.closest('#mic');if(!m)return;e.preventDefault();e.stopImmediatePropagation();m.classList.add('on');PedroNative.listen();},true);"
         + "window.__pedroHeard=function(t){var b=document.getElementById('mic');if(b)b.classList.remove('on');if(!t)return;var x=document.getElementById('t');if(!x)return;x.value=t;x.dispatchEvent(new Event('input',{bubbles:true}));var s=document.getElementById('send');if(s)s.click();};"
         + "var seen=0;function cnt(){return document.querySelectorAll('.msg.bot,.msg.assistant,[data-role=assistant]').length}seen=cnt();"
-        + "new MutationObserver(function(){var n=cnt();if(n>seen){seen=n;if(document.hidden){var els=document.querySelectorAll('.msg.bot,.msg.assistant,[data-role=assistant]');var el=els[els.length-1];setTimeout(function(){PedroNative.notify('Pedro Agent',(el.innerText||'New reply').slice(0,300))},4000)}}}).observe(document.body,{childList:true,subtree:true});"
+        + "new MutationObserver(function(){var n=cnt();if(n>seen){seen=n;if(document.hidden){var els=document.querySelectorAll('.msg.bot,.msg.assistant,[data-role=assistant]');var el=els[els.length-1];setTimeout(function(){var t=(el.innerText||'New reply');if(t.trim().charAt(0)==='\\u23f3')return;PedroNative.notify('Ped Bot',t.slice(0,300))},4000)}}}).observe(document.body,{childList:true,subtree:true});"
         + "})();";
 
     class Bridge {

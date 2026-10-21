@@ -323,7 +323,7 @@ function addVideo(container, path) {
 }
 function isCameraMedia(path) {
   const norm = String(path || '').replace(/\\/g, '/').toLowerCase();
-  return /\/camera\/camera-[^/]+\.(png|jpe?g|mp4|webm)$/.test(norm);
+  return /\/camera\/camera-[^/]+\.(png|jpe?g|mp4|webm)$/.test(norm) || /\/progress\/progress-[^/]+\.(png|jpe?g)$/.test(norm);
 }
 function addSavedMedia(row, paths) {
   if (!row) return;

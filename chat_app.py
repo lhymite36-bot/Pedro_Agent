@@ -682,6 +682,8 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
 
     import progress_notes
     import background as _bg
+    import bg_progress
+    bg_progress.SESSION.set(session)     # 1.5.2: background jobs started in this turn report back here
 
     def _post_update(kind: str, note: str) -> None:
         try:
@@ -1868,8 +1870,48 @@ def _wire_task_board(state: AppState) -> None:
             live_sync.notify("changed", what="task")
         except Exception:
             pass
+        try:   # 1.5.2: a finished (or failed) board task also notifies
+            import background as _bg
+            _bg.notify("Ped Bot", text[:250])
+        except Exception:
+            pass
 
     task_board.runner, task_board.stopper, task_board.poster = run, stop, post
+    _wire_bg_progress()
+
+
+def _wire_bg_progress() -> None:
+    """1.5.2: long background jobs post milestones into their chat; final and failures also notify."""
+    import bg_progress, shutil, agent_config
+
+    def post(session: str, text: str, kind: str, image: str = "") -> None:
+        mid = chat_store.add(session, "assistant", text)
+        if image:
+            try:
+                src = Path(image)
+                if src.is_file():
+                    dest_dir = agent_config.storage_dir() / "progress"
+                    dest_dir.mkdir(parents=True, exist_ok=True)
+                    dest = dest_dir / f"progress-{int(time.time())}-{src.name}"
+                    shutil.copy2(src, dest)
+                    chat_store.remember_writes(mid, [str(dest)])
+            except Exception:
+                pass
+        try:
+            import live_sync
+            live_sync.publish(session, {"event": "update", "kind": "final" if kind != "progress" else "milestone",
+                                        "text": text, "id": mid})
+            live_sync.notify("changed", what="chat")
+        except Exception:
+            pass
+        if kind in ("final", "failed"):
+            try:
+                import background as _bg
+                _bg.notify("Ped Bot", text[:250])
+            except Exception:
+                pass
+
+    bg_progress.poster = post
 
 
 def task_action(data: dict[str, Any]) -> dict[str, Any]:

@@ -208,6 +208,16 @@ def _safe_write(project: Path, rel: str, content: str) -> Path:
     return target
 
 
+def _say(job: dict[str, Any], text: str) -> None:
+    """1.5.2: plain-word milestone into the chat the build was started from (throttled)."""
+    r = job.get("reporter")
+    if r is not None:
+        try:
+            r.milestone(text)
+        except Exception:
+            pass
+
+
 def _log(job: dict[str, Any], text: str) -> None:
     job["log"].append(f"{time.strftime('%H:%M:%S')} {text}")
     job["step"] = text
@@ -230,6 +240,8 @@ def build(goal: str, name: str = "", job: dict[str, Any] | None = None) -> dict[
     (project / "SPEC.json").write_text(json.dumps(spec, indent=2), encoding="utf-8")
     files = [f for f in spec.get("files", []) if f.get("path")][:8] or [{"path": "index.html", "role": "app"}]
     roles = json.dumps(files)
+    _say(job, f"Plan is ready: {len(spec.get('screens', []))} screens, {len(files)} files "
+              f"({', '.join(f['path'] for f in files)}). Writing the code now.")
     spec_text = json.dumps({k: spec.get(k) for k in ("name", "screens", "features", "data", "design")})[:6000]
     # 2) files (HTML last so it can reference everything; JS sees the HTML ids)
     order = sorted(files, key=lambda f: (f["path"].endswith(".html"), f["path"].endswith(".js")))
@@ -247,6 +259,11 @@ def build(goal: str, name: str = "", job: dict[str, Any] | None = None) -> dict[
         res = run_and_shoot(project, shots / f"run{round_no}.png")
         history.append({"round": round_no, "errors": res.get("errors", [])})
         _log(job, f"Run {round_no}: {len(res.get('errors', []))} error(s)")
+        if round_no == 1:
+            _say(job, f"All {len(files)} files are written. First test run: "
+                      + (f"{len(res['errors'])} error(s), fixing them." if res.get("errors") else "no errors."))
+        else:
+            _say(job, f"Fix round {round_no - 1} done: " + (f"{len(res['errors'])} error(s) left." if res.get("errors") else "no errors left."))
         if not res.get("errors"):
             break
         fix = _ask_fix("\n".join(res["errors"]), project, job)
@@ -273,6 +290,7 @@ def build(goal: str, name: str = "", job: dict[str, Any] | None = None) -> dict[
         if not probs or (isinstance(review.get("score"), (int, float)) and review["score"] >= 9):
             break
         _log(job, f"Polishing: {len(probs)} issue(s), score {review.get('score')}")
+        _say(job, f"Looked at the screenshots: scored {review.get('score')}/10. Polishing {len(probs)} thing(s), e.g. {probs[0][:90]}")
         fix = _ask_fix("UI review:\n- " + "\n- ".join(probs), project, job)
         for f in (fix.get("files") or [])[:8]:
             if f.get("path") and f.get("content"):
@@ -282,6 +300,7 @@ def build(goal: str, name: str = "", job: dict[str, Any] | None = None) -> dict[
             history.append({"after_polish": polish, "errors": res["errors"]})
     final_d, final_p = shots / "final_desktop.png", shots / "final_phone.png"
     final = run_and_shoot(project, final_d, 1280, 800); run_and_shoot(project, final_p, 390, 844)
+    _say(job, "Packaging it as a website zip.")
     # 5) ship as a website zip (installer / APK / GitHub need approval: ship_app)
     dist = project / "dist"; dist.mkdir(exist_ok=True)
     site = dist / f"{project.name}-website.zip"
@@ -302,6 +321,17 @@ def build(goal: str, name: str = "", job: dict[str, Any] | None = None) -> dict[
 
 
 # ---------- tools ----------
+def final_message(out: dict[str, Any]) -> str:
+    errs = len(out.get("final_errors") or [])
+    scores = [x for x in (out.get("scores") or []) if x is not None]
+    mins = int(out.get("seconds", 0) // 60)
+    return (f"Done in about {mins} min. {out.get('screens', 0)} screens, {len(out.get('files') or [])} files, "
+            + ("no errors in the final run" if not errs else f"{errs} error(s) still in the final run")
+            + (f", screenshot review {scores[-1]}/10" if scores else "") + ".\n"
+            f"To open it: double-click index.html in {out.get('project')} (it runs in your browser). "
+            f"A zip ready to put online is at {out.get('website_zip')}.")
+
+
 def build_app(goal: str, name: str = "") -> dict[str, Any]:
     """Start a build in the background (never blocks chat). Poll with app_builder_status."""
     key = slug(name or goal[:30])
@@ -310,13 +340,20 @@ def build_app(goal: str, name: str = "") -> dict[str, Any]:
             return {"ok": True, "message": f"'{key}' is already building: {_JOBS[key].get('step')}", "name": key}
         job = {"log": [], "dir": str(builds_root() / key), "status": "running", "goal": goal}
         _JOBS[key] = job
+    import bg_progress
+    rep = bg_progress.Reporter(bg_progress.current_session(), f"App Builder ({key})")
+    job["reporter"] = rep
+    rep.milestone("Started. Writing the plan (screens, features, design) first.")
 
     def run() -> None:
         try:
-            build(goal, key, job)
+            out = build(goal, key, job)
+            rep.final(final_message(out), ok=True, image=(out.get("screenshots") or [""])[0])
         except Exception as exc:
             job.update(status="failed", error=f"{type(exc).__name__}: {exc}")
             _log(job, f"Failed: {exc}")
+            rep.final(f"The build stopped: {type(exc).__name__}: {str(exc)[:200]}. What was made so far is in {job['dir']}. "
+                      "Ask me to try again.", ok=False)
     threading.Thread(target=run, daemon=True, name=f"app-builder-{key}").start()
     return {"ok": True, "name": key, "project": job["dir"],
             "message": f"Started building '{key}' in {job['dir']}: spec, files, run and fix, screenshots, review, polish. "
