@@ -102,14 +102,16 @@ function create(host,o={}){
  B.morph.t=1;
  function pick(){const l=STATES[B.state]||STATES.idle;B.clip=CLIPS[l[Math.floor(r()*l.length)]];B.ct=0;}
  function setShape(k){if(!SHAPES[k]||k===B.shape)return;B.shape=k;B.mFrom=JSON.parse(JSON.stringify(B.cur));B.mTo=snapshotShape(k,B.color);B.morph.x=0;B.morph.v=0;B.morph.t=1}
- function setState(s){wake(B,4000);B.from={...B.last};B.bridge=0;B.state=s;pick();setShape(STATE_SHAPE[s]||B.base)}
+ function setState(s){setActive(ACTIVE_STATES.has(s));if(s==='happy'||s==='done')setTimeout(()=>{if(B.state===s){setActive(false);wake(B,700)}},2500);wake(B,ACTIVE_STATES.has(s)?4000:700);B.from={...B.last};B.bridge=0;B.state=s;pick();setShape(STATE_SHAPE[s]||B.base)}
  function blink(){B.blinkT=0}
- function poke(){wake(B,3000);B.pokeS.v-=6;blink()}
+ function poke(){if(!B.active)return;wake(B,3000);B.pokeS.v-=6;blink()}
+ // 1.4.18: only a bot that is working is animated and touchable; an idle one is a still picture
+ function setActive(on){on=!!on;if(B.active===on)return;B.active=on;svg.style.pointerEvents=on?'auto':'none';svg.style.cursor=on?'grab':'default';if(!on){B.drag=null;B.gyaw.t=0;B.gpitch.t=0}}
  pick();
- svg.addEventListener('pointerdown',e=>{B.drag={x:e.clientX,y:e.clientY,yaw:B.gyaw.x,pitch:B.gpitch.x,moved:0};svg.setPointerCapture(e.pointerId);svg.style.cursor='grabbing'});
- svg.addEventListener('pointermove',e=>{if(!B.drag)return;const dx=e.clientX-B.drag.x,dy=e.clientY-B.drag.y;B.drag.moved=Math.max(B.drag.moved,Math.hypot(dx,dy));B.gyaw.t=Math.max(-60,Math.min(60,B.drag.yaw+dx*.6));B.gpitch.t=Math.max(-40,Math.min(40,B.drag.pitch-dy*.6))});
+ svg.addEventListener('pointerdown',e=>{if(!B.active)return;B.drag={x:e.clientX,y:e.clientY,yaw:B.gyaw.x,pitch:B.gpitch.x,moved:0};svg.setPointerCapture(e.pointerId);svg.style.cursor='grabbing'});
+ svg.addEventListener('pointermove',e=>{if(!B.drag||!B.active)return;const dx=e.clientX-B.drag.x,dy=e.clientY-B.drag.y;B.drag.moved=Math.max(B.drag.moved,Math.hypot(dx,dy));B.gyaw.t=Math.max(-60,Math.min(60,B.drag.yaw+dx*.6));B.gpitch.t=Math.max(-40,Math.min(40,B.drag.pitch-dy*.6))});
  svg.addEventListener('pointerup',()=>{if(B.drag&&B.drag.moved<4)poke();B.drag=null;svg.style.cursor='grab';B.pokeS.v-=3});
- B.look=(px,py)=>{if(B.drag||!B.follow)return;const bb=svg.getBoundingClientRect();const dx=(px-(bb.left+bb.width/2))/innerWidth,dy=(py-(bb.top+bb.height/2))/innerHeight;
+ B.look=(px,py)=>{if(B.drag||!B.follow||!B.active)return;const bb=svg.getBoundingClientRect();const dx=(px-(bb.left+bb.width/2))/innerWidth,dy=(py-(bb.top+bb.height/2))/innerHeight;
   B.gyaw.t=Math.max(-28,Math.min(28,dx*70));B.gpitch.t=Math.max(-18,Math.min(18,-dy*50))};
  if(typeof IntersectionObserver!=='undefined')new IntersectionObserver(es=>es.forEach(e=>B.visible=e.isIntersecting)).observe(svg);
  B.update=dt=>{
@@ -160,15 +162,15 @@ function create(host,o={}){
   const lift=Math.max(0,-p.y)/90;shadow.setAttribute('rx',62*(R/72)*(1-th*.1)*(1-lift*.45)*(.8+.2*p.sx));shadow.setAttribute('cx',100+p.x);shadow.setAttribute('opacity',1-lift*.6);
   sparks.forEach((d,k)=>{const ang=B.time*3+k*2.094,rr=R*1.05;d.setAttribute('cx',100+p.x+Math.cos(ang)*rr);d.setAttribute('cy',190-(M.gy-cy)+p.y+Math.sin(ang)*rr*.35-R*.2);d.setAttribute('r',sp*(4+2*Math.sin(B.time*8+k)));d.setAttribute('opacity',sp*(Math.sin(ang)>-.2?1:.45))});
  };
- B.svg=svg;B.host=host;B.setColor=c=>{B.color=c||'';B.mFrom=JSON.parse(JSON.stringify(B.cur));B.mTo=snapshotShape(B.shape,B.color);B.morph.x=0;B.morph.v=0;B.morph.t=1};B.destroy=()=>{const i=BOTS.indexOf(B);if(i>=0)BOTS.splice(i,1);svg.remove()};B.setState=setState;B.morphTo=setShape;B.setShape=k=>{B.base=k;setShape(k)};B.blink=blink;B.poke=poke;B.big=!!o.follow||(o.size||0)>=80;BOTS.push(B);B.update(0);return B;}
+ B.svg=svg;B.host=host;B.setColor=c=>{wake(B,900);B.color=c||'';B.mFrom=JSON.parse(JSON.stringify(B.cur));B.mTo=snapshotShape(B.shape,B.color);B.morph.x=0;B.morph.v=0;B.morph.t=1};B.destroy=()=>{const i=BOTS.indexOf(B);if(i>=0)BOTS.splice(i,1);svg.remove()};B.setState=setState;B.morphTo=setShape;B.setShape=k=>{wake(B,900);B.base=k;setShape(k)};B.blink=blink;B.poke=poke;B.big=!!o.follow||(o.size||0)>=80;setActive(ACTIVE_STATES.has(B.state));BOTS.push(B);B.update(0);return B;}
 let lastT=null,manual=false;
 // 1.4.18 Lite mode (on by default on phones): avatars sit still and animate only after a tap, a state
 // change or a pointer move near them; nothing animates offscreen or while the tab is hidden.
 const LITE={on:false};function wake(b,ms){b.wakeUntil=Math.max(b.wakeUntil||0,performance.now()+(ms||2500))}
-addEventListener('pointerdown',()=>BOTS.forEach(b=>wake(b,3000)),{passive:true});
-let tick=0;function frame(now){if(!manual){const gap=LITE.on?50:(document.hasFocus()?33:250);if(document.hidden){lastT=null;setTimeout(()=>requestAnimationFrame(frame),500);return}if(lastT!=null&&now-lastT<gap){requestAnimationFrame(frame);return}tick++;const dt=lastT==null?0:Math.min(.25,(now-lastT)/1000);lastT=now;if(!document.hidden){for(let i=BOTS.length-1;i>=0;i--){const b=BOTS[i];if(!b.svg.isConnected){if(b.seen)BOTS.splice(i,1);continue}b.seen=true;if(b.visible&&(!LITE.on||(b.wakeUntil||0)>now||!b.drawn)&&(b.big||tick%3===0)&&b.svg.getClientRects().length){b.update(b.big?dt:dt*3);b.drawn=true}}}}requestAnimationFrame(frame)}
+const ACTIVE_STATES=new Set(['thinking','working','roll','spin','bounce','wobble','hop','look','happy','done']);
+let tick=0;function frame(now){if(!manual){const gap=LITE.on?50:(document.hasFocus()?33:250);if(document.hidden){lastT=null;setTimeout(()=>requestAnimationFrame(frame),500);return}if(lastT!=null&&now-lastT<gap){requestAnimationFrame(frame);return}tick++;const dt=lastT==null?0:Math.min(.25,(now-lastT)/1000);lastT=now;if(!document.hidden){for(let i=BOTS.length-1;i>=0;i--){const b=BOTS[i];if(!b.svg.isConnected){if(b.seen)BOTS.splice(i,1);continue}b.seen=true;if(b.visible&&(b.active||(b.wakeUntil||0)>now||!b.drawn)&&(b.big||tick%3===0)&&b.svg.getClientRects().length){b.update(b.big?dt:dt*3);b.drawn=true}}}}requestAnimationFrame(frame)}
 requestAnimationFrame(frame);
-addEventListener('pointermove',e=>BOTS.forEach(b=>b.look(e.clientX,e.clientY)));
+addEventListener('pointermove',e=>{for(const b of BOTS)if(b.active)b.look(e.clientX,e.clientY)},{passive:true});
 function step(sec,fps=60){manual=true;for(let i=0;i<Math.round(sec*fps);i++)BOTS.forEach(b=>b.update(1/fps))}
 window.PedBot={create,step,lite:LITE,wake,SHAPES,CLIPS,STATES,bots:BOTS,REDUCED};
 })();
