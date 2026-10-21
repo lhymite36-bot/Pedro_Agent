@@ -6383,7 +6383,9 @@ def invoke_tool(name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
             return _err("Pedro denied this. It was not done. Do not ask again or retry; tell him it was not done.",
                         denied=True, needs_confirmation=False)
         waiting_now = confirm_action.pending()
-        if waiting_now and confirm_action._same(waiting_now, name, arguments) and not confirm_action.consume_grant(name, arguments):
+        if (waiting_now and (confirm_action._same(waiting_now, name, arguments) or
+                             (waiting_now.get("name") in confirm_action.CAMERA_TOOLS and name in confirm_action.CAMERA_TOOLS))
+                and not confirm_action.consume_grant(name, arguments)):
             return _err(f"Still waiting for Pedro to tap Approve or Deny for: {waiting_now.get('label')}. "
                         "Do not call this again; tell him the card is waiting.", needs_confirmation=True, approved=False)
         earlier = confirm_action.already_done(name, arguments)

@@ -105,8 +105,13 @@ def _key(name: str, arguments: dict[str, Any]) -> tuple[str, str]:
     return _category(name, arguments), target.strip().replace("\\", "/").rstrip("/").casefold()
 
 
+_PHOTO = {"capture_webcam_image", "webcam_vision_tool"}
+
+
 def _same(a: dict[str, Any], name: str, arguments: dict[str, Any]) -> bool:
     if a.get("name") == name and a.get("arguments") == dict(arguments):
+        return True
+    if a.get("name") in _PHOTO and name in _PHOTO:   # 1.4.19: one photo request, whichever camera tool asks
         return True
     ka, kb = _key(a["name"], a["arguments"]), _key(name, arguments)
     if ka[0] != kb[0]:
@@ -201,8 +206,9 @@ def remember(name: str, arguments: dict[str, Any], label: str) -> None:
         except Exception:
             pass
     current = _pending_by.get(_bucket())
-    if current is not None and _same(current, name, arguments):
-        return   # already waiting on this exact yes: keep the one card, do not ask again
+    if current is not None and (_same(current, name, arguments) or
+                                (current.get("name") in CAMERA_TOOLS and name in CAMERA_TOOLS)):
+        return   # already waiting on this yes: keep the one card (same id), never a new popup
     _wait_for_approval_turn()
     import uuid
     _pending_by[_bucket()] = {

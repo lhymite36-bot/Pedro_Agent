@@ -63,3 +63,17 @@ class ApprovalIds(unittest.TestCase):
         out = confirm_action.resolve(q["id"], True, lambda n, a: (ran.append(n), {"ok": True, "message": "Recorded.", "download_path": "C:/x.mp4"})[1])
         self.assertTrue(out["approved"]); self.assertEqual(ran, ["record_pc_camera"]); self.assertIn("C:/x.mp4", out["text"])
         self.assertEqual(confirm_action.all_pending(), [])
+
+
+class OneCard(unittest.TestCase):
+    def test_camera_tools_share_one_card(self):
+        confirm_action._pending_by.clear()
+        tok = confirm_action.bind_chat("s2"); self.addCleanup(confirm_action.unbind_chat, tok)
+        confirm_action.remember("capture_webcam_image", {}, "photo")
+        first = confirm_action.all_pending()[0]["id"]
+        confirm_action.remember("webcam_vision_tool", {}, "photo")
+        confirm_action.remember("capture_webcam_image", {}, "photo")
+        self.assertEqual([p["id"] for p in confirm_action.all_pending()], [first])
+        r = agent_core.invoke_tool("webcam_vision_tool", {})
+        self.assertIn("Still waiting", r.get("error", ""))
+        self.assertEqual([p["id"] for p in confirm_action.all_pending()], [first])
