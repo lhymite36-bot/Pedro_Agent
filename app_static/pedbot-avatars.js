@@ -19,6 +19,7 @@ const SHAPES={
  square:{color:'#14b8a6',prims:[{rr:[40,52,120,120,34]}],c:[100,112]},
  hexagon:{color:'#8b5cf6',prims:[{p:'M100,58 L148,86 L148,140 L100,168 L52,140 L52,86Z',sw:22}],c:[100,113]},
  star:{color:'#f5b301',prims:[{p:'M100,44 L118,92 L168,94 L128,124 L142,172 L100,144 L58,172 L72,124 L32,94 L82,92Z',sw:16}],c:[100,114]},
+ pedbot:{color:'#f2f2f2',eye:'#0b0b0d',prims:[{c:[100,110,72]}],c:[100,110],eyes:[E(84,104,15,36),E(116,104,15,36)]},   // 1.4.17: Ped Bot himself - white 3D ball, black pill eyes
  heart:{color:'#e8344e',prims:[{p:'M100,176 C60,146 28,120 28,88 C28,62 48,46 70,46 C84,46 94,54 100,66 C106,54 116,46 130,46 C152,46 172,62 172,88 C172,120 140,146 100,176Z'}],c:[100,108]},
 };
 const EYE_SCALE=1.28, N=96;
@@ -127,6 +128,7 @@ function create(host,o={}){
   const gyv=B.gyaw.step(dt),gpv=B.gpitch.step(dt),pk=B.pokeS.step(dt),mw=B.morph.step(dt),th=Math.max(0,Math.min(1,B.think.step(dt))),ha=Math.max(0,Math.min(1,B.happyA.step(dt))),sp=B.spark.step(dt);
   // shape morph (spring weight may overshoot slightly -> jelly)
   const M=B.cur=lerpShape(B.mFrom,B.mTo,mw);const R=M.R,[cx,cy]=M.c;
+  const ec=(SHAPES[B.shape]||{}).eye||'#fff';if(ec!==B._ec){B._ec=ec;eyesG.setAttribute('fill',ec);arcs.forEach(q=>q.setAttribute('stroke',ec))}
   const isDark=M.col.reduce((a,b)=>a+b)<.3,col=mix(M.col,[1,1,1],isDark?.32*B.think.x:0);
   [mix(col,[1,1,1],isDark?.32:.38),col,mix(col,[0,0,0],isDark?.6:.5)].forEach((c,i)=>stops[i].setAttribute('stop-color',toHex(c)));
   // thinking: body collapses into the middle of three dots

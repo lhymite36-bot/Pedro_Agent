@@ -6376,12 +6376,61 @@ def _redacted_tool_arguments(name: str, arguments: dict[str, Any]) -> dict[str, 
     return shown
 
 
+# 1.4.17: results of read-only look-ups are reused for a short while, so a long task that asks the same
+# question twice (or a retry after a model switch) does not run it again. Any other tool call clears it.
+RESULT_CACHE_SECONDS = 90
+_RESULT_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_RESULT_LOCK = threading.Lock()
+CACHEABLE_TOOLS = frozenset({"list_files", "pc_status", "read_file", "read_page_text", "web_search", "recall_memory",
+                             "search_files_by_time", "search_local_files", "list_routines", "list_connectors"})
+
+
+def _cache_key(name: str, arguments: dict[str, Any]) -> str:
+    try:
+        return name + ":" + json.dumps(arguments or {}, sort_keys=True, default=str)
+    except Exception:
+        return ""
+
+
+def _cache_get(name: str, arguments: dict[str, Any]) -> dict[str, Any] | None:
+    if name not in CACHEABLE_TOOLS:
+        with _RESULT_LOCK:
+            _RESULT_CACHE.clear()   # something may have changed (a file written, a page clicked)
+        return None
+    key = _cache_key(name, arguments)
+    with _RESULT_LOCK:
+        hit = _RESULT_CACHE.get(key)
+    if hit and time.monotonic() - hit[0] < RESULT_CACHE_SECONDS:
+        return {**hit[1], "cached": True}
+    return None
+
+
+def _cache_put(name: str, arguments: dict[str, Any], result: dict[str, Any]) -> None:
+    if name in CACHEABLE_TOOLS and isinstance(result, dict) and result.get("ok"):
+        key = _cache_key(name, arguments)
+        if key:
+            with _RESULT_LOCK:
+                _RESULT_CACHE[key] = (time.monotonic(), dict(result))
+                if len(_RESULT_CACHE) > 200:
+                    _RESULT_CACHE.pop(next(iter(_RESULT_CACHE)))
+
+
+def clear_result_cache() -> None:
+    with _RESULT_LOCK:
+        _RESULT_CACHE.clear()
+
+
 def _execute_logged_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     """Print one tool call, run it, and print the result. Secrets are scrubbed."""
     shown = _redacted_tool_arguments(name, arguments)
     print(f"[tool] {_scrub(f'{name}({json.dumps(shown, default=str)})')}", flush=True)
     routine_macros.note_tool(name)
+    cached = _cache_get(name, arguments)
+    if cached is not None:   # 1.4.17: already worked out a moment ago in this task, nothing changed since
+        print(f"[tool] cached: {name}", flush=True)
+        return cached
     result = invoke_tool(name, arguments)
+    _cache_put(name, arguments, result)
     status = "ok" if result.get("ok") else "error"
     detail = _scrub(str(result.get("message") or result.get("error") or ""))
     print(f"[tool] {status}: {detail}", flush=True)
@@ -7350,6 +7399,11 @@ def run_agent(user_text: str, history: list[Any], model: str, **kwargs: Any) -> 
     """
     voice = bool(kwargs.get("voice"))
     cancel_event = kwargs.get("cancel_event")
+    try:   # 1.4.17: open the connection to the planner model while the turn is being set up
+        import cloud_fallback
+        threading.Thread(target=cloud_fallback.warm, daemon=True, name="warm").start()
+    except Exception:
+        pass
     on_event = kwargs.get("on_event")
     text = user_text
     if not str(user_text).startswith("[resume]"):

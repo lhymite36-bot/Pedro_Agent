@@ -86,6 +86,82 @@ def providers_for(kind: str) -> list[dict[str, Any]]:
     return rows
 
 
+class _HttpStatus(Exception):
+    """A non-2xx answer from the pooled connection (same handling as urllib's HTTPError)."""
+
+    def __init__(self, code: int, body: bytes) -> None:
+        super().__init__(f"HTTP {code}")
+        self.code = code
+        self._body = body
+
+    def read(self) -> bytes:
+        return self._body
+
+
+# 1.4.17: keep the HTTPS connection to the backup model open between steps (saves the TLS
+# handshake, ~0.2-0.5 s a round on a home connection). One idle connection per host, reused.
+import http.client
+import threading
+import urllib.parse
+
+_POOL: dict[str, list[http.client.HTTPSConnection]] = {}
+_POOL_LOCK = threading.Lock()
+
+
+def _pooled_post(url: str, data: bytes, headers: dict[str, str], timeout: float) -> tuple[int, bytes]:
+    parts = urllib.parse.urlsplit(url)
+    host = parts.netloc
+    path = parts.path + (("?" + parts.query) if parts.query else "")
+    for attempt in range(2):
+        with _POOL_LOCK:
+            idle = _POOL.setdefault(host, [])
+            conn = idle.pop() if idle else None
+        fresh = conn is None
+        if conn is None:
+            conn = http.client.HTTPSConnection(host, timeout=timeout)
+        try:
+            conn.timeout = timeout
+            if conn.sock is not None:
+                conn.sock.settimeout(timeout)
+            conn.request("POST", path, body=data, headers={**headers, "Connection": "keep-alive"})
+            resp = conn.getresponse()
+            raw = resp.read()
+        except (http.client.HTTPException, ConnectionError, OSError) as exc:
+            conn.close()
+            if fresh or attempt:   # a fresh connection failing is a real network problem
+                raise
+            continue   # the kept connection had gone stale: retry once on a new one
+        if resp.getheader("connection", "").casefold() == "close" or resp.will_close:
+            conn.close()
+        else:
+            with _POOL_LOCK:
+                if len(_POOL.setdefault(host, [])) < 2:
+                    _POOL[host].append(conn)
+                else:
+                    conn.close()
+        return resp.status, raw
+    raise ConnectionError("unreachable")
+
+
+def warm(provider: dict[str, Any] | None = None) -> bool:
+    """Open the TLS connection to the backup model ahead of time (no request is sent, nothing is used up)."""
+    try:
+        chosen = provider or (providers_for("busy") or [None])[0]
+        if not chosen:
+            return False
+        host = urllib.parse.urlsplit(_provider_url(chosen)).netloc
+        with _POOL_LOCK:
+            if _POOL.get(host):
+                return True
+        conn = http.client.HTTPSConnection(host, timeout=10)
+        conn.connect()
+        with _POOL_LOCK:
+            _POOL.setdefault(host, []).append(conn)
+        return True
+    except Exception:
+        return False
+
+
 def _post(body: dict[str, Any], provider: dict[str, Any] | None = None) -> dict[str, Any]:
     if transport_override is not None:
         return transport_override(body)
@@ -95,15 +171,11 @@ def _post(body: dict[str, Any], provider: dict[str, Any] | None = None) -> dict[
                "User-Agent": "PedroAgent/1.4.13 (+https://github.com/lhymite36-bot/Pedro_Agent)"}  # Groq's Cloudflare blocks the urllib default (error 1010)
     if chosen["id"] == "openrouter":
         headers["X-Title"] = "Pedro Agent"
-    req = urllib.request.Request(
-        _provider_url(chosen),
-        data=json.dumps(body).encode("utf-8"),
-        headers=headers,
-        method="POST",
-    )
     try:
-        with urllib.request.urlopen(req, timeout=_TIMEOUT) as r:
-            return json.loads(r.read().decode("utf-8"))
+        status, raw = _pooled_post(_provider_url(chosen), json.dumps(body).encode("utf-8"), headers, _TIMEOUT)
+        if status >= 400:
+            raise _HttpStatus(status, raw)
+        return json.loads(raw.decode("utf-8"))
     except Exception as exc:  # never echo the key
         code = getattr(exc, "code", None)
         if code == 413:
@@ -292,9 +364,20 @@ def run_chain(user_text: str, *, on_event: Callable[[dict[str, Any]], None] | No
     chosen = providers_for(kind)
     if not chosen:
         return None
+    rows: list[dict[str, Any]] = []
     for item in chosen:
+        rows.append(item)
+        if item["id"] == "groq" and transport_override is None:
+            # 1.4.17: Groq limits each model separately; a second free model takes over when the first is
+            # rate-limited mid-task. Look-ups it already did come from the result cache, so nothing reruns.
+            rows.append({**item, "model": GROQ_SECOND_MODEL, "model_env": "BACKUP_MODEL_2"})
+    for item in rows:
         try:
             return _run_one(item, user_text, on_event=on_event, max_rounds=max_rounds, history=history)
-        except (_Switch, _TooLarge):
-            print(f"[backup] {item['id']} could not take this turn. Trying the next saved provider.", flush=True)
+        except (_Switch, _TooLarge) as exc:
+            print(f"[backup] {item['id']} ({_provider_model(item)}) could not take this turn ({exc}). "
+                  "Trying the next one.", flush=True)
     return None
+
+
+GROQ_SECOND_MODEL = "openai/gpt-oss-20b"

@@ -866,6 +866,12 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
                 emit({"event": "error", "text": agent.friendly_model_error(agent._scrub(str(exc)))})
                 reply = ""
                 turn_failed["yes"] = True
+        spoken_reply = reply   # 1.4.17: the voice keeps its [laughs]; the written reply drops stage directions
+        try:
+            import emotion
+            reply = emotion.strip_stage(reply) if reply else reply
+        except Exception:
+            pass
         try:
             import checkins
             if not cancel.is_set():
@@ -884,11 +890,11 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
         if task_id:
             _bg.task_finished(task_id)
         if pipeline is not None:
-            _finish_speech(state, pipeline, reply, spoke["any"], emit)
+            _finish_speech(state, pipeline, spoken_reply, spoke["any"], emit)
         elif want and client_audio and reply and not cancel.is_set():
             try:
                 emit({"event": "step", "label": "Getting my voice ready…", "name": ""})
-                clip = synth_client_audio(reply)
+                clip = synth_client_audio(spoken_reply)
                 emit({"event": "audio", "url": f"/api/tts?id={clip}"})
                 emit({"event": "speech_end", "status": "client"})
             except Exception as exc:
@@ -1804,6 +1810,7 @@ def shutdown(server: Any) -> None:
 def run(model: str, port: int = 8765) -> int:
     try:
         import win_chrome
+        win_chrome.set_app_id()   # 1.4.17: notifications and the tray say 'Ped Bot', not 'Python'
 
         if not win_chrome.single_instance():
             win_chrome.focus_existing()

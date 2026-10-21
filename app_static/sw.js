@@ -1,6 +1,6 @@
 // Pedro_Agent service worker: caches the app shell only. API calls, the live
 // screen and the login page always go to the network (never cached).
-const CACHE = 'pedro-shell-v29';
+const CACHE = 'pedro-shell-v30';
 const SHELL = ['/', '/app.css', '/app.js', '/reactions.js', '/markdown.js', '/pedbot-avatars.js', '/avatar.js', '/avatars.css', '/newbot_ui.js', '/glass.css', '/glass.js', '/themes.js', '/handsfree.js', '/bots_ui.js', '/groups_ui.js', '/mention_pick.js', '/titlebar.js', '/phone_ui.js', '/live_ui.js', '/connectors_ui.js', '/avatar_mode.js', '/icon-192.png', '/manifest.webmanifest'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).catch(() => {})); self.skipWaiting(); });
 self.addEventListener('activate', (e) => { e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))); self.clients.claim(); });

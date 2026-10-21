@@ -32,6 +32,42 @@ def set_app_id() -> None:
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
     except Exception:
         pass
+    try:
+        import threading
+        threading.Thread(target=register_shortcut_app_id, daemon=True, name="aumid").start()
+    except Exception:
+        pass
+
+
+def _start_menu_shortcut() -> Path:
+    return Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Ped Bot" / "Ped Bot.lnk"
+
+
+def register_shortcut_app_id(link: Path | None = None) -> str:
+    """1.4.17: stamp our AppUserModelID on the Start Menu shortcut, so Windows notifications say
+    'Ped Bot' with its icon instead of 'Python'. Returns 'set', 'ok' (already set) or why it was skipped."""
+    if os.name != "nt":
+        return "not windows"
+    link = link or _start_menu_shortcut()
+    if not link.is_file():
+        return "no shortcut"
+    try:
+        import pythoncom  # type: ignore
+        from win32com.propsys import propsys, pscon  # type: ignore
+        from win32com.shell import shellcon  # type: ignore
+    except ImportError:
+        return "pywin32 missing"
+    try:
+        pythoncom.CoInitialize()
+        store = propsys.SHGetPropertyStoreFromParsingName(str(link), None, shellcon.GPS_READWRITE, propsys.IID_IPropertyStore)
+        current = store.GetValue(pscon.PKEY_AppUserModel_ID).GetValue()
+        if current == APP_ID:
+            return "ok"
+        store.SetValue(pscon.PKEY_AppUserModel_ID, propsys.PROPVARIANTType(APP_ID))
+        store.Commit()
+        return "set"
+    except Exception as exc:
+        return f"failed: {type(exc).__name__}"
 
 
 _MUTEX = None

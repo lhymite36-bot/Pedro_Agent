@@ -13,7 +13,9 @@
   ];
   // Older bots used animal shapes; they get the nearest new shape and keep their colour.
   const LEGACY = { round: 'circle', blob: 'ball', spark: 'ball', ghost: 'drop', robot: 'square', octopus: 'cloud', cat: 'ball', bunny: 'ball', fox: 'triangle', bear: 'circle', owl: 'circle', alien: 'drop', dino: 'clover', panda: 'circle', frog: 'pill', chick: 'star' };
-  function norm(sh) { return SHAPES.indexOf(sh) >= 0 ? sh : (LEGACY[sh] || 'ball'); }
+  function norm(sh) { return sh === 'pedbot' || SHAPES.indexOf(sh) >= 0 ? sh : (LEGACY[sh] || 'ball'); }
+  // 1.4.17: with no look given, an avatar is Ped Bot himself (white 3D ball, black pill eyes)
+  const MAIN = { color: '#f2f2f2', shape: 'pedbot' };
   function E(x, y, w, h, r) {
     return `<g transform="rotate(${r || 0} ${x} ${y})"><rect x="${x - w / 2}" y="${y - h / 2}" width="${w}" height="${h}" rx="${Math.min(w, h) / 2}" fill="#fff"/></g>`;
   }
@@ -29,6 +31,7 @@
     cloud: (c) => [`<circle cx="70" cy="115" r="44"/><circle cx="108" cy="82" r="42"/><circle cx="140" cy="112" r="40"/><circle cx="96" cy="140" r="40"/><circle cx="142" cy="145" r="30"/><circle cx="58" cy="148" r="28"/>`, E(92, 98, 30, 11, 22) + E(132, 114, 30, 11, 22)],
     drop: (c) => [`<path d="M100,24 C128,56 170,86 170,128 C170,166 138,182 100,182 C62,182 30,166 30,128 C30,86 72,56 100,24Z"/>`, E(84, 120, 15, 32) + E(112, 120, 15, 32)],
     clover: (c) => [`<g transform="rotate(-12 100 110)"><circle cx="72" cy="78" r="38"/><circle cx="130" cy="80" r="38"/><circle cx="70" cy="140" r="38"/><circle cx="132" cy="140" r="38"/><rect x="62" y="72" width="80" height="78"/></g>`, E(96, 118, 11, 28, 25) + E(122, 110, 11, 28, 25)],
+    pedbot: (c) => [`<circle cx="100" cy="110" r="72"/>`, (E(84, 104, 15, 36) + E(116, 104, 15, 36)).replace(/#fff/g, '#0b0b0d')],
     ball: (c) => [`<circle cx="100" cy="110" r="72"/>`, E(78, 88, 12, 26, 30) + E(108, 82, 12, 26, 30)],
   };
   function safeColor(c) { return /^#[0-9a-fA-F]{6}$/.test(c || '') ? c : '#1683f5'; }
@@ -74,6 +77,7 @@
 
   function createAvatar(el, opts) {
     opts = opts || {};
+    if (!opts.color && !opts.shape) opts = Object.assign({}, opts, MAIN);
     if (root.PedBot && root.PedBot.create && typeof document !== 'undefined' && el && el.appendChild && el.nodeType === 1) return create3d(el, opts);
     let color = safeColor(opts.color || '#1683f5'), shape = norm(opts.shape), state = 'idle', happy = false, doneTimer = 0, sleepTimer = 0;
     el.classList.add('pb-avatar'); el.classList.add('idle');

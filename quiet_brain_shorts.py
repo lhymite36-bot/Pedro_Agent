@@ -69,7 +69,30 @@ def settings() -> dict[str, Any]:
         data = {}
     return {"enabled": bool(data.get("enabled", False)), "per_day": int(data.get("per_day", 6)),
             "vts_dir": data.get("vts_dir") or os.environ.get("VTS_DIR", ""),
-            "token_set": bool(os.environ.get("BUFFER_ACCESS_TOKEN", "").strip())}
+            "token_set": bool(os.environ.get("BUFFER_ACCESS_TOKEN", "").strip()), **readiness()}
+
+
+def readiness() -> dict[str, Any]:
+    """1.4.17: what posting still needs, without touching the token (only whether one is saved)."""
+    cur_vts = (settings_raw().get("vts_dir") or os.environ.get("VTS_DIR", "")).strip()
+    checks = {
+        "buffer_token": bool(os.environ.get("BUFFER_ACCESS_TOKEN", "").strip()),
+        "voice_to_short_folder": bool(cur_vts) and (Path(cur_vts) / "tests" / "live" / "e2e-live.js").is_file(),
+        "node": bool(shutil.which("node")),
+        "ffprobe": bool(shutil.which("ffprobe")),
+        "gh": bool(shutil.which("gh")),
+    }
+    names = {"buffer_token": "Buffer token", "voice_to_short_folder": "Voice to Short folder", "node": "Node.js",
+             "ffprobe": "ffprobe (FFmpeg)", "gh": "GitHub CLI"}
+    missing = [names[k] for k, ok in checks.items() if not ok]
+    return {"checks": checks, "missing": missing, "ready": not missing}
+
+
+def settings_raw() -> dict[str, Any]:
+    try:
+        return json.loads((_storage() / "settings.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
 
 
 def save_settings(**changes: Any) -> dict[str, Any]:

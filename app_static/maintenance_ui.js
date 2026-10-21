@@ -69,7 +69,7 @@
   async function showShorts() {
     const st = await get('/api/shorts'); if (!q('#qbs-on')) return;
     q('#qbs-on').checked = !!st.enabled; q('#qbs-vts').value = st.vts_dir || '';
-    q('#qbs-line').textContent = st.token_set ? 'Buffer token saved on this PC.' : 'No Buffer token yet.';
+    q('#qbs-line').textContent = (st.token_set ? 'Buffer token saved on this PC.' : 'No Buffer token yet.') + (st.missing && st.missing.length ? ' Still needed: ' + st.missing.join(', ') + '.' : ' Ready to post when switched on.');
     q('#qbs-on').onchange = async () => { const r = await post('/api/shorts', { enabled: q('#qbs-on').checked }); q('#qbs-on').checked = !!r.enabled; };
     q('#qbs-vts').onchange = () => post('/api/shorts', { vts_dir: q('#qbs-vts').value.trim() });
     q('#qbs-save').onclick = async () => { const r = await post('/api/shorts/token', { token: q('#qbs-token').value }); q('#qbs-token').value = ''; q('#qbs-line').textContent = r.message || r.error; };

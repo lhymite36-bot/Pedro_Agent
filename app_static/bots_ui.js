@@ -20,8 +20,8 @@
 
   const $ = (s) => document.querySelector(s);
   let bots = [], allTools = [], editing = null, recording = false;
-  const DEFAULT = { color: '#1683f5', shape: 'circle' };
-  function look(bot) { return bot ? { color: bot.color || DEFAULT.color, shape: bot.avatar || 'round' } : DEFAULT; }
+  const DEFAULT = { color: '#f2f2f2', shape: 'pedbot' };   // 1.4.17: Ped Bot's own look
+  function look(bot) { return bot ? { color: bot.color || '#1683f5', shape: bot.avatar || 'round' } : DEFAULT; }
   function tint(av, bot) { const l = look(bot); av.setLook(l.color, l.shape); }
   root.currentBotLook = () => look(current());
   function current() { return (typeof session === 'string' && session.startsWith('bot-')) ? bots.find((b) => 'bot-' + b.id === session) : null; }
