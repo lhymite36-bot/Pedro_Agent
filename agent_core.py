@@ -135,7 +135,7 @@ VOICE_MAX_OUTPUT_TOKENS = 384
 VOICE_SENTENCE_CHARS = 180
 # Trailing quiet that ends a phrase. Counted only after speech energy.
 # speech_recognition does not apply this wait before the phrase starts.
-LISTEN_PAUSE_THRESHOLD = 2.0
+LISTEN_PAUSE_THRESHOLD = 0.7   # 1.4.18: was 2.0 (most of the wait after he stopped talking)
 # Quiet audio kept on the phrase. Must stay <= pause_threshold.
 # This is not an extra wait; the phrase closes at pause_threshold.
 LISTEN_NON_SPEAKING_SECONDS = 0.4
@@ -6160,6 +6160,26 @@ TOOL_DECLARATIONS.extend(quiet_brain_shorts.DECLARATIONS)
 TOOLS.update(quiet_brain_shorts.TOOLS)
 import terminal_tool  # noqa: E402
 TOOL_DECLARATIONS.extend(terminal_tool.DECLARATIONS)
+def web_search(query: str, max_results: int = 5) -> dict[str, Any]:
+    """1.4.18: a free web search (DuckDuckGo) every model can use, read-only."""
+    query = " ".join(str(query or "").split())
+    if not query:
+        return _err("Say what to search for.")
+    rows = _search_rows(query, max(1, min(8, int(max_results or 5))))
+    if not rows:
+        return _err("The web search returned nothing. Try other words.")
+    lines = [f"{i + 1}. {r['title']} - {r['href']}\n   {r['body']}" for i, r in enumerate(rows)]
+    return _ok("\n".join(lines), results=rows)
+
+
+if "web_search" not in TOOLS:
+    TOOL_DECLARATIONS.append({"name": "web_search",
+        "description": "Search the web (free) and get titles, links and snippets. Use for current facts, prices, news, versions.",
+        "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "max_results": {"type": "integer"}},
+                       "required": ["query"]}})
+    TOOLS["web_search"] = web_search
+    _PLAN_FREE_TOOLS.update({"web_search": web_search})
+
 import task_board, shared_memory   # 1.4.18: background tasks, manager split, shared notebook
 TOOL_DECLARATIONS.extend(task_board.DECLARATIONS + shared_memory.DECLARATIONS)
 TOOLS.update(task_board.TOOLS)
@@ -6686,6 +6706,7 @@ class _SentenceBuffer:
             piece = " ".join(self.pending[:end].split())
             self.pending = self.pending[end:]
             if piece:
+                self.spoke = True
                 ready.append(piece)
         return ready
 
@@ -6700,6 +6721,11 @@ class _SentenceBuffer:
         newline = text.find("\n")
         if newline != -1:
             return newline + 1
+        if not getattr(self, "spoke", False):   # 1.4.18: the first words go to the voice at the first comma
+            comma = text.find(", ", 24)
+            if 0 < comma <= 90:
+                self.spoke = True
+                return comma + 2
         if len(text) >= self.limit:
             window = text[: self.limit]
             cut = max(window.rfind(", "), window.rfind(" "))
@@ -7409,6 +7435,83 @@ def _user_parts(types: Any, user_text: str) -> list[Any]:
     return parts
 
 
+# 1.4.18: a spoken chat line ("how are you", "tell me a joke", a quick question) is answered by
+# Groq as a stream, so the first words can be spoken while the rest is still being written.
+# Anything that sounds like a PC job, a file, a message or a web look-up keeps the full tool path.
+_VOICE_TOOLISH = re.compile(
+    r"\b(open|close|launch|start|run|click|type|send|email|mail|message|whatsapp|call|file|folder|download|"
+    r"desktop|documents|screen|screenshot|search|look up|google|find|delete|remove|move|copy|install|order|buy|"
+    r"pay|remind|routine|schedule|timer|alarm|music|play|youtube|volume|pc|computer|drive|disk|space|memory|"
+    r"weather|news|price|latest|today|tomorrow|bot|task|code|build|app|website|page|browser)\b", re.I)
+
+
+_VOICE_WARM = {"at": 0.0}
+
+
+def prewarm_voice() -> None:
+    """1.4.18: the first edge-tts call of a session took ~5 s (DNS, TLS, token); a warm one ~0.7 s.
+    While he is talking, say one silent word to the voice service and open the Groq connection."""
+    now = time.monotonic()
+    if now - _VOICE_WARM["at"] < 45:
+        return
+    _VOICE_WARM["at"] = now
+
+    def go() -> None:
+        try:
+            import cloud_fallback
+            cloud_fallback.warm()
+        except Exception:
+            pass
+        try:
+            import edge_tts
+
+            async def _one() -> None:
+                async for _ in edge_tts.Communicate("Hi.", _neural_voice() or DEFAULT_NEURAL_VOICE).stream():
+                    pass
+            _run_coroutine(_one())
+        except Exception:
+            pass
+    threading.Thread(target=go, daemon=True, name="pb-voice-warm").start()
+
+
+def _voice_chat_only(text: str) -> bool:
+    t = " ".join(str(text or "").split())
+    return 0 < len(t) <= 240 and not _VOICE_TOOLISH.search(t)
+
+
+def _voice_fast_reply(user_text: str, history: list[Any], on_text: Callable[[str], None], cancel_event: Any) -> str | None:
+    import cloud_fallback
+    try:
+        prior = _history_text(history)[-6:]
+    except Exception:
+        prior = []
+    messages = [{"role": "system", "content": (
+        "You are Ped Bot, Pedro's friendly assistant on his PC, talking out loud. Answer in one to three short "
+        "spoken sentences, warm and natural. No lists, no markdown, no stage directions. If he asks you to do "
+        "something on the PC, say you'll do it.")}]
+    messages += [m for m in prior if isinstance(m, dict) and m.get("role") in ("user", "assistant")]
+    messages.append({"role": "user", "content": user_text})
+    started = time.monotonic()
+    first = {"t": None}
+
+    def feed(chunk: str) -> None:
+        if first["t"] is None:
+            first["t"] = time.monotonic() - started
+        on_text(chunk)
+
+    reply = cloud_fallback.stream_text(messages, feed, cancel=cancel_event)
+    if not reply:
+        return None
+    try:
+        from google.genai import types
+        history.append(types.Content(role="user", parts=[types.Part.from_text(text=user_text)]))
+        history.append(types.Content(role="model", parts=[types.Part.from_text(text=reply)]))
+    except Exception:
+        pass
+    agent_log.event("voice_fast", first_token_ms=int((first["t"] or 0) * 1000), ms=int((time.monotonic() - started) * 1000))
+    return reply
+
+
 def run_agent(user_text: str, history: list[Any], model: str, **kwargs: Any) -> str:
     """Run a turn; if the model service drops mid-task, wait and resume from the screen.
 
@@ -7421,6 +7524,10 @@ def run_agent(user_text: str, history: list[Any], model: str, **kwargs: Any) -> 
         threading.Thread(target=cloud_fallback.warm, daemon=True, name="warm").start()
     except Exception:
         pass
+    if voice and kwargs.get("on_text") is not None and _voice_chat_only(user_text):
+        quick = _voice_fast_reply(user_text, history, kwargs["on_text"], cancel_event)
+        if quick:
+            return quick
     on_event = kwargs.get("on_event")
     text = user_text
     if not str(user_text).startswith("[resume]"):
@@ -8546,12 +8653,54 @@ def _warn_barge_once(exc: BaseException) -> None:
     print(f"Voice: interruption listener unavailable: {exc}", flush=True)
 
 
+GROQ_STT_MODEL = "whisper-large-v3-turbo"
+groq_stt_override: Callable[[bytes], str | None] | None = None
+
+
+def _groq_transcribe(audio: Any) -> str | None:
+    """Text from Groq's free Whisper, or None to use the next recogniser. Never logs the key."""
+    if groq_stt_override is not None:
+        try:
+            return groq_stt_override(audio.get_wav_data())
+        except Exception:
+            return None
+    key = os.environ.get("GROQ_API_KEY", "").strip()
+    if not key or os.environ.get("PEDRO_GROQ_STT", "1") == "0":
+        return None
+    try:
+        wav = audio.get_wav_data(convert_rate=16000, convert_width=2)
+        import cloud_fallback, uuid as _uuid
+        boundary = "pb" + _uuid.uuid4().hex
+        parts = [
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\n{GROQ_STT_MODEL}\r\n".encode(),
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"language\"\r\n\r\nen\r\n".encode(),
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"response_format\"\r\n\r\njson\r\n".encode(),
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"speech.wav\"\r\nContent-Type: audio/wav\r\n\r\n".encode() + wav + b"\r\n",
+            f"--{boundary}--\r\n".encode(),
+        ]
+        status, raw = cloud_fallback._pooled_post(
+            "https://api.groq.com/openai/v1/audio/transcriptions", b"".join(parts),
+            {"Content-Type": f"multipart/form-data; boundary={boundary}", "Authorization": f"Bearer {key}",
+             "User-Agent": "PedroAgent/1.4.18"}, 8)
+        if status != 200:
+            return None
+        return str(json.loads(raw.decode("utf-8")).get("text") or "")
+    except Exception:
+        return None
+
+
 def _transcribe_audio(
     recognizer: Any,
     audio: Any,
     speech_module: Any,
     whisper_loader: Callable[[], Any] | None = None,
 ) -> dict[str, Any]:
+    fast = _groq_transcribe(audio)   # 1.4.18: Groq Whisper (free) answers in ~0.3-0.5 s; Google is the fallback
+    if fast is not None:
+        fast = fast.strip()
+        if not fast:
+            return _err("Could not understand that. Try again.")
+        return _ok(fast, text=fast)
     try:
         text = recognizer.recognize_google(audio, language="en-US")
     except speech_module.UnknownValueError:
@@ -8687,6 +8836,8 @@ def _pause_threshold() -> float:
         value = float(rules.voice_setting("pause_threshold", LISTEN_PAUSE_THRESHOLD))
     except (TypeError, ValueError):
         return LISTEN_PAUSE_THRESHOLD
+    if abs(value - 1.2) < 1e-6:   # 1.4.18: the old default; 0.7 s of quiet now ends a spoken turn
+        value = LISTEN_PAUSE_THRESHOLD
     return min(max(value, 0.5), 5.0)
 
 
@@ -9030,7 +9181,32 @@ class _SpeechPipeline:
         self._closed = False
 
     def submit(self, sentence: str) -> None:
-        """Synthesize one sentence, then queue it. The caller can keep reading."""
+        """Queue one sentence. 1.4.18: on real playback the voice is made on its own thread, so the
+        reply keeps streaming in while a sentence is being synthesized (tests stay in order, in line)."""
+        if self.player is not None:
+            self._submit_now(sentence)
+            return
+        if not hasattr(self, "_texts"):
+            self._texts: queue.Queue[str | None] = queue.Queue()
+            self._synth = threading.Thread(target=self._synth_loop, daemon=True, name="pb-voice-synth")
+            self._synth.start()
+        self._texts.put(sentence)
+
+    def _synth_loop(self) -> None:
+        while True:
+            item = self._texts.get()
+            if item is None:
+                return
+            if not self.cancel.is_set():
+                self._submit_now(item)
+
+    def _wait_synth(self) -> None:
+        th = getattr(self, "_synth", None)
+        if th is not None and th.is_alive():
+            self._texts.put(None)
+            th.join(timeout=120)
+
+    def _submit_now(self, sentence: str) -> None:
         if self.cancel.is_set() or self.error is not None:
             return
         spoken = " ".join((sentence or "").split())
@@ -9131,6 +9307,7 @@ class _SpeechPipeline:
     def finish(self) -> dict[str, Any]:
         """Wait until the queued audio has played or the user interrupted it."""
         if not self._closed:
+            self._wait_synth()
             self._closed = True
             if self._started and self._thread is not None:
                 self.audio.put(None)
@@ -9152,6 +9329,8 @@ class _SpeechPipeline:
     def abort(self) -> None:
         """Stop playback and drop sentences that have not been spoken."""
         self.cancel.set()
+        if hasattr(self, "_texts"):
+            self._texts.put(None)
         if self._started and self._thread is not None and self._thread.is_alive():
             stop_agent_speech()
             self.audio.put(None)

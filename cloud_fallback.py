@@ -427,3 +427,82 @@ def _pool_key(provider: dict[str, Any]) -> str:
     if provider.get("id") == "groq":
         return f"groq:{_provider_model(provider)}"
     return str(provider.get("id"))
+
+
+# ---------- 1.4.18: fast spoken replies ----------
+VOICE_MODELS = ("openai/gpt-oss-20b", "openai/gpt-oss-120b")   # the free Groq models on this key (llama-3.1-8b is gone)
+
+
+def stream_text(messages: list[dict[str, str]], on_text: Callable[[str], None], *,
+                cancel: Any = None, max_tokens: int = 300) -> str | None:
+    """Stream a plain reply (no tools) from Groq, token by token. None when Groq is not usable."""
+    key = os.environ.get("GROQ_API_KEY", "").strip()
+    if not key:
+        return None
+    import model_pool
+    for model in VOICE_MODELS:
+        pool_key = f"groq:{model}"
+        if model_pool.at_limit(pool_key):
+            continue
+        body = {"model": model, "messages": messages, "stream": True, "max_tokens": max_tokens, "temperature": 0.6}
+        if model.startswith("openai/gpt-oss"):
+            body["reasoning_effort"] = "low"
+            body["include_reasoning"] = False
+        data = json.dumps(body).encode("utf-8")
+        if not model_pool.acquire(pool_key, max_wait=0.5, tokens=len(data) // 4 + max_tokens):
+            continue
+        host = "api.groq.com"
+        with _POOL_LOCK:
+            idle = _POOL.setdefault(host, [])
+            conn = idle.pop() if idle else None
+        if conn is None:
+            conn = http.client.HTTPSConnection(host, timeout=12)
+        out: list[str] = []
+        try:
+            conn.request("POST", "/openai/v1/chat/completions", body=data, headers={
+                "Content-Type": "application/json", "Authorization": f"Bearer {key}", "Accept": "text/event-stream",
+                "User-Agent": "PedroAgent/1.4.18", "Connection": "keep-alive"})
+            resp = conn.getresponse()
+            if resp.status != 200:
+                resp.read()
+                if resp.status == 429:
+                    model_pool.cooldown(pool_key, float(resp.getheader("retry-after") or 20))
+                conn.close()
+                continue
+            while True:
+                if cancel is not None and cancel.is_set():
+                    conn.close()
+                    return "".join(out)
+                line = resp.readline()
+                if not line:
+                    break
+                line = line.strip()
+                if not line.startswith(b"data:"):
+                    continue
+                chunk = line[5:].strip()
+                if chunk == b"[DONE]":
+                    break
+                try:
+                    delta = json.loads(chunk)["choices"][0].get("delta", {}).get("content") or ""
+                except (ValueError, KeyError, IndexError):
+                    continue
+                if delta:
+                    out.append(delta)
+                    on_text(delta)
+            resp.read()
+            with _POOL_LOCK:
+                if len(_POOL.setdefault(host, [])) < 2 and not resp.will_close:
+                    _POOL[host].append(conn)
+                else:
+                    conn.close()
+            text = "".join(out).strip()
+            if text:
+                return text
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            if out:
+                return "".join(out)
+    return None

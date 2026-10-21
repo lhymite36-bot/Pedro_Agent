@@ -670,6 +670,11 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
     failed, so hands-free mode always knows when to listen again.
     """
     agent = _agent()
+    if from_voice or client_audio:
+        try:
+            agent.prewarm_voice()
+        except Exception:
+            pass
     import step_labels, team_agent
     wrote: list[str] = []
     raw_emit = emit
@@ -854,6 +859,7 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
                     reply = agent.run_agent(
                         text, history, state.model,
                         cancel_event=cancel, on_text=on_text, on_event=emit,
+                        voice=bool(from_voice or pipeline is not None or client_audio),
                     ) or ""
                 if pipeline is not None and quick is None and group is None:
                     to_voice(speech_buf.flush())
@@ -990,6 +996,10 @@ def listen_once(state: AppState, timeout: float = 8.0) -> dict[str, Any]:
     path.
     """
     agent = _agent()
+    try:   # 1.4.18: open the connections for speech-to-text, the reply and the voice while he is still talking
+        agent.prewarm_voice()
+    except Exception:
+        pass
     if not state.mic_lock.acquire(timeout=3):
         return {"ok": False, "text": "", "error": "The microphone is busy.", "kind": "busy"}
     heard: Any = None

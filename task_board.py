@@ -344,12 +344,23 @@ def _plan(goal: str) -> list[dict[str, str]]:
 
 
 def _merge(goal: str, parts: list[dict[str, Any]]) -> str:
+    """Combine the parts into one answer for Pedro, using only what the parts found."""
     if merger is not None:
         return merger(goal, parts)
-    import team_agent
-    rows = [{"role": p.get("role", ""), "task": p["task"], "result": p.get("result") or p.get("status", ""),
-             "ok": p.get("status") == "done"} for p in parts]
-    return str(team_agent.review(goal, rows).get("summary") or "")
+    joined = "\n\n".join(f"PART {i + 1}: {p['task']}\nRESULT: {p.get('result') or p.get('status', '')}"
+                           for i, p in enumerate(parts))
+    messages = [{"role": "system", "content": (
+        "Merge the results of parallel parts into ONE short answer for Pedro. Use only facts written in the "
+        "RESULTS; if parts disagree, say so briefly; if a part failed, say which. No critique of the team.")},
+                {"role": "user", "content": f"JOB: {goal}\n\n{joined[:12000]}"}]
+    try:
+        import cloud_fallback
+        out = cloud_fallback.stream_text(messages, lambda _c: None, max_tokens=500)
+        if out:
+            return out
+    except Exception:
+        pass
+    return "\n\n".join(f"{p['task']}: {p.get('result') or p.get('status', '')}" for p in parts)
 
 
 def split(goal: str, *, origin: str = "", wait: bool = False) -> dict[str, Any]:
