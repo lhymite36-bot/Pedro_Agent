@@ -1476,7 +1476,7 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     except Exception as exc:
                         self._json({"ok": False, "error": str(exc)})
                 else:
-                    keys = {"enabled", "per_day", "vts_dir"}
+                    keys = {"enabled", "per_day", "vts_dir", "start_time"}
                     self._json(qbs.save_settings(**{k: v for k, v in data.items() if k in keys}))
             elif url.path == "/api/background":
                 import background

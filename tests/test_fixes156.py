@@ -65,3 +65,16 @@ class TopicPick156(unittest.TestCase):
         rows = [{"topic": "a failed one here", "status": "failed"}, {"topic": "a real scheduled one", "status": "scheduled"}]
         with mock.patch.object(q, "load_posted", return_value=rows):
             self.assertEqual(q.known_ideas([]), ["a real scheduled one"])
+
+
+class Daily158(unittest.TestCase):
+    def test_slots_start_time_report(self):
+        import datetime as dt
+        import quiet_brain_shorts as q
+        self.assertEqual(q.SLOTS, ["14:30", "16:00", "19:00", "20:30", "21:30", "22:30"])
+        self.assertEqual(q._hm("9:05"), "09:05"); self.assertEqual(q._hm("bad"), "12:30")
+        r = {"ok": True, "day": "2026-10-22", "message": "Scheduled 1", "plan": [
+            {"n": 1, "title": "Why X", "status": "scheduled", "scheduled_time": "2026-10-22T14:30:00+05:30",
+             "tiktok_status": "pending-overflow"}]}
+        t = q.report_text(r)
+        self.assertIn("Why X - YouTube 2:30 PM IST", t); self.assertIn("TikTok waiting", t)

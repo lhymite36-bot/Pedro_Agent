@@ -42,7 +42,7 @@ TIKTOK_CHANNEL = "6abddc23ea19ca0bde3dfad1"
 HOST_REPO = "lhymite36-bot/quiet-brain-shorts"
 API = "https://api.buffer.com"
 FREE_PLAN_LIMIT = 10
-SLOTS = ["14:30", "16:00", "19:00", "20:00", "21:00", "22:00"]
+SLOTS = ["14:30", "16:00", "19:00", "20:30", "21:30", "22:30"]   # 1.5.8: Pedro's times (IST)
 OVERFLOW_SLOTS = ["15:30", "16:00", "16:30", "19:30", "20:30", "21:30", "22:00", "22:30"]
 FORMATS = ["pov", "brain-like", "nobody-me", "expectation", "brain-vs-me", "storytime"]
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
@@ -68,8 +68,14 @@ def settings() -> dict[str, Any]:
     except (OSError, ValueError):
         data = {}
     return {"enabled": bool(data.get("enabled", False)), "per_day": int(data.get("per_day", 6)),
+            "start_time": _hm(data.get("start_time") or "12:30"),
             "vts_dir": data.get("vts_dir") or os.environ.get("VTS_DIR", ""),
             "token_set": bool(_token()), **readiness()}
+
+
+def _hm(v: Any) -> str:
+    m = re.fullmatch(r"\s*(\d{1,2}):(\d{2})\s*", str(v or ""))
+    return f"{int(m.group(1)):02d}:{m.group(2)}" if m and int(m.group(1)) < 24 and int(m.group(2)) < 60 else "12:30"
 
 
 def _token() -> str:
@@ -116,10 +122,10 @@ def settings_raw() -> dict[str, Any]:
 
 def save_settings(**changes: Any) -> dict[str, Any]:
     cur = settings()
-    for k in ("enabled", "per_day", "vts_dir"):
+    for k in ("enabled", "per_day", "vts_dir", "start_time"):
         if k in changes:
             cur[k] = changes[k]
-    (_storage() / "settings.json").write_text(json.dumps({k: cur[k] for k in ("enabled", "per_day", "vts_dir")}),
+    (_storage() / "settings.json").write_text(json.dumps({k: cur[k] for k in ("enabled", "per_day", "vts_dir", "start_time")}),
                                               encoding="utf-8")
     return settings()
 
@@ -528,6 +534,9 @@ def run_day(day: str | None = None, dry_run: bool = True, render_videos: bool = 
     known = known_ideas(scheduled + recent)
     say(f"Writing {n} new Quiet Brain ideas (checked against {len(known)} used ones)…")
     ideas = write_ideas(n, known)
+    while len(ideas) < n:          # 1.5.8: model retries, idea bank, then a new angle; never stop for repeats
+        extra, _src = pick_idea(known + [x["idea"] for x in ideas] + [x["title"] for x in ideas])
+        ideas.append(extra)
     if len(ideas) < n:
         return {"ok": False, "error": f"Only {len(ideas)} unique ideas came back; nothing was scheduled.", "ideas": ideas}
     day_dir = _storage() / day
@@ -541,7 +550,7 @@ def run_day(day: str | None = None, dry_run: bool = True, render_videos: bool = 
             if not st["vts_dir"]:
                 return {"ok": False, "error": "Set the Voice to Short folder in Settings > Quiet Brain Shorts."}
             say(f"Rendering Short {i} of {n} (2D, ~1 min)…")
-            path = render(day_dir, i, x, st["vts_dir"])
+            path = render(day_dir, i, x, st["vts_dir"], length=30)   # 1.5.8: same length as the one-Short run
             check = verify(path)
             if not check["ok"]:
                 say(f"Short {i} failed checks: {', '.join(check['problems'])}; skipped.")
@@ -596,7 +605,8 @@ def routine_tick(now: dt.datetime | None = None) -> dict[str, Any] | None:
     except (OSError, ValueError):
         last = {}
     out = None
-    if now.hour >= 11 and last.get("day") != now.date().isoformat():
+    sh, sm = map(int, settings()["start_time"].split(":"))
+    if (now.hour, now.minute) >= (sh, sm) and last.get("day") != now.date().isoformat():
         stamp.write_text(json.dumps({**last, "day": now.date().isoformat()}), encoding="utf-8")
         out = run_day(now.date().isoformat(), dry_run=False, render_videos=True)
     if time.time() - float(last.get("filler", 0)) >= 1800:
@@ -611,15 +621,38 @@ def start_routine(every: float = 300.0) -> None:
         while True:
             try:
                 r = routine_tick()
-                if r and r.get("message"):
+                if r and (r.get("message") or r.get("error")):
                     import background
 
-                    background.notify("Quiet Brain Shorts", r["message"])
+                    background.notify("Quiet Brain Shorts", r.get("message") or r["error"])
+                    if r.get("day"):
+                        _post_report(r)
             except Exception as exc:
                 print(f"[quiet-brain] {exc}", flush=True)
             time.sleep(every)
 
     threading.Thread(target=loop, daemon=True, name="quiet-brain-shorts").start()
+
+
+def report_text(r: dict[str, Any]) -> str:
+    """1.5.8: the titles and times, for Pedro's chat after each daily run."""
+    if not r.get("ok"):
+        return "Daily Shorts stopped: " + str(r.get("error") or "unknown error") + " Nothing more was scheduled."
+    lines = [r.get("message", "")]
+    for e in r.get("plan") or []:
+        def t(v: Any) -> str:
+            return dt.datetime.fromisoformat(v).strftime("%I:%M %p").lstrip("0") + " IST" if v else "waiting for a free Buffer slot"
+        lines.append(f"{e.get('n')}. {e.get('title')} - YouTube {t(e.get('scheduled_time')) if e.get('status') == 'scheduled' else e.get('status')}"
+                     f", TikTok {t(e.get('tiktok_scheduled_time')) if e.get('tiktok_status') == 'scheduled' else 'waiting for a free Buffer slot'}")
+    return "\n".join(x for x in lines if x)
+
+
+def _post_report(r: dict[str, Any]) -> None:
+    try:
+        import bg_progress
+        bg_progress.Reporter("bot-shorts-poster", "Daily Shorts").final(report_text(r), ok=bool(r.get("ok")))
+    except Exception as exc:
+        print(f"[quiet-brain] report: {exc}", flush=True)
 
 
 def quiet_brain_shorts_dry_run() -> dict[str, Any]:

@@ -107,7 +107,8 @@ class QuietBrainTests(unittest.TestCase):
         late = dt.datetime(2026, 10, 20, 21, 55, tzinfo=q.IST)
         times = q.slot_times("2026-10-20", late)
         self.assertTrue(all(dt.datetime.fromisoformat(t) > late for t in times))
-        self.assertTrue(times[0].startswith("2026-10-21T14:30"))
+        self.assertTrue(times[0].startswith("2026-10-20T22:30"))   # 1.5.8 slot
+        self.assertTrue(times[1].startswith("2026-10-21T14:30"))
 
 
 if __name__ == "__main__":
