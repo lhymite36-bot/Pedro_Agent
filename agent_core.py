@@ -8044,6 +8044,7 @@ def _run_agent_core(
             if short:
                 _emit("step", label=short, name="reason")
         response_parts = []
+        stop_reply = ""
         acted = False
         try:
             pre = parallel_results([(c.name or "", dict(c.args or {})) for c in calls])
@@ -8077,6 +8078,10 @@ def _run_agent_core(
                 if name in grounding.ACTION_TOOLS:
                     acted = True
             grounding.note(name, result)
+            if result.get("denied"):
+                stop_reply = stop_reply or "Pedro denied this, so I did not do it and I won't retry."
+            elif result.get("needs_confirmation") and str(result.get("error", "")).startswith("Still waiting"):
+                stop_reply = stop_reply or "The approval card is still waiting for you. Tap Approve or Deny; I won't ask again until then."
             if result.get("ok"):
                 notes = getattr(_turn_local, "tool_notes", None)
                 if notes is None or getattr(_turn_local, "tool_notes_for", None) != user_text:
@@ -8102,6 +8107,8 @@ def _run_agent_core(
         history.append(types.Content(role="user", parts=response_parts))
         if cancel_event is not None and cancel_event.is_set():
             return "\n".join(voice_lines)
+        if stop_reply:   # 1.5.1: a deny (or a still-open card) ends the turn; no tool retries
+            return stop_reply
 
     if voice and voice_lines:
         return "\n".join(voice_lines)

@@ -167,10 +167,14 @@ FILE_PROMPT = """Write the complete file `{path}` for this app. Output ONLY the 
 Spec: {spec}
 Other files and their roles: {files}
 {context}Requirements: production quality, every feature in the spec works, no placeholder TODOs, no external URLs,
-all ids/classes consistent with the other files, accessible labels, smooth but light CSS. Use the exact relative paths above."""
+all ids/classes consistent with the other files, accessible labels, smooth but light CSS. Use the exact relative paths above.
+Responsive rules (must hold at 390px wide): <meta name="viewport" content="width=device-width, initial-scale=1">; html,body{{max-width:100%;overflow-x:hidden}};
+*{{box-sizing:border-box}}; a bottom tab bar is position:fixed;left:0;right:0;bottom:0 with display:flex and each tab flex:1 1 0;min-width:0,
+so EVERY tab (including Settings) is visible; never give the app container a fixed px width; pad the content bottom by the tab bar height."""
 
 FIX_PROMPT = """The app has problems. Fix them. Return JSON only: {{"files": [{{"path": "...", "content": "FULL new content"}}]}}
-with only the files you change.
+with only the files you change. Keep the layout responsive: at 390px wide nothing may overflow horizontally and every
+bottom tab must stay visible (fixed full-width flex bar, tabs flex:1 1 0;min-width:0).
 Problems:
 {problems}
 Current files:
@@ -179,7 +183,8 @@ Current files:
 CRITIQUE_PROMPT = """You are a strict UI reviewer. These are screenshots of an app (desktop {w1}px and phone {w2}px wide).
 Spec: {spec}
 List the most important visual and usability problems (layout, spacing, contrast, alignment, overflow, missing states,
-anything that looks unfinished). Reply JSON only: {{"score": 1-10, "problems": ["..."]}}."""
+anything that looks unfinished). On the phone shot, check that nothing is cut off at the right edge and that every
+navigation tab from the spec is visible; name any missing tab. Reply JSON only: {{"score": 1-10, "problems": ["..."]}}."""
 
 
 def _snapshot(project: Path, budget: int = 60000) -> str:
