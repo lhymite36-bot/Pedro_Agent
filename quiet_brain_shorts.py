@@ -230,7 +230,9 @@ def is_duplicate(idea: str, known: list[str]) -> bool:
 
 def known_ideas(buffer_rows: list[dict[str, Any]] | None = None) -> list[str]:
     known = []
-    for x in load_posted():
+    for x in load_posted():   # 1.5.6: only real posts/schedules count, not failed attempts or dry runs
+        if str(x.get("status") or "scheduled") in {"failed", "would-schedule", "dry-run"}:
+            continue
         known += [x.get("topic") or "", x.get("title") or ""]
     for p in buffer_rows or []:
         known.append(p.get("text") or "")
@@ -253,7 +255,10 @@ def write_ideas(n: int, known: list[str]) -> list[dict[str, str]]:
     prompt = IDEA_PROMPT.format(n=n, formats=", ".join(formats), used="\n".join("- " + k[:140] for k in known[-150:]))
     out: list[dict[str, str]] = []
     for _attempt in range(3):
-        text = idea_writer(prompt) if idea_writer else _llm(prompt)
+        try:
+            text = idea_writer(prompt) if idea_writer else _llm(prompt)
+        except Exception:
+            text = ""
         for line in text.splitlines():
             if "|" not in line:
                 continue
@@ -265,6 +270,45 @@ def write_ideas(n: int, known: list[str]) -> list[dict[str, str]]:
             if len(out) >= n:
                 return out
     return out
+
+
+RETRY_NOTE = """
+Your last answer repeated a used topic or was empty. Pick a clearly DIFFERENT everyday moment.
+Topics already used (do not use any of them):
+{used}
+"""
+
+
+def pick_idea(known: list[str], say: Callable[[str], Any] | None = None) -> tuple[dict[str, str], str]:
+    """1.5.6: never stop just because the model repeated itself. Returns (item, source)."""
+    import random
+
+    import qb_idea_bank
+    for attempt in range(3):                       # 1) model, up to 3 tries, explicit used list on retries
+        got = write_ideas(1, known) if attempt == 0 else _retry_ideas(known)
+        if got:
+            return got[0], "model"
+    bank = qb_idea_bank.ideas()                    # 2) built-in bank, unused first
+    fresh = [b for b in bank if not is_duplicate(b["idea"], known) and not is_duplicate(b["title"], known)]
+    if fresh:
+        if say:
+            say("The model kept repeating used topics, so I picked an unused idea from the built-in idea bank.")
+        return random.choice(fresh), "bank"
+    base = random.choice(bank)                     # 3) a new angle on an old topic
+    where, how = random.choice(qb_idea_bank.ANGLES)
+    if say:
+        say("Every bank idea is used already, so I'm making a new angle on an old topic.")
+    return {"format": base["format"], "title": (base["title"] + " " + where)[:70],
+            "idea": base["idea"] + f" New angle: {how}."}, "variant"
+
+
+def _retry_ideas(known: list[str]) -> list[dict[str, str]]:
+    old = IDEA_PROMPT
+    try:
+        globals()["IDEA_PROMPT"] = IDEA_PROMPT + RETRY_NOTE
+        return write_ideas(1, known)
+    finally:
+        globals()["IDEA_PROMPT"] = old
 
 
 def _llm(prompt: str) -> str:
@@ -691,6 +735,7 @@ def make_quiet_brain_short(dry_run: Any = True) -> dict[str, Any]:
     import bg_progress
     rep = bg_progress.Reporter(bg_progress.current_session(), "Shorts Poster" + (" (dry run)" if dry else ""))
     _JOB["running"] = True
+    _JOB["buffer_touched"] = False
 
     def run() -> None:
         try:
@@ -698,7 +743,8 @@ def make_quiet_brain_short(dry_run: Any = True) -> dict[str, Any]:
             rep.final(out["summary"], ok=True, image=out.get("thumb", ""))
         except Exception as exc:
             rep.final(f"Stopped: {str(exc)[:300]}. Nothing was posted." if dry else
-                      f"Stopped: {str(exc)[:300]}. Check Buffer before trying again; I did not mark anything as posted.", ok=False)
+                      (f"Stopped: {str(exc)[:300]}. " + ("Check the Buffer queue before trying again; " if _JOB.get("buffer_touched") else "nothing was sent to Buffer. ")
+                       + "Nothing was marked as posted."), ok=False)
         finally:
             _JOB["running"] = False
     threading.Thread(target=run, daemon=True, name="qb-short").start()
@@ -712,10 +758,9 @@ def _workflow(dry: bool, say: Callable[[str], Any]) -> dict[str, Any]:
     day = dt.datetime.now(IST).date().isoformat()
     scheduled = buffer_posts(["scheduled"]) if _token() else []
     recent = buffer_posts(["sent"], max_pages=4) if _token() else []
-    known = known_ideas(scheduled + recent) + [h.get("idea") or "" for h in idea_history()]
-    ideas = write_ideas(1, [k for k in known if k])
-    if not ideas:
-        raise RuntimeError("no fresh idea came back that isn't a repeat")
+    known = known_ideas(scheduled + recent) + [h.get("idea") or "" for h in idea_history() if h.get("status") == "scheduled"]
+    first, _src = pick_idea([k for k in known if k], say)
+    ideas = [first]
     day_dir = _storage() / day
     day_dir.mkdir(parents=True, exist_ok=True)
     n = 1 + max([int(m.group(1)) for f in day_dir.glob("qb-short*.mp4") if (m := re.search(r"(\d+)", f.stem))] or [0])
@@ -747,6 +792,7 @@ def _workflow(dry: bool, say: Callable[[str], Any]) -> dict[str, Any]:
         _remember_idea(item, "made-not-scheduled")
         raise RuntimeError(f"the Buffer queue is full ({len(scheduled)}/{FREE_PLAN_LIMIT}); the video is saved at {path}")
     say("Uploading the video for Buffer and scheduling it.")
+    _JOB["buffer_touched"] = True
     item["video_url"] = host(day, path)
     plan = schedule_day(day, [item], scheduled, dry_run=False)
     e = plan[0]

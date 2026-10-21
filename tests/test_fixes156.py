@@ -39,3 +39,29 @@ class Fixes156(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TopicPick156(unittest.TestCase):
+    def test_repeats_fall_back_to_bank_then_variant(self):
+        import qb_idea_bank
+        import quiet_brain_shorts as q
+        calls = []
+        q.idea_writer = lambda p: calls.append(p) or "pov|Same|replaying an argument from 2019 in the shower and winning it now, rumination"
+        try:
+            item, src = q.pick_idea(["Replaying an argument from 2019 in the shower and winning it now, rumination"])
+            self.assertEqual(src, "bank"); self.assertEqual(len(calls), 9)
+            self.assertIn("Topics already used", calls[-1])
+            allk = [b["idea"] for b in qb_idea_bank.ideas()]
+            item, src = q.pick_idea(allk + ["Replaying an argument from 2019 in the shower and winning it now, rumination"])
+            self.assertEqual(src, "variant"); self.assertIn("New angle", item["idea"])
+            q.idea_writer = lambda p: (_ for _ in ()).throw(RuntimeError("busy"))
+            self.assertEqual(q.pick_idea([])[1], "bank")
+        finally:
+            q.idea_writer = None
+
+    def test_failed_and_dry_entries_not_counted(self):
+        import quiet_brain_shorts as q
+        from unittest import mock
+        rows = [{"topic": "a failed one here", "status": "failed"}, {"topic": "a real scheduled one", "status": "scheduled"}]
+        with mock.patch.object(q, "load_posted", return_value=rows):
+            self.assertEqual(q.known_ideas([]), ["a real scheduled one"])
