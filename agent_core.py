@@ -504,6 +504,7 @@ Clipboard:
 
 Local files:
 - "Where did I save ..." or "find my notes about ..." calls search_local_files. Answer with the paths it returns. Do not invent a path. The index covers the Desktop, Documents, Downloads, the user home folder, and the external drive when that drive is connected. It does not open or run those files.
+- PC look-ups (1.4.16): "newest files in Downloads", "how many files on my Desktop", "PDFs in Documents" -> ONE list_files call (sort, pattern, limit, recursive). "Free space", "memory", "what is using RAM" -> ONE pc_status call. Do not use run_terminal_command, search_local_files or search_files_by_time for these. When several independent look-ups are needed, request them together in the same step.
 - "Where is the Excel file I saved yesterday?", "videos from last week", or "photos from yesterday" calls search_files_by_time. With no folder named, search the Desktop, Documents, Downloads, the home folder, and the external drive when it is connected. "On the external drive", "on the desktop", "in my documents", "in downloads", or "in my project folder" searches only that place. Excel means .xlsx, .xlsm, .xls, and .csv. Do not open or run the files it returns.
 
 Phone bridge:
@@ -6153,6 +6154,10 @@ TOOL_DECLARATIONS.extend(quiet_brain_shorts.DECLARATIONS)
 TOOLS.update(quiet_brain_shorts.TOOLS)
 import terminal_tool  # noqa: E402
 TOOL_DECLARATIONS.extend(terminal_tool.DECLARATIONS)
+import pc_fast_tools   # 1.4.16: read-only list_files / pc_status (no terminal, no approval)
+TOOL_DECLARATIONS.extend(pc_fast_tools.DECLARATIONS)
+TOOLS.update(pc_fast_tools.TOOLS)
+_PLAN_FREE_TOOLS.update(pc_fast_tools.TOOLS)
 TOOLS.update(terminal_tool.TOOLS)
 
 
@@ -6244,6 +6249,10 @@ def _clean_tool_arguments(arguments: dict[str, Any]) -> dict[str, Any]:
 
 def invoke_tool(name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
     """Run one declared tool. Exceptions become error payloads for the model."""
+    if name == "run_terminal_command" and isinstance(arguments, dict):
+        listing = pc_fast_tools.listing_from_terminal(str(arguments.get("command") or ""))
+        if listing is not None:   # 1.4.16: a plain folder listing is read-only: answer it with list_files, no console
+            name, arguments = "list_files", listing
     function = TOOLS.get(name)
     if function is None:
         return _err(f"Unknown tool: {name}")
@@ -6372,6 +6381,51 @@ def _execute_logged_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]
     detail = _scrub(str(result.get("message") or result.get("error") or ""))
     print(f"[tool] {status}: {detail}", flush=True)
     return result
+
+
+# 1.4.16: independent read-only look-ups asked for in the same step run at the same time.
+PARALLEL_SAFE_TOOLS = frozenset({"list_files", "pc_status", "read_file", "read_page_text", "web_search", "recall_memory",
+                                 "get_task_progress", "list_routines", "search_files_by_time", "search_local_files",
+                                 "get_clipboard_text", "list_connectors"})
+
+
+def parallel_results(calls: list[tuple[str, dict[str, Any]]]) -> dict[int, dict[str, Any]]:
+    """Run 2+ read-only calls at once. Returns {index: result}; {} when they must run one by one.
+
+    Only tools in PARALLEL_SAFE_TOOLS that need no approval qualify, so approvals are never skipped or merged.
+    """
+    if len(calls) < 2:
+        return {}
+    try:
+        import confirm_action
+        for name, args in calls:
+            if name not in PARALLEL_SAFE_TOOLS or name not in TOOLS or confirm_action.is_sensitive(name, args):
+                return {}
+    except Exception:
+        return {}
+    from concurrent.futures import ThreadPoolExecutor
+
+    turn_state = dict(_turn_local.__dict__)
+    scope_state = dict(_tool_scope.__dict__)
+    cancel = getattr(_turn_local, "cancel_event", None) or stop_token.current()
+
+    def one(item: tuple[str, dict[str, Any]]) -> dict[str, Any]:
+        _turn_local.__dict__.update(turn_state)
+        _tool_scope.__dict__.update(scope_state)
+        stop_token.bind(cancel)
+        try:
+            return _execute_logged_tool(item[0], item[1])
+        except Exception as exc:
+            return {"ok": False, "error": f"{item[0]} failed: {_scrub(str(exc))[:200]}"}
+
+    started = time.monotonic()
+    with ThreadPoolExecutor(max_workers=min(4, len(calls)), thread_name_prefix="tool-par") as pool:
+        results = list(pool.map(one, calls))
+    try:
+        agent_log.event("parallel_tools", n=len(calls), ms=int((time.monotonic() - started) * 1000))
+    except Exception:
+        pass
+    return dict(enumerate(results))
 
 
 def gemini_api_keys() -> list[str]:
@@ -7169,6 +7223,58 @@ def _fast_reply(user_text: str, history: list[Any], model: str, *, on_text: Any,
     return None
 
 
+# 1.4.16: Groq plans the tool steps for everyday PC tasks (about 0.7 s a round vs 1-12 s on a busy Gemini).
+# Gemini still takes the turn when Groq is not saved, declines, or the task is a big build/creative job.
+_PLANNER_SKIP = re.compile(r"\b(blender|youtube|wingz|itvedant|excel|sql|build|code|program|script|mod|video|shorts|"
+                           r"routine|bot|teach|taught|remember|plan)\b", re.I)
+
+
+def _fast_planner_turn(user_text: str) -> bool:
+    text = str(user_text or "")
+    if text.startswith("[resume]") or len(text) > 600 or _PLANNER_SKIP.search(text):
+        return False
+    if getattr(_tool_scope, "allowed", None) is not None or _active_parts():
+        return False
+    try:
+        if not bool(rules.agent_setting("fast_planner", True)):
+            return False
+        import cloud_fallback
+        return bool(cloud_fallback.providers_for("busy"))
+    except Exception:
+        return False
+
+
+def _history_text(history: list[Any], limit: int = 8) -> list[dict[str, str]]:
+    out: list[dict[str, str]] = []
+    for item in history[-limit * 2:]:
+        role = "assistant" if getattr(item, "role", "") == "model" else "user"
+        text = " ".join(str(getattr(p, "text", "") or "") for p in (getattr(item, "parts", None) or [])).strip()
+        if text:
+            out.append({"role": role, "content": text[:1500]})
+    return out[-limit:]
+
+
+def _plan_with_backup(user_text: str, history: list[Any], types: Any, on_event: Any, cancel_event: Any) -> str | None:
+    import cloud_fallback
+
+    started = time.monotonic()
+    try:
+        prior = _history_text(history)
+        reply = stop_token.run(lambda: cloud_fallback.run_chain(user_text, on_event=on_event, kind="busy", history=prior),
+                               cancel_event)
+    except stop_token.Stopped:
+        return ""
+    except Exception as exc:
+        agent_log.event("planner_fail", reason=_scrub(str(exc))[:120])
+        return None
+    if not reply:
+        return None
+    agent_log.event("planner", ms=int((time.monotonic() - started) * 1000))
+    history.append(types.Content(role="user", parts=[types.Part.from_text(text=user_text)]))
+    history.append(types.Content(role="model", parts=[types.Part.from_text(text=reply)]))
+    return reply
+
+
 CHANGE_LOG_TOOLS = frozenset({"make_document", "write_text_file", "create_directory", "capture_screenshot_file", "build_local_program"})
 WINGZ_BLOCKED_TOOLS = frozenset({"launch_application", "launch_any_app"})
 wingz_turn = False
@@ -7315,6 +7421,10 @@ def _run_agent_core(
         fast = _fast_reply(user_text, history, model, on_text=on_text, cancel_event=cancel_event, on_event=on_event)
         if fast is not None:
             return fast
+    if not voice and _fast_planner_turn(user_text):
+        planned = _plan_with_backup(user_text, history, types, on_event, cancel_event)
+        if planned is not None:
+            return planned
     client = _gemini_client(genai, keys[0])
     config, voice_plain = _model_configs(voice)
     active_config = config
@@ -7587,7 +7697,11 @@ def _run_agent_core(
                 _emit("step", label=short, name="reason")
         response_parts = []
         acted = False
-        for call in calls:
+        try:
+            pre = parallel_results([(c.name or "", dict(c.args or {})) for c in calls])
+        except Exception:
+            pre = {}
+        for idx, call in enumerate(calls):
             if cancel_event is not None and cancel_event.is_set():
                 break
             try:
@@ -7611,7 +7725,7 @@ def _run_agent_core(
             else:
                 result = grounding.repeat_error(name, arguments)
                 if result is None:
-                    result = _execute_logged_tool(name, arguments)
+                    result = pre[idx] if idx in pre else _execute_logged_tool(name, arguments)
                 if name in grounding.ACTION_TOOLS:
                     acted = True
             grounding.note(name, result)

@@ -124,7 +124,12 @@ def _post(body: dict[str, Any], provider: dict[str, Any] | None = None) -> dict[
 
 CORE_TOOLS = ("ask_user", "approval_card", "read_page_text", "navigate_browser", "take_screenshot", "click_screen_target",
               "type_text", "perform_actions", "search_local_files", "open_local_file", "create_routine", "list_routines",
-              "web_search", "read_file", "list_files", "get_clipboard_text")
+              "web_search", "read_file", "list_files", "pc_status", "get_clipboard_text")
+
+PC_HINT = ("PC look-ups: use list_files (one call: sort newest/largest, pattern like *.pdf, limit, recursive) to list, "
+           "count or find files, and pc_status for free disk space, memory or busy programs. They need no approval. "
+           "Do not use run_terminal_command, search_local_files or search_files_by_time for these. Ask for independent "
+           "look-ups together in one step. Answer from tool results only.\n\n")
 
 
 def _tools(user_text: str = "", limit: int = 24, desc: int = 220) -> list[dict[str, Any]]:
@@ -169,7 +174,7 @@ def _request_body(provider: dict[str, Any], messages: list[dict[str, Any]], tool
 
 
 def _run_one(provider: dict[str, Any], user_text: str, *, on_event: Callable[[dict[str, Any]], None] | None = None,
-             max_rounds: int = 40) -> str:
+             max_rounds: int = 40, history: list[dict[str, str]] | None = None) -> str:
     """Run the tool loop on one backup provider. Same tools and safety checks as Gemini."""
     agent = _agent()
     emit = on_event or (lambda e: None)
@@ -177,8 +182,10 @@ def _run_one(provider: dict[str, Any], user_text: str, *, on_event: Callable[[di
     prompt = agent._scrub(agent.system_prompt())
     sizes = [(24, 220, 6000), (12, 160, 3000), (6, 120, 1500)]   # shrink until the free tier accepts it
     level = 0
+    prompt = PC_HINT + prompt
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": prompt[:sizes[0][2]]},
+        *[{"role": m["role"], "content": agent._scrub(m["content"])} for m in (history or [])][-8:],
         {"role": "user", "content": agent._scrub(user_text)},
     ]
     tools = _tools(user_text, *sizes[0][:2])
@@ -226,16 +233,23 @@ def _run_one(provider: dict[str, Any], user_text: str, *, on_event: Callable[[di
                 pass
             return str(msg.get("content") or "").strip() or "The backup model returned no text."
         messages.append({"role": "assistant", "content": msg.get("content") or "", "tool_calls": calls})
+        parsed = []
         for call in calls:
             fn = call.get("function") or {}
-            name = str(fn.get("name") or "")
             raw = fn.get("arguments")
             try:
                 args = json.loads(raw) if isinstance(raw, str) and raw.strip() else dict(raw or {})
             except (json.JSONDecodeError, TypeError, ValueError):
                 args = {}
+            parsed.append((str(fn.get("name") or ""), args if isinstance(args, dict) else {}))
+        try:   # 1.4.16: read-only look-ups in one step run at the same time
+            pre = agent.parallel_results(parsed)
+        except Exception:
+            pre = {}
+        for idx, call in enumerate(calls):
+            name, args = parsed[idx]
             emit({"event": "tool_start", "name": name, "arguments": args})
-            result = agent._execute_logged_tool(name, args)
+            result = pre[idx] if idx in pre else agent._execute_logged_tool(name, args)
             emit({"event": "tool_end", "name": name, "ok": bool(result.get("ok", True)),
                   "path": agent._undo_path(result) if result.get("ok") else "",
                   "image": agent._result_image(result),
@@ -273,14 +287,14 @@ def run(user_text: str, *, on_event: Callable[[dict[str, Any]], None] | None = N
 
 
 def run_chain(user_text: str, *, on_event: Callable[[dict[str, Any]], None] | None = None,
-              kind: str = "quota", max_rounds: int = 40) -> str | None:
+              kind: str = "quota", max_rounds: int = 40, history: list[dict[str, str]] | None = None) -> str | None:
     """Try each saved provider until one answers. None when none are saved or all decline."""
     chosen = providers_for(kind)
     if not chosen:
         return None
     for item in chosen:
         try:
-            return _run_one(item, user_text, on_event=on_event, max_rounds=max_rounds)
+            return _run_one(item, user_text, on_event=on_event, max_rounds=max_rounds, history=history)
         except (_Switch, _TooLarge):
             print(f"[backup] {item['id']} could not take this turn. Trying the next saved provider.", flush=True)
     return None

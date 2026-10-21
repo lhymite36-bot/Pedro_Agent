@@ -190,3 +190,19 @@ class SaveProviderKeyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+_planner_patch = None
+
+
+def setUpModule():   # 1.4.16: these tests are about the Gemini model order, not the Groq tool planner
+    global _planner_patch
+    from unittest import mock as _mock
+    import agent_core as _ac
+    _planner_patch = _mock.patch.object(_ac, "_fast_planner_turn", return_value=False)
+    _planner_patch.start()
+
+
+def tearDownModule():
+    if _planner_patch is not None:
+        _planner_patch.stop()

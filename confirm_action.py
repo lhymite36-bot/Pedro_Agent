@@ -167,6 +167,13 @@ def label_for(name: str, arguments: dict[str, Any]) -> str:
 
 
 def remember(name: str, arguments: dict[str, Any], label: str) -> None:
+    if name == "run_terminal_command":   # 1.4.16: start the console while Pedro reads the card (runs nothing)
+        try:
+            import terminal_tool
+            if terminal_tool.warm_ok(str(arguments.get("command") or ""), str(arguments.get("shell") or "powershell")):
+                threading.Thread(target=terminal_tool.prewarm, daemon=True).start()
+        except Exception:
+            pass
     current = _pending_by.get(_bucket())
     if current is not None and _same(current, name, arguments):
         return   # already waiting on this exact yes: keep the one card, do not ask again

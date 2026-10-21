@@ -232,7 +232,7 @@ def _stdio(server: dict[str, Any], method: str, params: dict[str, Any]) -> dict[
             {
                 "protocolVersion": _PROTOCOL,
                 "capabilities": {},
-                "clientInfo": {"name": "pedro-agent", "version": "1.4.15"},
+                "clientInfo": {"name": "pedro-agent", "version": "1.4.16"},
             },
             1,
             timeout=start_wait,

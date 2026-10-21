@@ -132,7 +132,7 @@ class CrashReportTests(_Storage):
         except ValueError as exc:
             path = crash_reports.record(exc, "test")
         text = path.read_text(encoding="utf-8")
-        self.assertIn("Ped Bot 1.4.15 crash report", text)
+        self.assertIn("Ped Bot 1.4.16 crash report", text)
         self.assertIn("ValueError", text)
         self.assertNotIn("AIzaSy", text)
         self.assertNotIn("hunter2", text)
@@ -149,7 +149,7 @@ class CrashReportTests(_Storage):
 
 
 class UpdaterTests(_Storage):
-    def _release(self, data, version="1.4.15", good=True):
+    def _release(self, data, version="1.4.16", good=True):
         sha = hashlib.sha256(data).hexdigest() if good else "0" * 64
         return [{"tag_name": "v1.4.13-windows", "assets": []},
                 {"tag_name": f"v{version}-windows", "draft": False, "prerelease": False, "html_url": "u",
