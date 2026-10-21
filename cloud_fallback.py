@@ -199,7 +199,7 @@ def _post(body: dict[str, Any], provider: dict[str, Any] | None = None) -> dict[
         headers.pop("Authorization", None)   # local Ollama needs no key
         try:   # one local answer at a time; when it is busy, use the next model instead of waiting
             import local_llm
-            if not local_llm.GATE.acquire(timeout=1.0):
+            if not local_llm.GATE.acquire(timeout=0.2):
                 raise _Switch("the local model is busy")
             gate = local_llm.GATE
         except ImportError:
@@ -426,6 +426,8 @@ def run_chain(user_text: str, *, on_event: Callable[[dict[str, Any]], None] | No
         keys = [_pool_key(r) for r in rows]
         ranked = model_pool.order(keys)
         rows = [rows[keys.index(k)] for k in ranked]
+        # the PC's own model is ~4x slower and shares the CPU with chat: only when every cloud model is full
+        rows = [r for r in rows if not r.get("local")] + [r for r in rows if r.get("local")]
     except Exception:
         pass
     for item in rows:
