@@ -1445,12 +1445,14 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             elif url.path == "/api/connectors":
                 import connectors
                 action = str(data.get("action") or "")
-                if action in {"connect", "disconnect"} and self.remote:
+                if action in {"connect", "disconnect", "gmail_default"} and self.remote:
                     self._json({"ok": False, "error": "Connect on the PC."}, 403)
                 elif action == "connect":
                     self._json(connectors.connect(str(data.get("id") or ""), data))
                 elif action == "disconnect":
-                    self._json(connectors.disconnect(str(data.get("id") or "")))
+                    self._json(connectors.disconnect(str(data.get("id") or ""), str(data.get("account") or "")))
+                elif action == "gmail_default":
+                    self._json(connectors.gmail_set_default(str(data.get("account") or "")))
                 else:
                     self._json({"ok": False, "error": "Unknown connector action."}, 400)
             elif url.path == "/api/settings":

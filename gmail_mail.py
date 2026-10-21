@@ -245,7 +245,35 @@ def _interpret(to: str, subject: str, body: str, request: str) -> dict[str, Any]
     return {"to": recipient, "subject": subject_text, "body": body_text}
 
 
-def _configured() -> tuple[str, str] | None:
+def _accounts() -> list[dict[str, Any]]:
+    try:
+        import connectors
+        return connectors.gmail_accounts()["accounts"]
+    except Exception:
+        return []
+
+
+def sending_account(from_account: str = "") -> str:
+    """What the approval card shows as the sender. Never includes a password."""
+    if not from_account:
+        try:
+            import google_connections as _gc
+            if _gc._read("gmail"):
+                return "your Google sign-in"
+        except Exception:
+            pass
+    found = _configured(from_account)
+    return found[0] if found else ""
+
+
+def _configured(account: str = "") -> tuple[str, str] | None:
+    """Address + app password: the named saved account, else the environment, else the default saved one."""
+    if account:
+        try:
+            import connectors
+            return connectors.gmail_login(account)
+        except Exception:
+            return None
     address = os.environ.get("GMAIL_ADDRESS", "").strip()
     password = "".join(os.environ.get("GMAIL_APP_PASSWORD", "").split())
     if valid_email(address) and len(password) >= 8:
@@ -329,7 +357,7 @@ def _smtp_send(sender: str, password: str, recipient: str, subject: str, body: s
         smtp.send_message(message)
 
 
-def _deliver(recipient: str, subject: str, body: str) -> dict[str, Any]:
+def _deliver(recipient: str, subject: str, body: str, from_account: str = "") -> dict[str, Any]:
     agent = _agent()
     sender = os.environ.get("GMAIL_ADDRESS", "").strip()
     payload = {"to": recipient, "subject": subject, "body": body, "from": sender}
@@ -347,13 +375,13 @@ def _deliver(recipient: str, subject: str, body: str) -> dict[str, Any]:
     try:
         import google_connections as _gc
 
-        if _gc._read("gmail"):
+        if not from_account and _gc._read("gmail"):   # a named app-password account skips the Google sign-in
             _gc.gmail_send(recipient, subject, body, sender)
             return _ok(f"Email successfully sent to {recipient}.", to=recipient, subject=subject, via="gmail sign-in")
     except Exception as exc:  # fall back to the app password below, if there is one
-        if _configured() is None:
+        if _configured(from_account) is None:
             return _err(f"The email was not sent: {_safe(str(exc))}")
-    setup = _configured()
+    setup = _configured(from_account)
     if setup is None:
         return _err(
             "Gmail is not set up. Set GMAIL_ADDRESS and GMAIL_APP_PASSWORD in the environment."
@@ -389,9 +417,10 @@ def _deliver(recipient: str, subject: str, body: str) -> dict[str, Any]:
         return _err(f"The email was not sent. {_safe(str(last))} Gmail closed the connection on both port 587 "
                     "and 465. Check the internet connection, or whether antivirus 'email scanning' blocks mail apps.")
     return _ok(
-        f"Email successfully sent to {recipient}.",
+        f"Email successfully sent to {recipient} from {account}.",
         to=recipient,
         subject=subject,
+        account=account,
     )
 
 
@@ -400,9 +429,13 @@ def gmail_send_message(
     subject: str = "",
     body: str = "",
     request: str = "",
+    from_account: str = "",
 ) -> dict[str, Any]:
     """Send one email. A name is looked up. An address is not."""
     try:
+        if from_account and not _configured(from_account):
+            return _clarify(f"No saved Gmail account matches '{_safe(from_account)}'. Ask which account to send from "
+                            f"({', '.join(a['address'] for a in _accounts()) or 'none saved yet'}).")
         interpreted = _interpret(to, subject, body, request)
         if interpreted.get("clarify"):
             return _clarify(str(interpreted["clarify"]), interpreted.get("matches"))
@@ -430,7 +463,7 @@ def gmail_send_message(
             subject_text = _auto_subject(body_text)
         if _has_secret(subject_text) or _has_secret(body_text) or _has_secret(recipient):
             return _err("The message contains a saved secret. Remove it before sending.")
-        return _deliver(recipient, subject_text, body_text)
+        return _deliver(recipient, subject_text, body_text, from_account)
     except AssertionError:
         raise
     except Exception as exc:

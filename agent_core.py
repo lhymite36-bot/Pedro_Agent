@@ -5971,6 +5971,11 @@ TOOL_DECLARATIONS.append(
                     "type": "string",
                     "description": "Optional original sentence when to and body are not split yet.",
                 },
+                "from_account": {
+                    "type": "string",
+                    "description": ("Which saved Gmail account sends it, when the user names one (an address or "
+                                    "part of it). Leave empty for the default account."),
+                },
             },
         },
     }

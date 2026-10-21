@@ -133,18 +133,139 @@ def _spec(name: str) -> dict[str, str] | None:
     return None
 
 
-def gmail_login() -> tuple[str, str] | None:
-    """Address and app password saved from Connectors. None when unset."""
+def _gmail_list(data: dict[str, Any]) -> list[dict[str, str]]:
+    """1.4.16: every saved Gmail account. The old single 'gmail' entry counts as one (and stays the default)."""
     import gmail_mail
 
-    saved = _read_store().get("gmail")
-    if not isinstance(saved, dict):
+    rows: list[dict[str, str]] = []
+    seen: set[str] = set()
+    raw = data.get("gmail_accounts")
+    items = list(raw) if isinstance(raw, list) else []
+    legacy = data.get("gmail")
+    if isinstance(legacy, dict):
+        items.insert(0, legacy)
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        address = str(item.get("address") or "").strip()
+        password = "".join(str(item.get("password") or "").split())
+        if gmail_mail.valid_email(address) and address.casefold() not in seen and 8 <= len(password) <= 64:
+            seen.add(address.casefold())
+            rows.append({"address": address, "password": password})
+    return rows
+
+
+def _gmail_default(data: dict[str, Any], rows: list[dict[str, str]]) -> str:
+    want = str(data.get("gmail_default") or "").casefold()
+    for row in rows:
+        if row["address"].casefold() == want:
+            return row["address"]
+    return rows[0]["address"] if rows else ""
+
+
+def _save_gmail(data: dict[str, Any], rows: list[dict[str, str]], default: str) -> None:
+    data["gmail_accounts"] = rows
+    data["gmail_default"] = default
+    first = next((r for r in rows if r["address"] == default), rows[0] if rows else None)
+    if first:   # older builds read data["gmail"]: keep it pointing at the default
+        data["gmail"] = dict(first)
+    else:
+        data.pop("gmail", None)
+        data.pop("gmail_default", None)
+    _write_store(data)
+
+
+def _match_account(rows: list[dict[str, str]], name: str) -> dict[str, str] | None:
+    key = " ".join(str(name or "").casefold().split())
+    if not key:
         return None
-    address = str(saved.get("address") or "").strip()
-    password = "".join(str(saved.get("password") or "").split())
-    if gmail_mail.valid_email(address) and 8 <= len(password) <= 64:
-        return address, password
-    return None
+    for row in rows:
+        if row["address"].casefold() == key:
+            return row
+    hits = [r for r in rows if key in r["address"].casefold() or r["address"].casefold().split("@")[0] in key]
+    return hits[0] if len(hits) == 1 else None
+
+
+def gmail_accounts() -> dict[str, Any]:
+    """Saved Gmail accounts without their passwords."""
+    data = _read_store()
+    rows = _gmail_list(data)
+    default = _gmail_default(data, rows)
+    return {"ok": True, "default": default,
+            "accounts": [{"address": r["address"], "default": r["address"] == default} for r in rows]}
+
+
+def gmail_login(account: str = "") -> tuple[str, str] | None:
+    """Address and app password for the named account, else the default. None when unset or not found."""
+    data = _read_store()
+    rows = _gmail_list(data)
+    if not rows:
+        return None
+    if account:
+        row = _match_account(rows, account)
+        return (row["address"], row["password"]) if row else None
+    default = _gmail_default(data, rows)
+    row = next(r for r in rows if r["address"] == default)
+    return row["address"], row["password"]
+
+
+def resolve_gmail_account(account: str = "") -> str:
+    """Address a send would use (named one, else the default). '' when none matches."""
+    found = gmail_login(account)
+    if found:
+        return found[0]
+    if not account:
+        env = os.environ.get("GMAIL_ADDRESS", "").strip()
+        return env
+    return ""
+
+
+def gmail_add(address: str, password: str, make_default: bool = False) -> dict[str, Any]:
+    import gmail_mail
+
+    address = str(address or "").strip()
+    password = "".join(str(password or "").split())
+    if not gmail_mail.valid_email(address) or not (8 <= len(password) <= 64):
+        return _err("Enter the Gmail address and the app password.")
+    if not gmail_mail.app_password_ok(password):
+        return _err(gmail_mail.APP_PASSWORD_HINT)
+    with _lock:
+        data = _read_store()
+        rows = [r for r in _gmail_list(data) if r["address"].casefold() != address.casefold()]
+        default = _gmail_default(data, rows)
+        rows.append({"address": address, "password": password})
+        if make_default or not default:
+            default = address
+        _save_gmail(data, rows, default)
+    return _ok(f"Gmail account {address} saved." + (" It is the default." if default == address else ""),
+               id="gmail", connected=True, account=address, default=default)
+
+
+def gmail_remove(address: str) -> dict[str, Any]:
+    with _lock:
+        data = _read_store()
+        rows = _gmail_list(data)
+        row = _match_account(rows, address)
+        if row is None:
+            return _err("That Gmail account is not saved.")
+        rest = [r for r in rows if r is not row]
+        default = _gmail_default(data, rows)
+        if default == row["address"]:
+            default = rest[0]["address"] if rest else ""
+        _save_gmail(data, rest, default)
+    return _ok(f"Removed {row['address']}." + (f" The default is now {default}." if default else ""),
+               default=default, accounts=len(rest))
+
+
+def gmail_set_default(address: str) -> dict[str, Any]:
+    with _lock:
+        data = _read_store()
+        rows = _gmail_list(data)
+        row = _match_account(rows, address)
+        if row is None:
+            return _err("That Gmail account is not saved.")
+        _save_gmail(data, rows, row["address"])
+    return _ok(f"{row['address']} is now the default Gmail account.", default=row["address"])
 
 
 def _gmail_setup() -> tuple[str, str, str] | None:
@@ -282,11 +403,16 @@ def _public(spec: dict[str, str]) -> dict[str, Any]:
     connected = False
     detail = spec.get("detail") or ""
     account = ""
+    row_accounts: list[dict[str, Any]] = []
     if kind == "gmail":
         setup = _gmail_setup()
         connected = setup is not None
         if setup:
             account = setup[0]
+            saved = gmail_accounts()   # 1.4.16: several accounts, one default (addresses only)
+            if saved["accounts"]:
+                account = saved["default"]
+                row_accounts = saved["accounts"]
         else:
             detail = "Add the Gmail address and an app password. It stays on this PC."
     elif kind == "token":
@@ -315,6 +441,8 @@ def _public(spec: dict[str, str]) -> dict[str, Any]:
     }
     if account:
         row["account"] = account
+    if row_accounts:
+        row["accounts"] = row_accounts
     return row
 
 
@@ -383,22 +511,10 @@ def connect(name: str, fields: dict[str, Any] | None = None) -> dict[str, Any]:
     kind = spec["kind"]
     if kind == "unavailable":
         return _err(spec.get("detail") or "That connector is not available on this PC.")
+    if kind == "gmail":   # 1.4.16: adds one more account; the first one saved is the default
+        return gmail_add(str(fields.get("address") or ""), str(fields.get("secret") or fields.get("password") or ""),
+                         make_default=bool(fields.get("default")))
     with _lock:
-        if kind == "gmail":
-            import gmail_mail
-
-            address = str(fields.get("address") or "").strip()
-            password = "".join(str(fields.get("secret") or fields.get("password") or "").split())
-            if not gmail_mail.valid_email(address) or not (8 <= len(password) <= 64):
-                return _err("Enter the Gmail address and the app password.")
-            if not gmail_mail.app_password_ok(password):
-                return _err(gmail_mail.APP_PASSWORD_HINT)
-            data = _read_store()
-            data["gmail"] = {"address": address, "password": password}
-            _write_store(data)
-            os.environ["GMAIL_ADDRESS"] = address
-            os.environ["GMAIL_APP_PASSWORD"] = password
-            return _ok("Gmail is connected.", id="gmail", connected=True, account=address)
         if kind == "token":
             secret = "".join(str(fields.get("secret") or "").split())
             if not (8 <= len(secret) <= 200):
@@ -421,8 +537,11 @@ def connect(name: str, fields: dict[str, Any] | None = None) -> dict[str, Any]:
         return _ok(f"{spec['name']} is connected.", **{k: row[k] for k in ("id", "connected", "detail")})
 
 
-def disconnect(name: str) -> dict[str, Any]:
+def disconnect(name: str, account: str = "") -> dict[str, Any]:
     spec = _spec(name)
+    if spec is not None and spec["id"] == "gmail" and account:
+        return gmail_remove(account)
+
     if spec is None:
         return _err("That connector is not in the list.")
     if spec["kind"] not in {"gmail", "token"}:
@@ -430,6 +549,12 @@ def disconnect(name: str) -> dict[str, Any]:
     with _lock:
         data = _read_store()
         if spec["id"] == "gmail":
+            for row in _gmail_list(data):   # 1.4.16: forget every saved account
+                if os.environ.get("GMAIL_APP_PASSWORD", "").replace(" ", "") == row["password"]:
+                    os.environ.pop("GMAIL_ADDRESS", None)
+                    os.environ.pop("GMAIL_APP_PASSWORD", None)
+            data.pop("gmail_accounts", None)
+            data.pop("gmail_default", None)
             saved = data.get("gmail") if isinstance(data.get("gmail"), dict) else {}
             password = "".join(str((saved or {}).get("password") or "").split())
             data.pop("gmail", None)

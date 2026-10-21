@@ -588,3 +588,10 @@ main{position:relative}
 /* 1.4.15 mid-task messages */
 .row.side .bubble{border-left:3px solid #7fb2ff}
 .row.bot.side .bubble{opacity:.95;font-size:.95em}
+/* 1.4.16 several Gmail accounts */
+.cn-accounts{list-style:none;margin:6px 0;padding:0;display:flex;flex-direction:column;gap:6px}
+.cn-accounts li{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px}
+.cn-accounts li span:first-child{flex:1;min-width:0;overflow-wrap:anywhere}
+.cn-accounts button{background:transparent;color:inherit;border:1px solid var(--line,#3a3d44);border-radius:8px;font-size:12px;padding:3px 9px;cursor:pointer}
+.cn-accounts .cn-rm{color:#ff8a80}
+.cn-acts label.cn-check{flex-direction:row;align-items:center;gap:6px;font-size:13px;flex:0 0 auto;min-width:0}

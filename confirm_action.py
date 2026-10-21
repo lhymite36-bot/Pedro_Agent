@@ -139,8 +139,15 @@ def label_for(name: str, arguments: dict[str, Any]) -> str:
         return f"run this {shell} command{where}: {' '.join(str(arguments.get('command') or '').split())[:300]}"
     if name == "delete_path":
         return f"delete {arguments.get('path') or 'that path'}"
-    if name == "gmail_send_message":
-        return f"send an email to {arguments.get('to') or arguments.get('recipient') or 'that contact'}"
+    if name == "gmail_send_message":   # 1.4.16: the card names the sending account
+        sender = ""
+        try:
+            import gmail_mail
+            sender = gmail_mail.sending_account(str(arguments.get("from_account") or ""))
+        except Exception:
+            pass
+        to = arguments.get('to') or arguments.get('recipient') or 'that contact'
+        return f"send an email to {to}" + (f" from {sender}" if sender else "")
     if name == "youtube_upload":
         title = " ".join(str(arguments.get("title") or "that video").split())
         privacy = " ".join(str(arguments.get("privacy") or "private").split()) or "private"
