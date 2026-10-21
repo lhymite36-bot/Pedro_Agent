@@ -41,9 +41,50 @@ def _agent() -> Any:
     return agent_core
 
 
+_INSTALLED: dict[str, Any] = {"at": -1e9, "names": []}
+_PREFERRED = ("qwen2.5:7b", "llama3.2", "llama3.1", "qwen2.5", "phi3:mini")
+
+
+def installed_models() -> list[str]:
+    """Models Ollama has pulled (cached a minute; empty when Ollama is not answering)."""
+    import time
+    now = time.monotonic()
+    if now - _INSTALLED["at"] < 60:
+        return list(_INSTALLED["names"])
+    names: list[str] = []
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=1.5) as response:
+            names = [str(m.get("name") or "") for m in json.loads(response.read().decode("utf-8")).get("models", [])]
+    except Exception:
+        names = []
+    _INSTALLED.update(at=now, names=[n for n in names if n])
+    return list(_INSTALLED["names"])
+
+
+def resolve_model(configured: str) -> str:
+    """1.4.18: OLLAMA_MODEL=llama3.2 was not pulled on Pedro's PC, so every local answer failed (HTTP 404)
+    and showed "Ollama is not running". Use the configured model when it is installed, else the best installed one."""
+    names = installed_models()
+    if not names:
+        return configured
+    def same(a: str, b: str) -> bool:
+        return a == b or a == b + ":latest" or a.split(":")[0] == b
+    if any(same(n, configured) for n in names):
+        return configured
+    for want in _PREFERRED:
+        for n in names:
+            if same(n, want):
+                return n
+    usable = [n for n in names if not any(k in n for k in ("moondream", "embed", "coder", "llava"))]
+    return (usable or names)[0]
+
+
 def model_name() -> str:
-    configured = os.environ.get("OLLAMA_MODEL", "").strip()
-    return configured or DEFAULT_OLLAMA_MODEL
+    configured = os.environ.get("OLLAMA_MODEL", "").strip() or DEFAULT_OLLAMA_MODEL
+    agent = _agent()
+    if getattr(agent, "ollama_transport_override", None) is not None:
+        return configured
+    return resolve_model(configured)
 
 
 def use_local_first(user_text: str) -> bool:

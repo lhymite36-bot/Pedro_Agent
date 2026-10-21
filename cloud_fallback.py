@@ -63,6 +63,12 @@ def model_name() -> str:
 
 def _provider_model(provider: dict[str, Any]) -> str:
     chosen = os.environ.get(str(provider.get("model_env") or ""), "").strip()
+    if provider.get("local"):
+        try:
+            import local_llm
+            return local_llm.resolve_model(chosen or str(provider["model"]))
+        except Exception:
+            pass
     return chosen or str(provider["model"])
 
 
