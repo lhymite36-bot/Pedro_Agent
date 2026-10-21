@@ -722,7 +722,7 @@ def _workflow(dry: bool, say: Callable[[str], Any]) -> dict[str, Any]:
     item = {"n": n, **ideas[0]}
     item["title"] = item.get("title") or _title(item["idea"])
     say(f"Topic: {item['title']} ({item['format']}). Writing the script and rendering the 9:16 video (a few minutes).")
-    path = render(day_dir, n, item, st["vts_dir"], length=55)
+    path = render(day_dir, n, item, st["vts_dir"], length=30)   # 1.5.5: a real Voice to Short length id ("55" fell back to the saved default)
     check = verify(path)
     black = blank_frames(path)
     if black >= 1.0:
