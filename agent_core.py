@@ -6378,6 +6378,14 @@ def invoke_tool(name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
                     "use navigate_browser/open_website with https://wingz.itvedant.com/ instead.",
                     blocked_by_rules=True)
     arguments = _clean_tool_arguments(dict(arguments or {}))
+    try:   # 1.5.4: Offline mode / no internet: say so instead of trying an online tool
+        import model_mode
+        if model_mode.tool_needs_internet(name) and model_mode.cloud_blocked() and ollama_transport_override is None:
+            return _err(f"{name.replace('_', ' ')} needs internet, and Ped Bot is offline right now "
+                        f"({'Offline mode' if model_mode.mode() == 'offline' else 'no connection'}). Tell Pedro it needs internet.",
+                        needs_internet=True)
+    except Exception:
+        pass
     rule_block = rules.tool_block_reason(name)
     if rule_block is not None:
         return _err(rule_block, blocked_by_rules=True)
@@ -7612,6 +7620,12 @@ def _voice_chat_only(text: str) -> bool:
 def _voice_fast_reply(user_text: str, history: list[Any], on_text: Callable[[str], None], cancel_event: Any) -> str | None:
     import cloud_fallback
     try:
+        import model_mode
+        if model_mode.cloud_blocked() and ollama_transport_override is None:
+            return None   # 1.5.4: offline - the local model answers
+    except Exception:
+        pass
+    try:
         prior = _history_text(history)[-6:]
     except Exception:
         prior = []
@@ -7744,11 +7758,32 @@ def _run_agent_core(
     stop_token.bind(cancel_event)
     _turn_local.cancel_event = cancel_event
     if local_llm.use_local_first(user_text):
-        return local_llm.local_llm_fallback(
+        if on_event is not None:
+            try:
+                on_event({"event": "engine", "engine": "local", "model": local_llm.model_name()})
+            except Exception:
+                pass
+        reply = local_llm.local_llm_fallback(
             user_text,
             voice=voice,
             on_sentence=on_sentence,
+            on_text=on_text,
+            history=history,
         )
+        try:   # keep the conversation for the next turn (local or cloud)
+            from google.genai import types as _t
+            history.append(_t.Content(role="user", parts=[_t.Part.from_text(text=user_text)]))
+            history.append(_t.Content(role="model", parts=[_t.Part.from_text(text=reply)]))
+        except Exception:
+            pass
+        return reply
+    if on_event is not None:
+        try:
+            import model_mode
+            model_mode.note_answer("cloud", model)
+            on_event({"event": "engine", "engine": "cloud", "model": model})
+        except Exception:
+            pass
     try:
         from google import genai
         from google.genai import types

@@ -26,6 +26,12 @@ def _models() -> list[str]:
 
 def text(prompt: str, images: list[bytes] | None = None, *, model: str | None = None) -> str:
     """Return the model's text. Images are JPEG/PNG bytes (vision)."""
+    try:   # 1.5.4: Offline mode / no internet: no cloud call at all
+        import model_mode
+        if model_mode.cloud_blocked() and model_mode.online_override is None and not _tests_running():
+            raise RuntimeError("Ped Bot is offline (no cloud calls).")
+    except ImportError:
+        pass
     images = list(images or [])
     if override is not None:
         return str(override(prompt, images) or "")
@@ -72,3 +78,8 @@ def json_from(value: str) -> Any:
 
 def read_bytes(path: Path) -> bytes:
     return Path(path).read_bytes()
+
+
+def _tests_running() -> bool:
+    import sys
+    return "unittest" in sys.modules and os.environ.get("PEDBOT_REAL_OFFLINE") != "1"

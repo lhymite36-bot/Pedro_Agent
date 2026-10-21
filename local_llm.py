@@ -45,11 +45,11 @@ _INSTALLED: dict[str, Any] = {"at": -1e9, "names": []}
 _PREFERRED = ("qwen2.5:7b", "llama3.2", "llama3.1", "qwen2.5", "phi3:mini")
 
 
-def installed_models() -> list[str]:
+def installed_models(refresh: bool = False) -> list[str]:
     """Models Ollama has pulled (cached a minute; empty when Ollama is not answering)."""
     import time
     now = time.monotonic()
-    if now - _INSTALLED["at"] < 60:
+    if not refresh and now - _INSTALLED["at"] < 60:
         return list(_INSTALLED["names"])
     names: list[str] = []
     try:
@@ -80,7 +80,12 @@ def resolve_model(configured: str) -> str:
 
 
 def model_name() -> str:
-    configured = os.environ.get("OLLAMA_MODEL", "").strip() or DEFAULT_OLLAMA_MODEL
+    try:   # 1.5.4: the model Pedro picked in Settings wins
+        import model_mode
+        configured = model_mode.chosen_model()
+    except Exception:
+        configured = ""
+    configured = configured or os.environ.get("OLLAMA_MODEL", "").strip() or DEFAULT_OLLAMA_MODEL
     agent = _agent()
     if getattr(agent, "ollama_transport_override", None) is not None:
         return configured
@@ -96,6 +101,13 @@ def use_local_first(user_text: str) -> bool:
     agent = _agent()
     if agent.network_up_override is False:
         return True
+    if getattr(agent, "ollama_transport_override", None) is None:
+        try:   # 1.5.4: Offline mode, or Auto with no internet
+            import model_mode
+            if model_mode.use_local():
+                return True
+        except Exception:
+            pass
     folded = " ".join((user_text or "").casefold().split())
     return any(phrase in folded for phrase in _PRIVACY_PHRASES)
 
@@ -161,10 +173,78 @@ def _post(payload: dict[str, Any]) -> dict[str, Any]:
     return parsed
 
 
+def _post_stream(payload: dict[str, Any], on_chunk: Any) -> dict[str, Any]:
+    """1.5.4: stream tokens; returns the merged message like a non-stream reply."""
+    agent = _agent()
+    if agent.ollama_transport_override is not None:
+        return _post(payload)
+    body = _scrubbed({**payload, "stream": True})
+    request = urllib.request.Request(OLLAMA_URL, data=json.dumps(body).encode("utf-8"),
+                                     headers={"Content-Type": "application/json"}, method="POST")
+    if not GATE.acquire(timeout=_CHAT_TIMEOUT):
+        raise RuntimeError("The local model is busy with another task. Try again in a moment.")
+    content, calls = [], []
+    try:
+        with urllib.request.urlopen(request, timeout=_CHAT_TIMEOUT * 3) as response:
+            for raw in response:
+                line = raw.decode("utf-8").strip()
+                if not line:
+                    continue
+                part = json.loads(line)
+                if part.get("error"):
+                    raise RuntimeError(str(part["error"])[:300])
+                msg = part.get("message") or {}
+                piece = str(msg.get("content") or "")
+                if piece:
+                    content.append(piece)
+                    if on_chunk is not None:
+                        try:
+                            on_chunk(piece)
+                        except Exception:
+                            pass
+                calls.extend(msg.get("tool_calls") or [])
+                if part.get("done"):
+                    break
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        if isinstance(exc, (TimeoutError, socket.timeout)) or "timed out" in str(exc):
+            raise RuntimeError("The local model was too slow to answer.") from exc
+        raise RuntimeError("Ollama is not running on this PC. Start Ollama, then ask again.") from exc
+    finally:
+        GATE.release()
+    return {"message": {"content": "".join(content), "tool_calls": calls}}
+
+
+LOCAL_PROMPT = """You are Ped Bot, Pedro's assistant on his Windows PC, answering with a local model (no internet).
+Be brief and friendly. Use the tools to act on the PC (files, apps, windows, terminal, screenshots) when he asks.
+Never claim you did something unless a tool returned ok. Ask before deleting anything.
+You have NO internet: if he asks for web search, Gmail/email, YouTube, websites, downloads or anything online,
+say plainly that it needs internet and that you're offline, and offer what you can do on the PC instead."""
+
+
+def _history_messages(history: Any, limit: int = 6) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for item in list(history or [])[-limit * 3:]:
+        role = getattr(item, "role", None) or (item.get("role") if isinstance(item, dict) else None)
+        parts = getattr(item, "parts", None) or (item.get("parts") if isinstance(item, dict) else None) or []
+        text = " ".join(str(getattr(p, "text", "") or (p.get("text") if isinstance(p, dict) else "") or "") for p in parts).strip()
+        if text and role in ("user", "model", "assistant"):
+            out.append({"role": "user" if role == "user" else "assistant", "content": text[:1500]})
+    return out[-limit:]
+
+
 def _tool_schema() -> list[dict[str, Any]]:
     agent = _agent()
     tools: list[dict[str, Any]] = []
+    try:
+        import model_mode
+        only = set(model_mode.OFFLINE_TOOLS) if model_mode.use_local() else None
+    except Exception:
+        only = None
     for item in agent.TOOL_DECLARATIONS:
+        if only is not None and item["name"] not in only:
+            continue
         tools.append(
             {
                 "type": "function",
@@ -243,34 +323,45 @@ def local_llm_fallback(
     *,
     voice: bool = False,
     on_sentence: Any = None,
+    on_text: Any = None,
+    history: Any = None,
 ) -> str:
     """Run the tool loop on Ollama. Caller must skip Gemini before this."""
     del voice
     agent = _agent()
     agent._turn_is_local = True
     print(f"[local] Answering on this PC with Ollama ({model_name()}).", flush=True)
+    compact = False
+    try:
+        import model_mode
+        compact = agent.ollama_transport_override is None and model_mode.use_local()
+        if compact:
+            refusal = model_mode.needs_internet_reply(user_text)
+            if refusal:
+                return refusal
+            model_mode.ensure_ollama()
+            model_mode.note_answer("local", model_name())
+    except Exception:
+        pass
     if not ollama_reachable():
         return (
             "Ollama is not running on this PC. Start Ollama, then ask again. "
             "This request was not sent online."
         )
     try:
-        messages: list[dict[str, Any]] = [
-            {"role": "system", "content": agent._scrub(agent.system_prompt())},
-            {"role": "user", "content": agent._scrub(user_text)},
-        ]
+        system = LOCAL_PROMPT if compact else agent.system_prompt()
+        messages: list[dict[str, Any]] = [{"role": "system", "content": agent._scrub(system)}]
+        if compact:
+            messages += [{"role": m["role"], "content": agent._scrub(m["content"])} for m in _history_messages(history)]
+        messages.append({"role": "user", "content": agent._scrub(user_text)})
         tools = _tool_schema()
         for _round in range(agent.MAX_TOOL_ROUNDS):
-            content, calls = _message_text(
-                _post(
-                    {
-                        "model": model_name(),
-                        "stream": False,
-                        "messages": messages,
-                        "tools": tools,
-                    }
-                )
-            )
+            payload = {"model": model_name(), "stream": False, "messages": messages, "tools": tools,
+                       "keep_alive": "30m", "options": {"num_ctx": 8192}}
+            if compact:
+                content, calls = _message_text(_post_stream(payload, on_text))
+            else:
+                content, calls = _message_text(_post(payload))
             if not calls:
                 text = content or "Ollama returned no text."
                 if on_sentence is not None and text:

@@ -120,6 +120,12 @@ _LAST_RETRY: dict[int, float] = {}
 
 
 def _pooled_post(url: str, data: bytes, headers: dict[str, str], timeout: float) -> tuple[int, bytes]:
+    try:   # 1.5.4: Offline mode / no internet: no cloud call at all
+        import model_mode
+        if model_mode.cloud_blocked() and model_mode.online_override is None and not _tests_running():
+            raise RuntimeError("Ped Bot is offline (no cloud calls).")
+    except ImportError:
+        pass
     parts = urllib.parse.urlsplit(url)
     host = parts.netloc
     path = parts.path + (("?" + parts.query) if parts.query else "")
@@ -531,3 +537,8 @@ def stream_text(messages: list[dict[str, str]], on_text: Callable[[str], None], 
             if out:
                 return "".join(out)
     return None
+
+
+def _tests_running() -> bool:
+    import sys
+    return "unittest" in sys.modules and os.environ.get("PEDBOT_REAL_OFFLINE") != "1"
