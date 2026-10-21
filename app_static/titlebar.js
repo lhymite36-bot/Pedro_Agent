@@ -18,6 +18,18 @@
     const mx = mk('wc-max', 'Maximise', ico.max, async () => { const on = await api.toggle_maximize(); mx.innerHTML = on ? ico.res : ico.max; mx.title = on ? 'Restore' : 'Maximise'; });
     mk('wc-close', 'Close', ico.close, () => api.close());
     document.body.appendChild(box);
+    // 1.4.19/1.5.0: a press on the header (not on its buttons/inputs) starts Windows' own move loop, so snap works
+    const native = async () => { for (let i = 0; i < 20; i++) { try { if (api.snap_ready && await api.snap_ready()) return true; } catch (e) { return false; } await new Promise((r) => setTimeout(r, 500)); } return false; };
+    native().then((ok) => {
+      if (!ok) return;
+      [strip, hdr].forEach((el) => { if (!el) return; el.classList.remove('pywebview-drag-region');
+        el.addEventListener('mousedown', (e) => {
+          if (e.button !== 0 || e.detail > 1) return;
+          if (e.target.closest('button, a, input, select, textarea, [contenteditable], .no-drag')) return;
+          api.start_drag();
+        });
+      });
+    });
     if (hdr) hdr.addEventListener('dblclick', (e) => { if (e.target === hdr || e.target.closest('.who')) mx.click(); });
     // edge resize: right, bottom, corner
     ['r', 'b', 'rb', 'l'].forEach((edge) => {

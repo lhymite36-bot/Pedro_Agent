@@ -130,6 +130,84 @@ def _own_windows(title: str) -> list[int]:
     return found
 
 
+# 1.4.19/1.5.0: Windows snap for the frameless window. The window gets the resize/maximise styles that snap needs,
+# a window procedure that keeps the client area full-size (no visible frame or line), and a native move loop
+# (SC_MOVE|HTCAPTION) started from the app's header, so drag-to-edge snapping, Win+arrows and Snap Layouts work.
+WM_APP_DRAG = 0x8000 + 7
+_SNAP: dict[str, Any] = {}
+
+
+def enable_snap(title: str = TITLE, tries: int = 40) -> bool:
+    if os.name != "nt" or _SNAP.get("hwnd"):
+        return bool(_SNAP.get("hwnd"))
+    import ctypes
+    import time as _t
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    LRESULT = ctypes.c_ssize_t
+    WNDPROC = ctypes.WINFUNCTYPE(LRESULT, wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)
+    user32.CallWindowProcW.restype = LRESULT
+    user32.CallWindowProcW.argtypes = [ctypes.c_void_p, wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+    user32.SetWindowLongPtrW.restype = ctypes.c_void_p
+    user32.SetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_void_p]
+    user32.DefWindowProcW.restype = LRESULT
+    user32.DefWindowProcW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+    hwnd = 0
+    for _ in range(tries):
+        found = _own_windows(title)
+        if found:
+            hwnd = found[0]
+            break
+        _t.sleep(0.25)
+    if not hwnd:
+        return False
+
+    class NCCALCSIZE_PARAMS(ctypes.Structure):
+        _fields_ = [("rgrc", wintypes.RECT * 3), ("lppos", ctypes.c_void_p)]
+
+    class MONITORINFO(ctypes.Structure):
+        _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT), ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
+
+    def proc(h: Any, msg: int, wp: int, lp: int) -> int:
+        try:
+            if msg == 0x0083 and wp:   # WM_NCCALCSIZE: whole window is client area (no frame, no 1px line)
+                if user32.IsZoomed(h):   # maximised: keep it inside the work area (not under the taskbar)
+                    params = ctypes.cast(lp, ctypes.POINTER(NCCALCSIZE_PARAMS)).contents
+                    mon = user32.MonitorFromWindow(h, 2)
+                    mi = MONITORINFO(); mi.cbSize = ctypes.sizeof(MONITORINFO)
+                    if user32.GetMonitorInfoW(mon, ctypes.byref(mi)):
+                        params.rgrc[0] = mi.rcWork
+                return 0
+            if msg == WM_APP_DRAG:
+                user32.ReleaseCapture()
+                user32.SendMessageW(h, 0x0112, 0xF012, 0)   # WM_SYSCOMMAND SC_MOVE|HTCAPTION: native move + snap
+                return 0
+        except Exception:
+            pass
+        return user32.CallWindowProcW(_SNAP["old"], h, msg, wp, lp)
+
+    cb = WNDPROC(proc)
+    _SNAP["cb"] = cb   # keep the callback alive
+    _SNAP["old"] = user32.SetWindowLongPtrW(hwnd, -4, ctypes.cast(cb, ctypes.c_void_p))
+    style = user32.GetWindowLongW(hwnd, -16)
+    style |= 0x00040000 | 0x00020000 | 0x00010000 | 0x00080000   # THICKFRAME, MINIMIZEBOX, MAXIMIZEBOX, SYSMENU
+    style &= ~0x00C00000   # no caption
+    user32.SetWindowLongW(hwnd, -16, style)
+    user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0027)   # NOSIZE|NOMOVE|NOZORDER|FRAMECHANGED
+    _SNAP["hwnd"] = hwnd
+    return True
+
+
+def start_native_drag() -> bool:
+    h = _SNAP.get("hwnd")
+    if not h:
+        return False
+    import ctypes
+    ctypes.windll.user32.PostMessageW(h, WM_APP_DRAG, 0, 0)
+    return True
+
+
 def apply_icon(title: str = TITLE, tries: int = 60) -> bool:
     """WM_SETICON (big + small) on our own window, re-applied for ~15 s because the
     window toolkit can set Python's icon after we do (the taskbar then shows Python)."""
@@ -184,6 +262,13 @@ class WindowApi:
             self._window.destroy()
         return True
 
+    def start_drag(self) -> bool:
+        """The header was pressed: hand the move to Windows (snap to edges / corners works)."""
+        return start_native_drag()
+
+    def snap_ready(self) -> bool:
+        return bool(_SNAP.get("hwnd"))
+
     def geometry(self) -> dict[str, int]:
         w = self._window
         return {"x": int(w.x), "y": int(w.y), "w": int(w.width), "h": int(w.height)} if w else {}
@@ -216,6 +301,17 @@ def open_window(url: str) -> Any:
     api._window = win
     _wire_background(win, api)
     threading.Thread(target=apply_icon, daemon=True).start()
+    if frameless and os.environ.get("PEDRO_NO_SNAP") != "1":
+        def _snap_when_shown() -> None:
+            try:
+                win.events.shown.wait(20)
+            except Exception:
+                pass
+            try:
+                enable_snap()
+            except Exception as exc:
+                print(f"[window] snap setup failed: {type(exc).__name__}", flush=True)
+        threading.Thread(target=_snap_when_shown, daemon=True, name="snap").start()
     webview.start()
     return win
 

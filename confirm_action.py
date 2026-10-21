@@ -141,6 +141,8 @@ def is_sensitive(name: str, arguments: dict[str, Any]) -> bool:
         return True
     if name == "browser_login":   # 1.4.19: signing in always asks first
         return True
+    if name == "builder_install" or (name == "ship_app" and str(arguments.get("target") or "").casefold() == "github"):
+        return True   # 1.5.0: installs and GitHub pushes always ask
     if name in CAMERA_TOOLS:   # 1.4.19: the camera never opens without a yes on the card
         if set(k for k in arguments if k) - {"seconds", "question"}:
             return False   # bad arguments are refused by the tool itself, no card for them
@@ -174,6 +176,10 @@ def label_for(name: str, arguments: dict[str, Any]) -> str:
         what = " ".join(str(arguments.get("name") or "a routine").split())[:60]
         when = " ".join(str(arguments.get("when") or "").split())[:40]
         return f"create the routine '{what}'" + (f" ({when})" if when else "")
+    if name == "builder_install":
+        return f"install {arguments.get('package') or 'a package'} with {arguments.get('manager') or 'pip'}"
+    if name == "ship_app":
+        return f"push the app '{arguments.get('name')}' to a new private GitHub repo"
     if name == "browser_login":
         return f"log in to {arguments.get('site') or 'that site'} in your Chrome with its saved login"
     if name == "record_pc_camera":

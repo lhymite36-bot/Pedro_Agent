@@ -251,6 +251,39 @@ def save_bot(data: dict[str, Any]) -> dict[str, Any]:
     return bot
 
 
+def cleanup_after_delete(bot_id: str) -> dict[str, int]:
+    """1.5.0: a deleted bot leaves nothing behind: its waiting approvals are denied, its board tasks stopped,
+    and its routines paused (kept so they can be reviewed, but they never run for a bot that is gone)."""
+    out = {"approvals": 0, "tasks": 0, "routines": 0}
+    session = SESSION_PREFIX + bot_id
+    try:
+        import confirm_action
+        for bucket in list(confirm_action._pending_by):
+            if bucket == session or bucket.startswith(session + "#"):
+                confirm_action._pending_by.pop(bucket, None)
+                confirm_action._granted_by.pop(bucket, None)
+                out["approvals"] += 1
+    except Exception:
+        pass
+    try:
+        import task_board
+        for row in task_board.snapshot().get("tasks", []):
+            if str(row.get("bot") or "") == bot_id and row.get("status") in ("waiting", "queued", "running", "paused", "approval"):
+                task_board.control(str(row.get("id")), "stop")
+                out["tasks"] += 1
+    except Exception:
+        pass
+    try:
+        import routines
+        for r in routines._load().get("routines", []):
+            if r.get("target") == "bot" and str(r.get("target_id") or "") == bot_id and not r.get("paused"):
+                routines.pause_routine(r["id"])
+                out["routines"] += 1
+    except Exception:
+        pass
+    return out
+
+
 def delete_bot(bot_id: str) -> bool:
     with _lock:
         path = _path(bot_id)

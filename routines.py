@@ -350,6 +350,14 @@ def due(now: float | None = None) -> list[dict[str, Any]]:
 
 
 def run_routine(r: dict[str, Any], manual: bool = False) -> dict[str, Any]:
+    if r.get("target") == "bot" and r.get("target_id"):
+        try:   # 1.5.0: never run for a bot that was deleted (an orphan once asked to post a video publicly)
+            import bots
+            if bots.get_bot(str(r["target_id"])) is None:
+                pause_routine(r["id"])
+                return {"ok": False, "error": f"The bot '{r['target_id']}' was deleted, so '{r.get('name')}' is paused."}
+        except ImportError:
+            pass
     _running.add(r["id"])
     started = _now()
     status, result = "ok", ""

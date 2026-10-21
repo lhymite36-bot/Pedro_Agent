@@ -1562,7 +1562,8 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 else:
                     state.histories.pop(bots.SESSION_PREFIX + bot_id, None)
                     ok = bots.delete_bot(bot_id)
-                    self._json({"ok": ok, "groups_updated": groups.remove_bot(bot_id) if ok else 0})
+                    cleaned = bots.cleanup_after_delete(bot_id) if ok else {}
+                    self._json({"ok": ok, "groups_updated": groups.remove_bot(bot_id) if ok else 0, "cleaned": cleaned})
             elif url.path == "/api/bots/run_task":
                 bot_id, task_id = str(data.get("id") or ""), str(data.get("task") or "")
                 threading.Thread(target=bots.run_task, args=(bot_id, task_id),

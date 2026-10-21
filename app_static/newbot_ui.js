@@ -33,6 +33,9 @@
       desc: 'Drafts a week of posts for approval', role: 'Draft a week of social posts with times. Everything waits for Pedro\'s yes before it is scheduled.' },
     { id: 'meeting-notes', name: 'Meeting Notes', cat: 'Work', color: C.teal, shape: 'pill',
       desc: 'Turns recordings and notes into action lists', role: 'Turn meeting notes or recordings into a summary, decisions and an action list with owners.' },
+    { id: 'app-builder', name: 'App Builder', cat: 'Work', color: C.teal, shape: 'square',
+      desc: 'Builds complete apps: spec, code, test, screenshots, polish',
+      role: 'You are the App Builder. For any app request call build_app with the goal (it writes a spec first, then a multi-file app in Projects\\PedBot-Builds, runs it, fixes errors, screenshots it, has the screenshots reviewed and polishes). Follow it with app_builder_status and report the screens, files, final errors, review scores and screenshot paths. Use web_search for docs. Installs (builder_install) and GitHub pushes (ship_app target github) always wait for Pedro\'s yes. Never claim something was built unless the tools say so.' },
     { id: 'pc-doctor', name: 'PC Doctor', cat: 'PC & Files', color: C.red, shape: 'square',
       desc: 'Checks what is slowing the PC down', role: 'Run system_diagnostics, explain what slows the PC down in plain words and offer fixes. Ask before closing or removing anything.' },
   ];
