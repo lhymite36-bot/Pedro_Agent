@@ -1811,6 +1811,7 @@ def start_routines(state: "AppState") -> None:
         import quiet_brain_shorts
 
         quiet_brain_shorts.start_routine()   # does nothing until switched on in Settings
+        quiet_brain_shorts.ensure_bot_workflow()   # 1.5.4: Shorts Poster gets its own built-in workflow
     except Exception as exc:
         print(f"[quiet-brain] not started: {exc}", flush=True)
     try:

@@ -3,7 +3,7 @@
 Unicode true
 !define APP "Ped Bot"
 !define OLDAPP "Pedro Agent"
-!define VER "1.5.3"
+!define VER "1.5.4"
 !include "MUI2.nsh"
 Name "${APP}"
 BrandingText "${APP} ${VER} - open source, github.com/lhymite36-bot/Pedro_Agent"

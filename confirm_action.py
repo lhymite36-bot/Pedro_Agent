@@ -141,6 +141,8 @@ def is_sensitive(name: str, arguments: dict[str, Any]) -> bool:
         return True
     if name == "browser_login":   # 1.4.19: signing in always asks first
         return True
+    if name == "make_quiet_brain_short" and not _truthy_dry(arguments):
+        return True   # 1.5.4: scheduling a public post always asks
     if name == "builder_install" or (name == "ship_app" and str(arguments.get("target") or "").casefold() == "github"):
         return True   # 1.5.0: installs and GitHub pushes always ask
     if name in CAMERA_TOOLS:   # 1.4.19: the camera never opens without a yes on the card
@@ -180,6 +182,8 @@ def label_for(name: str, arguments: dict[str, Any]) -> str:
         return f"install {arguments.get('package') or 'a package'} with {arguments.get('manager') or 'pip'}"
     if name == "ship_app":
         return f"push the app '{arguments.get('name')}' to a new private GitHub repo"
+    if name == "make_quiet_brain_short":
+        return "make one Quiet Brain Short and schedule it publicly on YouTube (Quiet Brain) and TikTok via Buffer"
     if name == "browser_login":
         return f"log in to {arguments.get('site') or 'that site'} in your Chrome with its saved login"
     if name == "record_pc_camera":
@@ -484,3 +488,8 @@ def is_short_yes(text: str) -> bool:
     """1.4.15: a bare yes/no goes to the normal chat path (it answers a waiting action), not to the mid-task responder."""
     folded = " ".join((text or "").casefold().split()).strip(" .!?")
     return folded in POSITIVE or folded in NEGATIVE
+
+
+def _truthy_dry(arguments: dict[str, Any]) -> bool:
+    v = arguments.get("dry_run", True)
+    return not (v is False or str(v).strip().casefold() in {"false", "0", "no"})

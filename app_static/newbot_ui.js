@@ -15,7 +15,7 @@
       role: 'Sort new email into Needs reply, FYI and Ignore. Draft short replies in Pedro\'s voice for the Needs reply ones and show them for approval. Never send without his yes.' },
     { id: 'shorts-poster', name: 'Shorts Poster', cat: 'Content', color: C.red, shape: 'drop', featured: true,
       desc: 'Plans, checks and schedules Quiet Brain Shorts',
-      role: 'You run the Quiet Brain Shorts backup: fresh funny, sarcastic 2D psychology ideas not in posted.json, captions with #fyp #quietbrain, YouTube titles with #shorts. Use quiet_brain_shorts_dry_run first and report; real posting only when the routine is turned on.' },
+      role: 'You are the Shorts Poster for Quiet Brain. Your one built-in workflow is make_quiet_brain_short (dry_run=true renders and checks only; dry_run=false schedules on YouTube + TikTok via Buffer after Pedro\'s yes). Check shorts_status before saying anything is missing. Never use his old routines.', tools: ['make_quiet_brain_short', 'shorts_status', 'quiet_brain_shorts_dry_run', 'list_files'] },
     { id: 'pc-tidy', name: 'PC Tidy', cat: 'PC & Files', color: C.purple, shape: 'square', featured: true,
       desc: 'Keeps Downloads and Desktop in order',
       role: 'Keep Downloads and Desktop tidy: group files into folders by type and date, list big or duplicate files, and ask before deleting anything.' },

@@ -69,14 +69,33 @@ def settings() -> dict[str, Any]:
         data = {}
     return {"enabled": bool(data.get("enabled", False)), "per_day": int(data.get("per_day", 6)),
             "vts_dir": data.get("vts_dir") or os.environ.get("VTS_DIR", ""),
-            "token_set": bool(os.environ.get("BUFFER_ACCESS_TOKEN", "").strip()), **readiness()}
+            "token_set": bool(_token()), **readiness()}
+
+
+def _token() -> str:
+    """1.5.4: the saved token, re-read from the local .env when this process doesn't have it yet
+    (saved by another window, by hand, or before a restart). Never logged or returned."""
+    tok = os.environ.get("BUFFER_ACCESS_TOKEN", "").strip()
+    if tok:
+        return tok
+    try:
+        import agent_config
+        env = agent_config.APP_DIR / ".env"
+        for line in env.read_text(encoding="utf-8").splitlines():
+            if line.startswith("BUFFER_ACCESS_TOKEN="):
+                tok = line.split("=", 1)[1].strip().strip('"').strip("'")
+        if tok:
+            os.environ["BUFFER_ACCESS_TOKEN"] = tok
+    except OSError:
+        pass
+    return tok
 
 
 def readiness() -> dict[str, Any]:
     """1.4.17: what posting still needs, without touching the token (only whether one is saved)."""
     cur_vts = (settings_raw().get("vts_dir") or os.environ.get("VTS_DIR", "")).strip()
     checks = {
-        "buffer_token": bool(os.environ.get("BUFFER_ACCESS_TOKEN", "").strip()),
+        "buffer_token": bool(_token()),
         "voice_to_short_folder": bool(cur_vts) and (Path(cur_vts) / "tests" / "live" / "e2e-live.js").is_file(),
         "node": bool(shutil.which("node")),
         "ffprobe": bool(shutil.which("ffprobe")),
@@ -116,8 +135,9 @@ def set_token(token: str) -> dict[str, Any]:
     lines = env.read_text(encoding="utf-8").splitlines() if env.is_file() else []
     lines = [l for l in lines if not l.startswith("BUFFER_ACCESS_TOKEN=")] + [f"BUFFER_ACCESS_TOKEN={token}"]
     env.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    os.environ["BUFFER_ACCESS_TOKEN"] = token
-    return {"ok": True, "message": "Buffer token saved in your local .env."}
+    os.environ["BUFFER_ACCESS_TOKEN"] = token   # live at once, no restart
+    v = check_token()
+    return {"ok": True, "valid": v.get("valid"), "message": "Buffer token saved in your local .env. " + v["message"]}
 
 
 def posted_path() -> Path:
@@ -150,7 +170,7 @@ def _gql(query: str, variables: dict[str, Any]) -> dict[str, Any]:
     payload = {"query": query, "variables": variables}
     if transport is not None:
         return transport(payload)
-    token = os.environ.get("BUFFER_ACCESS_TOKEN", "").strip()
+    token = _token()
     if not token:
         raise RuntimeError("No Buffer token. Add it in Settings > Quiet Brain Shorts (saved in your local .env only).")
     req = urllib.request.Request(API, data=json.dumps(payload).encode(), method="POST",
@@ -566,7 +586,204 @@ def quiet_brain_shorts_dry_run() -> dict[str, Any]:
         return {"ok": False, "error": str(exc)}
 
 
+# ---------- 1.5.4: the Shorts Poster bot's own workflow ----------
+WORKFLOW = """Shorts Poster workflow (Quiet Brain), one Short at a time:
+1) pick a fresh psychology / self-help topic from the idea bank (never a repeat; history kept)
+2) write a funny, sarcastic, punchy 30-60 s script
+3) render a 9:16 2D video with the Voice to Short pipeline
+4) quality-check it (1080x1920, 23-60 fps, under 60 s, audio not silent, no blank frames)
+5) write the title, description and hashtags
+6) schedule it via the Buffer API to YouTube (Quiet Brain) and TikTok at free slots, isAiGenerated=false,
+   never over the 10-post free queue (asks Pedro first)
+7) post a summary here (title, time, link) and notify; on any failure say exactly what failed."""
+
+BOT_ROLE = ("You are the Shorts Poster for Pedro's Quiet Brain channel. You have ONE workflow and it is built in: "
+            "the make_quiet_brain_short tool (dry_run=true renders and checks only; dry_run=false also schedules on "
+            "YouTube + TikTok via Buffer after Pedro's yes on the card). Use shorts_status to check the Buffer token "
+            "and setup before saying anything is missing - never guess. You do NOT use, resume, pause or mention his "
+            "old routines (workflow-1..4, all-4-workflows-sequence, automated-youtube-video-pipeline, brobot); they are "
+            "not yours. The daily automatic run is the 'Daily Shorts' switch in Settings > Quiet Brain Shorts, which "
+            "is separate from the Routines list; manual runs work without it. Report results plainly; never claim a "
+            "post was scheduled unless the tool returned it. " + WORKFLOW)
+BOT_TOOLS = ["make_quiet_brain_short", "shorts_status", "quiet_brain_shorts_dry_run", "list_files"]
+
+
+def check_token() -> dict[str, Any]:
+    """Read-only `{ account { id } }` against Buffer. Never returns or logs the token."""
+    tok = _token()
+    if not tok:
+        return {"saved": False, "valid": False, "message": "No Buffer token is saved yet (Settings > Quiet Brain Shorts)."}
+    if transport is not None:
+        return {"saved": True, "valid": True, "message": "Buffer token saved (test transport)."}
+    req = urllib.request.Request(API, data=json.dumps({"query": "{ account { id } }"}).encode(), method="POST",
+                                 headers={"Content-Type": "application/json", "Authorization": f"Bearer {tok}"})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            out = json.loads(r.read().decode("utf-8"))
+    except Exception as exc:
+        code = getattr(exc, "code", "")
+        return {"saved": True, "valid": False, "message": f"Buffer token is saved but Buffer did not accept it ({code or type(exc).__name__})."}
+    ok = bool(((out.get("data") or {}).get("account") or {}).get("id"))
+    return {"saved": True, "valid": ok, "message": "Buffer token is saved and Buffer accepts it." if ok else
+            "Buffer token is saved but Buffer rejected it: " + "; ".join(e.get("message", "") for e in out.get("errors", []))[:200]}
+
+
+def shorts_status() -> dict[str, Any]:
+    st = settings()
+    tok = check_token()
+    try:
+        queued = len(buffer_posts(["scheduled"])) if tok["valid"] else None
+    except Exception:
+        queued = None
+    lines = [tok["message"],
+             ("Daily Shorts switch (Settings > Quiet Brain Shorts) is ON." if st["enabled"] else
+              "Daily Shorts switch (Settings > Quiet Brain Shorts) is OFF, so nothing posts automatically. "
+              "This is not the Routines list. Manual runs still work."),
+             ("Setup ready." if st["ready"] else "Still missing: " + ", ".join(st["missing"]) + "."),
+             (f"Buffer queue: {queued}/{FREE_PLAN_LIMIT} scheduled." if queued is not None else "")]
+    return {"ok": True, "token_saved": tok["saved"], "token_valid": tok["valid"], "daily_switch_on": st["enabled"],
+            "ready": st["ready"], "missing": st["missing"], "queued": queued,
+            "message": " ".join(x for x in lines if x)}
+
+
+def _history_file() -> Path:
+    return _storage() / "idea_history.json"
+
+
+def idea_history() -> list[dict[str, Any]]:
+    try:
+        d = json.loads(_history_file().read_text(encoding="utf-8"))
+        return d if isinstance(d, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def _remember_idea(item: dict[str, Any], status: str) -> None:
+    h = idea_history()
+    h.append({"at": dt.datetime.now(IST).isoformat(timespec="seconds"), "idea": item.get("idea"),
+              "title": item.get("title"), "format": item.get("format"), "status": status})
+    _history_file().write_text(json.dumps(h[-500:], indent=1, ensure_ascii=False), encoding="utf-8")
+
+
+def blank_frames(path: Path) -> float:
+    """Seconds of (near) black video, via ffmpeg blackdetect."""
+    err = subprocess.run(["ffmpeg", "-i", str(path), "-vf", "blackdetect=d=0.5:pix_th=0.10", "-an", "-f", "null", "-"],
+                         capture_output=True, text=True, creationflags=_no_window()).stderr
+    return round(sum(float(x) for x in re.findall(r"black_duration:([\d.]+)", err)), 1)
+
+
+_JOB: dict[str, Any] = {"running": False}
+
+
+def make_quiet_brain_short(dry_run: Any = True) -> dict[str, Any]:
+    """Run the built-in workflow for ONE Short in the background; progress and the result post in this chat."""
+    dry = not (dry_run is False or str(dry_run).strip().casefold() in {"false", "0", "no"})
+    if _JOB.get("running"):
+        return {"ok": False, "error": "A Short is already being made; I'll post here when it's done."}
+    st = settings()
+    if not st["vts_dir"] or not (Path(st["vts_dir"]) / "tests" / "live" / "e2e-live.js").is_file():
+        return {"ok": False, "error": "The Voice to Short folder isn't set up: Settings > Quiet Brain Shorts needs the folder "
+                f"that contains tests\\live\\e2e-live.js (now: {st['vts_dir'] or 'not set'}). Nothing was made."}
+    if not dry:
+        tok = check_token()
+        if not tok["valid"]:
+            return {"ok": False, "error": tok["message"] + " Nothing was made or posted."}
+    import bg_progress
+    rep = bg_progress.Reporter(bg_progress.current_session(), "Shorts Poster" + (" (dry run)" if dry else ""))
+    _JOB["running"] = True
+
+    def run() -> None:
+        try:
+            out = _workflow(dry, rep.milestone)
+            rep.final(out["summary"], ok=True, image=out.get("thumb", ""))
+        except Exception as exc:
+            rep.final(f"Stopped: {str(exc)[:300]}. Nothing was posted." if dry else
+                      f"Stopped: {str(exc)[:300]}. Check Buffer before trying again; I did not mark anything as posted.", ok=False)
+        finally:
+            _JOB["running"] = False
+    threading.Thread(target=run, daemon=True, name="qb-short").start()
+    return {"ok": True, "message": ("Dry run started: idea, script, render and checks only, nothing will be posted. "
+                                    if dry else "Started: I'll make the Short and schedule it. ")
+            + "I'll post progress and the result here."}
+
+
+def _workflow(dry: bool, say: Callable[[str], Any]) -> dict[str, Any]:
+    st = settings()
+    day = dt.datetime.now(IST).date().isoformat()
+    scheduled = buffer_posts(["scheduled"]) if _token() else []
+    recent = buffer_posts(["sent"], max_pages=4) if _token() else []
+    known = known_ideas(scheduled + recent) + [h.get("idea") or "" for h in idea_history()]
+    ideas = write_ideas(1, [k for k in known if k])
+    if not ideas:
+        raise RuntimeError("no fresh idea came back that isn't a repeat")
+    day_dir = _storage() / day
+    day_dir.mkdir(parents=True, exist_ok=True)
+    n = 1 + max([int(m.group(1)) for f in day_dir.glob("qb-short*.mp4") if (m := re.search(r"(\d+)", f.stem))] or [0])
+    item = {"n": n, **ideas[0]}
+    item["title"] = item.get("title") or _title(item["idea"])
+    say(f"Topic: {item['title']} ({item['format']}). Writing the script and rendering the 9:16 video (a few minutes).")
+    path = render(day_dir, n, item, st["vts_dir"], length=55)
+    check = verify(path)
+    black = blank_frames(path)
+    if black >= 1.0:
+        check["ok"] = False
+        check["problems"].append(f"{black}s of blank frames")
+    if not check["ok"]:
+        _remember_idea(item, "failed-check")
+        raise RuntimeError("the video failed the quality check: " + ", ".join(check["problems"]) + f" ({path})")
+    say(f"Video passed checks: {check['duration_s']} s, {check['fps']} fps, audio OK, no blank frames.")
+    pkg = _pkg(day_dir, n)
+    item.update(title=pkg.get("title") or item["title"], duration_s=check["duration_s"],
+                tiktok_caption=pkg.get("tiktokCaption", ""), yt_tags=pkg.get("hashtags") or [],
+                description=(pkg.get("hooks") or [""])[0])
+    thumb = day_dir / f"qb-short{n}.jpg"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-ss", "3", "-i", str(path), "-frames:v", "1", str(thumb)],
+                   creationflags=_no_window())
+    if dry:
+        _remember_idea(item, "dry-run")
+        return {"summary": f"Dry run done: \"{item['title']}\" ({check['duration_s']} s) rendered and checked. "
+                           f"Nothing was posted. Video: {path}", "thumb": str(thumb) if thumb.is_file() else ""}
+    if free_slots(len(scheduled)) <= 0:
+        _remember_idea(item, "made-not-scheduled")
+        raise RuntimeError(f"the Buffer queue is full ({len(scheduled)}/{FREE_PLAN_LIMIT}); the video is saved at {path}")
+    say("Uploading the video for Buffer and scheduling it.")
+    item["video_url"] = host(day, path)
+    plan = schedule_day(day, [item], scheduled, dry_run=False)
+    e = plan[0]
+    if e.get("status") != "scheduled":
+        _remember_idea(item, "schedule-failed")
+        raise RuntimeError("Buffer did not schedule it: " + str(e.get("error") or e.get("status")))
+    _remember_idea(item, "scheduled")
+    tt = "TikTok too" if e.get("tiktok_status") == "scheduled" else "TikTok waits for a free Buffer slot"
+    return {"summary": f"Scheduled \"{item['title']}\" on YouTube (Quiet Brain) for {e['scheduled_time']} IST; {tt}. "
+                       f"Video: {item['video_url']}", "thumb": str(thumb) if thumb.is_file() else ""}
+
+
+def ensure_bot_workflow() -> bool:
+    """Give an existing Shorts Poster bot the built-in workflow (role + tools). Touches no routine."""
+    try:
+        import bots
+        b = bots.get_bot("shorts-poster") or bots.get_bot("Shorts Poster")
+        if not b or (b.get("role") == BOT_ROLE and set(BOT_TOOLS) <= set(b.get("tools") or [])):
+            return False
+        bots.save_bot({**b, "role": BOT_ROLE, "tools": sorted(set(BOT_TOOLS))})
+        return True
+    except Exception:
+        return False
+
+
 DECLARATIONS = [{"name": "quiet_brain_shorts_dry_run",
                  "description": "Plan today's 6 Quiet Brain Shorts (ideas, titles, Buffer slots, overflow) without posting anything.",
-                 "parameters": {"type": "object", "properties": {}}}]
-TOOLS = {"quiet_brain_shorts_dry_run": quiet_brain_shorts_dry_run}
+                 "parameters": {"type": "object", "properties": {}}},
+                {"name": "shorts_status",
+                 "description": "Check Quiet Brain Shorts setup: is the Buffer token saved and accepted by Buffer (read-only), "
+                                "is the Daily Shorts switch on, what is missing, Buffer queue use. Use before saying anything is missing.",
+                 "parameters": {"type": "object", "properties": {}}},
+                {"name": "make_quiet_brain_short",
+                 "description": "Run the Shorts Poster workflow for ONE Short in the background: fresh topic, script, 9:16 2D render, "
+                                "quality check, title/description/hashtags, then (only when dry_run is false, after Pedro's yes) "
+                                "schedule on YouTube + TikTok via Buffer. Progress and the result are posted in the chat.",
+                 "parameters": {"type": "object", "properties": {
+                     "dry_run": {"type": "boolean", "description": "true (default): render and check only, never post."}}}}]
+TOOLS = {"quiet_brain_shorts_dry_run": quiet_brain_shorts_dry_run, "shorts_status": shorts_status,
+         "make_quiet_brain_short": make_quiet_brain_short}

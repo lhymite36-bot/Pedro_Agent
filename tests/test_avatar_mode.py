@@ -25,7 +25,7 @@ class AvatarModeTests(unittest.TestCase):
         self.assertIn("avatar-call", css)
         self.assertIn("wantsVoice", js)
         self.assertIn("Interrupt", js)
-        self.assertIn("pedro-shell-v34", shell)
+        self.assertIn("pedro-shell-v35", shell)
         self.assertIn("/avatar_mode.js", shell)
         self.assertIn("avatar_mode.js", chat_app.STATIC_FILES)
         self.assertIn("window.avatarMode && window.avatarMode.wantsVoice()", app)
