@@ -16,13 +16,17 @@ from pathlib import Path
 from typing import Any
 
 MAX_BYTES = 15 * 1024 * 1024
+MAX_VIDEO_BYTES = 100 * 1024 * 1024
+MAX_UPLOAD = MAX_VIDEO_BYTES
 MAX_TEXT = 30_000
 MAX_SIDE = 1600
 IMAGE_EXT = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp",
              ".gif": "image/gif", ".bmp": "image/bmp", ".heic": "image/heic"}
+VIDEO_EXT = {".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime",
+             ".mkv": "video/x-matroska", ".m4v": "video/mp4", ".avi": "video/x-msvideo"}
 DOC_EXT = {".pdf": "application/pdf", ".docx": "docx", ".xlsx": "xlsx", ".xlsm": "xlsx", ".csv": "text",
            ".txt": "text", ".md": "text", ".json": "text", ".log": "text", ".py": "text", ".html": "text"}
-ALLOWED = {**IMAGE_EXT, **DOC_EXT}
+ALLOWED = {**IMAGE_EXT, **DOC_EXT, **VIDEO_EXT}
 MARK = re.compile(r"\n?\[\[files:([0-9a-f,]{0,400})\]\]\s*$")
 upload_dir_override: Path | None = None
 
@@ -51,18 +55,24 @@ def _clean_name(name: str) -> str:
 
 
 def kind_of(name: str) -> str:
-    return "image" if Path(name).suffix.lower() in IMAGE_EXT else "file"
+    ext = Path(name).suffix.lower()
+    if ext in IMAGE_EXT:
+        return "image"
+    if ext in VIDEO_EXT:
+        return "video"
+    return "file"
 
 
 def save_upload(name: str, data: bytes) -> dict[str, Any]:
     name = _clean_name(name)
     ext = Path(name).suffix.lower()
     if ext not in ALLOWED:
-        return {"ok": False, "error": f"{ext or 'That file type'} can't be attached. Use a picture, PDF, Word, Excel, CSV or text file."}
+        return {"ok": False, "error": f"{ext or 'That file type'} can't be attached. Use a picture, video, PDF, Word, Excel, CSV or text file."}
     if not data:
         return {"ok": False, "error": "The file is empty."}
-    if len(data) > MAX_BYTES:
-        return {"ok": False, "error": f"{name} is over {MAX_BYTES // (1024 * 1024)} MB."}
+    limit = MAX_VIDEO_BYTES if ext in VIDEO_EXT else MAX_BYTES
+    if len(data) > limit:
+        return {"ok": False, "error": f"{name} is over {limit // (1024 * 1024)} MB."}
     if kind_of(name) == "image" and ext not in {".heic"}:
         try:
             from PIL import Image
@@ -94,8 +104,28 @@ def mime_for(name: str) -> str:
     ext = Path(name).suffix.lower()
     if ext in IMAGE_EXT:
         return IMAGE_EXT[ext]
+    if ext in VIDEO_EXT:
+        return VIDEO_EXT[ext]
     return {".pdf": "application/pdf", ".csv": "text/csv", ".txt": "text/plain", ".md": "text/plain",
             ".json": "application/json"}.get(ext, "application/octet-stream")
+
+
+def _video_poster(path: Path) -> tuple[bytes, str] | None:
+    """First frame as JPEG so the model can see a still from the clip."""
+    try:
+        import cv2
+        cap = cv2.VideoCapture(str(path))
+        ok, frame = cap.read()
+        cap.release()
+        if not ok or frame is None:
+            return None
+        ok, encoded = cv2.imencode(".jpg", frame)
+        if not ok or encoded is None:
+            return None
+        data = encoded.tobytes() if hasattr(encoded, "tobytes") else bytes(encoded)
+        return (bytes(data), "image/jpeg") if data else None
+    except Exception:
+        return None
 
 
 def _image_bytes(path: Path) -> tuple[bytes, str]:
@@ -170,6 +200,16 @@ def build_turn(text: str, ids: list[str]) -> tuple[str, list[tuple[bytes, str]]]
         p = Path(item["path"])
         if item["kind"] == "image":
             parts.append(_image_bytes(p)); notes.append(f"- picture {item['name']} (attached below; saved at {p})")
+        elif item["kind"] == "video":
+            poster = _video_poster(p)
+            if poster:
+                parts.append(poster)
+            notes.append(
+                f"- video {item['name']} (saved at {p}; play it in this chat). "
+                "A still from the first frame is attached below when available. "
+                "Use that path with open_website, watch_video, or process_media. "
+                "Do not invent extra scenes."
+            )
         elif p.suffix.lower() == ".pdf":
             parts.append((p.read_bytes(), "application/pdf")); notes.append(f"- PDF {item['name']} (attached below; saved at {p})")
         else:

@@ -32,6 +32,8 @@ APP_DIR = Path(__file__).resolve().parent
 
 DEFAULT_RULES: dict[str, Any] = {
     "version": 1,
+    # Extra owner lines injected into the system prompt. Add/remove in Settings → Rules.
+    "instructions": [],
     "paths": {
         # Where file-writing tools may write.
         "allowed": ["*"],
@@ -226,6 +228,111 @@ def save_text(text: str) -> Path:
     return path
 
 
+def _raw_file() -> dict[str, Any]:
+    path = rules_path()
+    if path is None or not path.is_file():
+        return {}
+    return parse_text(path.read_text(encoding="utf-8"), path.suffix)
+
+
+def dump_text(data: dict[str, Any], suffix: str) -> str:
+    if suffix.casefold() == ".json":
+        return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    try:
+        import yaml  # type: ignore
+    except ImportError as exc:  # pragma: no cover
+        raise RuntimeError("Install PyYAML for rules.yaml, or use rules.json.") from exc
+
+    class Dumper(yaml.SafeDumper):
+        pass
+
+    def _str(dumper: Any, value: str) -> Any:
+        style = "|" if "\n" in value else None
+        return dumper.represent_scalar("tag:yaml.org,2002:str", value, style=style)
+
+    def _bool(dumper: Any, value: bool) -> Any:
+        return dumper.represent_scalar("tag:yaml.org,2002:bool", "true" if value else "false")
+
+    Dumper.add_representer(str, _str)
+    Dumper.add_representer(bool, _bool)
+    body = yaml.dump(data, Dumper=Dumper, sort_keys=False, allow_unicode=True)
+    return (
+        "# Ped Bot rules. Edit in Settings → Rules. Changes apply on the next action.\n"
+        + body
+    )
+
+
+def _patch_merge(base: dict[str, Any], extra: dict[str, Any]) -> dict[str, Any]:
+    out = copy.deepcopy(base) if isinstance(base, dict) else {}
+    for key, value in (extra or {}).items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = _patch_merge(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
+def apply_patch(patch: dict[str, Any]) -> Path:
+    """Update selected keys in the rules file. Other sections stay as they are."""
+    if not isinstance(patch, dict):
+        raise ValueError("Rules patch must be an object.")
+    path = rules_path() or (APP_DIR / "rules.yaml")
+    current = _raw_file()
+    updated = _patch_merge(current, patch)
+    text = dump_text(updated, path.suffix)
+    parse_text(text, path.suffix)
+    path.write_text(text, encoding="utf-8")
+    load(force=True)
+    return path
+
+
+def editor_payload() -> dict[str, Any]:
+    path = rules_path() or (APP_DIR / "rules.yaml")
+    text = path.read_text(encoding="utf-8") if path.is_file() else ""
+    data: dict[str, Any] = {}
+    if text.strip():
+        data = parse_text(text, path.suffix)
+    return {
+        "path": str(path),
+        "text": text,
+        "data": data,
+        "defaults": {
+            "confirm": copy.deepcopy(DEFAULT_RULES["confirm"]),
+            "protect": copy.deepcopy(DEFAULT_RULES["protect"]),
+            "files": copy.deepcopy(DEFAULT_RULES["files"]),
+            "paths": copy.deepcopy(DEFAULT_RULES["paths"]),
+        },
+        "confirm_categories": [
+            {"id": "delete", "label": "Deleting files"},
+            {"id": "payment", "label": "Payments and checkout"},
+            {"id": "send_message", "label": "Sending email or messages"},
+            {"id": "power", "label": "Shut down the PC"},
+            {"id": "kill_process", "label": "Force-close programs"},
+            {"id": "network", "label": "Wi-Fi and VPN"},
+            {"id": "self_upgrade", "label": "Installing Ped Bot updates"},
+            {"id": "remote_control", "label": "Phone control of this PC"},
+        ],
+    }
+
+
+def instructions() -> list[str]:
+    """Standing owner rules from Settings. Applied on the next model call."""
+    raw = load().get("instructions") or []
+    if isinstance(raw, str):
+        raw = [raw]
+    out: list[str] = []
+    if not isinstance(raw, list):
+        return out
+    for item in raw:
+        text = " ".join(str(item).split())
+        if not text:
+            continue
+        out.append(text[:500])
+        if len(out) >= 40:
+            break
+    return out
+
+
 def reset_cache() -> None:
     global _cache
     with _lock:
@@ -373,6 +480,15 @@ def category_for(name: str, arguments: dict[str, Any]) -> str | None:
         action = str(arguments.get("action") or "").strip().casefold().replace("-", "_").replace(" ", "_")
         if action in _NETWORK:
             return "network"
+    if name == "ui_click":
+        label = " " + _fold(arguments.get("name")) + " "
+        if any(w in label for w in (" delete ", " remove ", " erase ", " uninstall ", " empty recycle bin ")):
+            return "delete"
+        if any(w.strip() in label for w in _PAYMENT_WORDS) or any(w in label for w in (" buy ", " pay ", " checkout ")):
+            return "payment"
+        if any(w in label for w in (" send ", " post ", " publish ", " submit ", " share ")):
+            return "send_message"
+        return None
     if name in {"perform_actions", "browser_download_tool", "desktop_ui_automation", "click_screen_target"}:
         blob = json.dumps(arguments, default=str).casefold()
         if any(word in blob for word in _PAYMENT_WORDS):
@@ -386,6 +502,8 @@ def needs_confirmation(name: str, arguments: dict[str, Any]) -> bool:
         return False
     if name in {str(t) for t in confirm.get("extra_tools") or []}:
         return True
+    if name == "create_routine" and confirm.get("ask_before_routines", True):
+        return True   # a bot never adds a scheduled job without an Approve
     category = category_for(name, arguments)
     return category is not None and category in {str(c) for c in confirm.get("categories") or []}
 

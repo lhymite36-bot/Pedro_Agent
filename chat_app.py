@@ -36,6 +36,9 @@ STATIC_FILES = {
     "app.css": "text/css; charset=utf-8",
     "app.js": "application/javascript; charset=utf-8",
     "routines_ui.js": "application/javascript; charset=utf-8",
+    "tasks_ui.js": "application/javascript; charset=utf-8",
+    "navtabs.js": "application/javascript; charset=utf-8",
+    "lite.js": "application/javascript; charset=utf-8",
     "avatars/round.png": "image/png",
     "avatars/robot.png": "image/png",
     "avatars/cat.png": "image/png",
@@ -56,6 +59,12 @@ STATIC_FILES = {
     "reactions.js": "application/javascript; charset=utf-8",
     "markdown.js": "application/javascript; charset=utf-8",
     "avatar.js": "application/javascript; charset=utf-8",
+    "avatars.css": "text/css; charset=utf-8",
+    "newbot_ui.js": "application/javascript; charset=utf-8",
+    "glass.css": "text/css; charset=utf-8",
+    "pedbot-avatars.js": "application/javascript; charset=utf-8",
+    "glass.js": "application/javascript; charset=utf-8",
+    "themes.js": "application/javascript; charset=utf-8",
     "avatar_mode.js": "application/javascript; charset=utf-8",
     "handsfree.js": "application/javascript; charset=utf-8",
     "bots_ui.js": "application/javascript; charset=utf-8",
@@ -63,9 +72,11 @@ STATIC_FILES = {
     "mention_pick.js": "application/javascript; charset=utf-8",
     "titlebar.js": "application/javascript; charset=utf-8",
     "phone_ui.js": "application/javascript; charset=utf-8",
+    "auth.js": "application/javascript; charset=utf-8",
     "favicon.ico": "image/x-icon",
     "live_ui.js": "application/javascript; charset=utf-8",
     "connectors_ui.js": "application/javascript; charset=utf-8",
+    "maintenance_ui.js": "application/javascript; charset=utf-8",
     "sw.js": "application/javascript; charset=utf-8",
     "manifest.webmanifest": "application/manifest+json",
     "icon-192.png": "image/png",
@@ -138,7 +149,14 @@ def status_payload(state: "AppState") -> dict[str, Any]:
     except Exception:
         level = None
         mic_level = None
+    try:
+        import safe_mode
+
+        _paused = safe_mode.paused()
+    except Exception:
+        _paused = False
     return {
+        "paused": _paused,
         "busy": state.any_busy(),
         "listening": state.mic_lock.locked(),
         "speaking": state.is_speaking(),
@@ -275,16 +293,69 @@ def save_setup(data: dict) -> dict:
     return {"ok": True, **setup_status()}
 
 
-def clear_chats(state) -> int:
-    """Delete every normal chat. Bot and group rooms (and the bots/groups) stay."""
-    n = 0
-    for row in chat_store.sessions():
-        sid = str(row.get("session") or "")
-        if sid and not sid.startswith((bots.SESSION_PREFIX, groups.SESSION_PREFIX)):
-            chat_store.delete_session(sid)
-            state.histories.pop(sid, None)
-            n += 1
-    return n
+def side_message(state: Any, session: str, text: str) -> dict[str, Any]:
+    """1.4.15: a message sent while this chat's task runs. Saved, answered at once, and handed to the task."""
+    import live_steer
+    import live_sync
+    if not session or not text:
+        return {"ok": False, "error": "empty"}
+    if not live_steer.running(session):
+        return {"ok": False, "not_running": True}
+    kind = live_steer.kind_of(text)
+    uid = chat_store.add(session, "user", text)
+    if kind == "stop":
+        state.cancel_session(session)
+        try:
+            import stop_token
+            stop_token.fire_async(state.session_cancel(session))
+        except Exception:
+            pass
+    elif kind == "steer":
+        live_steer.add(session, text)
+    reply = live_steer.respond(session, text, kind)
+    mid = chat_store.add(session, "assistant", reply)
+    for ev in ({"event": "side", "role": "user", "id": uid, "text": text},
+               {"event": "side", "role": "assistant", "id": mid, "text": reply, "kind": kind}):
+        try:
+            live_sync.publish(session, ev)
+        except Exception:
+            pass
+    return {"ok": True, "side": True, "kind": kind, "reply": reply, "user_id": uid, "id": mid}
+
+
+def normal_chats() -> list[str]:
+    """Normal chats only. Bot and group rooms are not counted or deleted."""
+    return [sid for sid in (str(r.get("session") or "") for r in chat_store.sessions())
+            if sid and not sid.startswith((bots.SESSION_PREFIX, groups.SESSION_PREFIX))]
+
+
+_LAST_CLEAR: dict[str, Any] = {}
+UNDO_SECONDS = 15   # the window shows Undo for 10 s; a little slack for a slow phone link
+
+
+def clear_chats(state, backup: bool = True) -> int:
+    """Delete every normal chat. Bot and group rooms (and the bots/groups, routines, settings) stay.
+
+    1.4.15: chat_history.db is first copied to storage/backups/chat_history-<time>.db, so Undo can put them back.
+    """
+    gone = normal_chats()
+    if backup and gone:
+        dest = chat_store.backup_db()
+        _LAST_CLEAR.clear()
+        _LAST_CLEAR.update({"backup": dest, "sessions": list(gone), "at": time.time()})
+    for sid in gone:
+        chat_store.delete_session(sid)
+        state.histories.pop(sid, None)
+    return len(gone)
+
+
+def undo_clear_chats() -> dict[str, Any]:
+    info = dict(_LAST_CLEAR)
+    if not info or time.time() - float(info.get("at") or 0) > UNDO_SECONDS:
+        return {"ok": False, "error": "Undo has expired. The backup file is still in storage/backups."}
+    _LAST_CLEAR.clear()
+    n = chat_store.restore_sessions(info["backup"], info["sessions"])
+    return {"ok": True, "restored": n}
 
 def _ui_settings_path():
     import agent_config
@@ -578,8 +649,19 @@ def _finish_speech(state: AppState, pipeline: Any, reply: str, spoke_any: bool, 
         emit({"event": "speech_end", "status": status})
 
 
+def state_hidden() -> bool:
+    """True while the window is closed to the tray (updates also go to notifications)."""
+    try:
+        import win_chrome
+
+        return bool(getattr(win_chrome, "HIDDEN", False))
+    except Exception:
+        return False
+
+
 def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool | None = None,
-                from_voice: bool = False, client_audio: bool = False, files: list[str] | None = None) -> str:
+                from_voice: bool = False, client_audio: bool = False, files: list[str] | None = None,
+                origin: str = "") -> str:
     """Run one turn and push events through emit(dict). Returns the reply.
 
     With speech on, each streamed sentence is synthesized and played while
@@ -590,19 +672,64 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
     failed, so hands-free mode always knows when to listen again.
     """
     agent = _agent()
+    if from_voice or client_audio:
+        try:
+            agent.prewarm_voice()
+        except Exception:
+            pass
     import step_labels, team_agent
     wrote: list[str] = []
     raw_emit = emit
 
+    import progress_notes
+    import background as _bg
+    import bg_progress
+    bg_progress.SESSION.set(session)     # 1.5.2: background jobs started in this turn report back here
+
+    def _post_update(kind: str, note: str) -> None:
+        try:
+            mid = chat_store.add(session, "assistant", note)
+        except Exception:
+            mid = 0
+        ev = {"event": "update", "kind": kind, "text": note, "id": mid}
+        try:
+            import live_sync
+
+            live_sync.publish(session, ev)       # every window and the phone, not just this one
+        except Exception:
+            pass
+        raw_emit(ev)
+        if kind in {"opening", "blocker", "final"} or state_hidden():
+            _bg.notify("Ped Bot", note)
+
+    narrator = progress_notes.Narrator(text, _post_update)
+    task_id = _bg.task_started(session, text, files) if not text.startswith("[Resumed") else ""
+
     def watch(ev: dict) -> None:
+        try:
+            narrator.feed(ev)
+        except Exception:
+            pass
         if ev.get("event") == "model_switch":
             shown = str(ev.get("model") or "")
             state.active_model = shown.split(":", 1)[-1] if shown.startswith("backup:") else shown
         if ev.get("event") == "tool_end" and ev.get("ok") and ev.get("path"):
             wrote.append(str(ev["path"]))
+        try:
+            import live_sync
+
+            live_sync.publish(session, ev, origin=origin)
+        except Exception:
+            pass
         raw_emit(ev)
 
     emit = step_labels.wrap_emit(watch)
+    import live_steer
+    _labelled = emit
+
+    def emit(ev: dict) -> None:   # 1.4.15: keep the live state for mid-task messages
+        live_steer.note(session, ev)
+        _labelled(ev)
     import confirm_action as _confirm
     chat_token = _confirm.bind_chat(session)
     import desktop_share
@@ -616,6 +743,9 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
     cancel = state.session_cancel(session)
     cancel.clear()
     state.cancel = cancel
+    live_steer.begin(session, text)
+    turn_t0 = time.time()
+    turn_failed = {"yes": False}
     pipeline = None
     reply = ""
     spoke = {"any": False}
@@ -634,6 +764,13 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
             emit({"event": "step", "label": f"Reading {len(files)} attachment(s)", "name": ""})
 
         def save_reply(sess: str, role: str, said: str) -> int:   # store + tell the window the id and reactions
+            if role == "assistant" and "[[card:" not in said:
+                import reply_clean
+
+                guarded = reply_clean.guard_loop(sess, said)
+                if guarded != said:
+                    emit({"event": "step", "label": "Stopped a repeating answer.", "name": "reason"})
+                    said = guarded
             mid = chat_store.add(sess, role, said)
             if wrote:
                 chat_store.remember_writes(mid, wrote)
@@ -651,14 +788,25 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
         state.pipeline = pipeline
         state.remember_pipe(session, pipeline)
 
-        def on_text(chunk: str) -> None:
-            emit({"event": "token", "text": chunk})
-            if pipeline is not None and not cancel.is_set():
-                spoke["any"] = True
-                try:
-                    pipeline.submit(chunk)
-                except Exception as exc:
-                    emit({"event": "error", "text": f"Voice: {exc}"})
+        speech_buf = agent._SentenceBuffer()
+
+        def to_voice(pieces: list) -> None:
+            for piece in pieces:
+                if pipeline is not None and not cancel.is_set():
+                    spoke["any"] = True
+                    try:
+                        pipeline.submit(piece)
+                    except Exception as exc:
+                        emit({"event": "error", "text": f"Voice: {exc}"})
+
+        def on_text(chunk: str) -> None:   # 1.4.15: raw token deltas straight to the window
+            emit({"event": "token", "text": chunk, "raw": True})
+            if pipeline is not None:
+                to_voice(speech_buf.push(chunk))
+                if chunk.rstrip().endswith((".", "!", "?")):   # a whole sentence: speak it now
+                    to_voice(speech_buf.flush())
+
+        on_text.raw_tokens = True  # type: ignore[attr-defined]
 
         if pipeline is not None:
             _pause_wake()
@@ -672,6 +820,9 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
                 group = groups.group_for_session(session)
                 import confirm_action
                 waiting = confirm_action.pending()
+                import stop_token
+                stop_token.bind(cancel)   # 1.4.15: a quick-yes command is stoppable too
+                agent._turn_local.cancel_event = cancel
                 quick = confirm_action.answer_pending(text, agent.invoke_tool)   # one yes runs it once
                 if quick is not None and waiting and waiting.get("name") == "place_order" and quick.startswith("Cancelled"):
                     import order_flow
@@ -712,21 +863,50 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
                     reply = agent.run_agent(
                         text, history, state.model,
                         cancel_event=cancel, on_text=on_text, on_event=emit,
+                        voice=bool(from_voice or pipeline is not None or client_audio),
                     ) or ""
+                if pipeline is not None and quick is None and group is None:
+                    to_voice(speech_buf.flush())
             except Exception as exc:  # RuntimeError for quota, key, network
-                emit({"event": "error", "text": agent._scrub(str(exc))})
+                print(f"[turn] {type(exc).__name__}: {agent._scrub(str(exc))[:300]}", flush=True)
+                if not isinstance(exc, RuntimeError):
+                    try:
+                        import crash_reports
+                        crash_reports.record(exc, where="chat turn")
+                    except Exception:
+                        pass
+                emit({"event": "error", "text": agent.friendly_model_error(agent._scrub(str(exc)))})
                 reply = ""
+                turn_failed["yes"] = True
+        spoken_reply = reply   # 1.4.17: the voice keeps its [laughs]; the written reply drops stage directions
+        try:
+            import emotion
+            reply = emotion.strip_stage(reply) if reply else reply
+        except Exception:
+            pass
+        try:
+            import checkins
+            if not cancel.is_set():
+                checkins.task_finished(session, text, reply, time.time() - turn_t0, failed=turn_failed["yes"])
+        except Exception:
+            pass
         if reply and not session.startswith(groups.SESSION_PREFIX):
             save_reply(session, "assistant", reply)
             reply = chat_store.extract_reactions(reply)[0]
         _post_cards(session, emit, waiting_before)
         emit({"event": "group_done"} if session.startswith(groups.SESSION_PREFIX) else {"event": "done", "text": reply})
+        try:
+            narrator.finish(reply, cancelled=cancel.is_set())
+        except Exception:
+            pass
+        if task_id:
+            _bg.task_finished(task_id)
         if pipeline is not None:
-            _finish_speech(state, pipeline, reply, spoke["any"], emit)
+            _finish_speech(state, pipeline, spoken_reply, spoke["any"], emit)
         elif want and client_audio and reply and not cancel.is_set():
             try:
                 emit({"event": "step", "label": "Getting my voice ready…", "name": ""})
-                clip = synth_client_audio(reply)
+                clip = synth_client_audio(spoken_reply)
                 emit({"event": "audio", "url": f"/api/tts?id={clip}"})
                 emit({"event": "speech_end", "status": "client"})
             except Exception as exc:
@@ -736,6 +916,17 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
             emit({"event": "speech_end", "status": "skipped"})
         return reply
     except Exception as exc:
+        try:
+            if task_id:
+                import background as _bg2
+                _bg2.task_finished(task_id)
+        except Exception:
+            pass
+        try:
+            import crash_reports
+            crash_reports.record(exc, "chat turn")
+        except Exception:
+            pass
         emit({"event": "error", "text": f"Turn failed: {exc}"})
         emit({"event": "speech_end", "status": "error"})
         return reply
@@ -749,6 +940,7 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
             bot_mind.unbind_announce(say_token)
         except Exception:
             pass
+        live_steer.end(session)
         state.remember_pipe(session, None)
         if state.pipeline is pipeline:
             state.pipeline = None
@@ -808,6 +1000,10 @@ def listen_once(state: AppState, timeout: float = 8.0) -> dict[str, Any]:
     path.
     """
     agent = _agent()
+    try:   # 1.4.18: open the connections for speech-to-text, the reply and the voice while he is still talking
+        agent.prewarm_voice()
+    except Exception:
+        pass
     if not state.mic_lock.acquire(timeout=3):
         return {"ok": False, "text": "", "error": "The microphone is busy.", "kind": "busy"}
     heard: Any = None
@@ -831,14 +1027,38 @@ def listen_once(state: AppState, timeout: float = 8.0) -> dict[str, Any]:
     return {"ok": False, "text": "", "error": error, "kind": "error"}
 
 
+_GZ: dict[int, tuple[bytes, bytes]] = {}
+
+
+def _gzip_cached(body: bytes) -> bytes:
+    import gzip, hashlib
+    key = hash(body)
+    hit = _GZ.get(key)
+    if hit and hit[0] == hashlib.sha1(body).digest():
+        return hit[1]
+    out = gzip.compress(body, compresslevel=6, mtime=0)
+    if len(body) > 8000:   # static files repeat; small JSON answers do not
+        if len(_GZ) > 64:
+            _GZ.clear()
+        _GZ[key] = (hashlib.sha1(body).digest(), out)
+    return out
+
+
 def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args: Any) -> None:  # quiet console
             return
 
         def _send(self, code: int, body: bytes, kind: str = "application/json") -> None:
+            gz = (len(body) > 1400 and ("javascript" in kind or "css" in kind or "html" in kind or "json" in kind)
+                  and "gzip" in (self.headers.get("Accept-Encoding") or ""))
+            if gz:   # 1.4.18: about 4x less to send to the phone over the tunnel
+                body = _gzip_cached(body)
             self.send_response(code)
             self.send_header("Content-Type", kind)
+            if gz:
+                self.send_header("Content-Encoding", "gzip")
+                self.send_header("Vary", "Accept-Encoding")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
@@ -883,6 +1103,34 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             self._send(403, b'{"error":"local only - use the remote port"}')
             return False
 
+        def _auth_ok(self, admin: bool = False) -> bool:
+            """Supabase JWT on the local window and on the phone remote."""
+            import supabase_auth
+
+            if not supabase_auth.configured():
+                if self.remote:
+                    return True
+                self._json({
+                    "ok": False,
+                    "code": "auth_not_configured",
+                    "error": "Sign-in is not set up yet. Add SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY to .env, then restart Ped Bot.",
+                    "missing": supabase_auth.missing_env(),
+                }, 503)
+                return False
+            user = supabase_auth.user_from_request(self)
+            if not user:
+                # 403 on the phone so an older APK does not treat this as "reconnect".
+                self._json(
+                    {"ok": False, "error": "Please sign in.", "code": "auth_required"},
+                    403 if self.remote else 401,
+                )
+                return False
+            if admin and not supabase_auth.is_admin(user):
+                self._json({"ok": False, "error": "Admin only.", "code": "admin_required"}, 403)
+                return False
+            self.auth_user = user
+            return True
+
         def _live_get(self, url: Any, query: dict[str, list[str]]) -> bool:
             import live_pc
 
@@ -917,13 +1165,36 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 return
             url = urlparse(self.path)
             query = parse_qs(url.query)
+            path = url.path
+            public_get = (
+                path in {"/", "/index.html", "/api/auth/config", "/api/status"}
+                or path.lstrip("/") in STATIC_FILES
+            )
+            if not public_get and (path.startswith("/api/") or path.startswith("/live/")):
+                if not self._auth_ok(admin=path == "/api/admin/users"):
+                    return
             if url.path.startswith("/live/") and self._live_get(url, query):
+                return
+            if url.path == "/api/live":
+                self._live_feed(query)
                 return
             if url.path in {"/", "/index.html"}:
                 self._send(200, (STATIC / "index.html").read_bytes(), "text/html; charset=utf-8")
             elif url.path.lstrip("/") in STATIC_FILES:
                 name = url.path.lstrip("/")
                 self._send(200, (STATIC / name).read_bytes(), STATIC_FILES[name])
+            elif url.path == "/api/auth/config":
+                import supabase_auth
+                self._json(supabase_auth.public_config())
+            elif url.path == "/api/auth/me":
+                import supabase_auth
+                user = getattr(self, "auth_user", None) or supabase_auth.user_from_request(self)
+                self.auth_user = user
+                supabase_auth.touch_login(user)
+                self._json(supabase_auth.public_user(user))
+            elif url.path == "/api/admin/users":
+                import supabase_auth
+                self._json(supabase_auth.list_profiles())
             elif url.path == "/api/level":
                 self._json(level_payload())
             elif url.path == "/api/setup":
@@ -940,12 +1211,50 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 if p and p.get("name") == "place_order":
                     import order_flow
                     card = order_flow.pending_card()
-                self._json({"pending": {"label": str((p or {}).get("label") or ""), "order": card} if p else None})
+                if not p:   # 1.4.19: the bar is global; show the request of any chat, with its id and chat
+                    rows = confirm_action.all_pending()
+                    p = rows[0] if rows else None
+                    if p and p.get("name") == "place_order":
+                        import order_flow
+                        card = order_flow.pending_card()
+                self._json({"pending": {"label": str((p or {}).get("label") or ""), "order": card,
+                                        "id": str((p or {}).get("id") or ""), "session": str((p or {}).get("bucket") or "")}
+                            if p else None})
             elif url.path == "/api/checklist":
                 import extras149
                 self._json(extras149.setup_checklist())
+            elif url.path == "/api/background":
+                import background
+                self._json(background.settings())
+            elif url.path == "/api/shorts":
+                import quiet_brain_shorts
+                self._json(quiet_brain_shorts.settings())
+            elif url.path == "/api/theme":
+                import themes
+                self._json(themes.get())
+            elif url.path == "/api/update":
+                import updater
+                self._json(updater.last() or {"current": updater.VERSION, "update_available": False})
+            elif url.path == "/api/connections":
+                import google_connections
+                self._json(google_connections.status())
+            elif url.path == "/api/crashes":
+                import crash_reports
+                name = query.get("name", [""])[0]
+                self._json({"text": crash_reports.read(name)} if name else {"reports": crash_reports.listing(),
+                                                                             "folder": str(crash_reports.folder())})
             elif url.path == "/api/status":
                 self._json(status_payload(state))
+            elif url.path in {"/api/health", "/api/search", "/api/usage", "/api/sidebar"}:
+                import fusion_api
+                if url.path == "/api/health":
+                    self._json(fusion_api.health(status_payload(state)))
+                elif url.path == "/api/search":
+                    self._json(fusion_api.search(query.get("q", [""])[0]))
+                elif url.path == "/api/usage":
+                    self._json(fusion_api.usage(status_payload(state)))
+                else:
+                    self._json(fusion_api.get_sidebar())
             elif url.path == "/api/image":
                 found = safe_image_path(query.get("path", [""])[0])
                 if found is None:
@@ -962,6 +1271,11 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     self._send_saved(found.read_bytes(), kind, found.name, query.get("download", ["0"])[0] == "1")
             elif url.path == "/api/bots":
                 self._json({"bots": bots.list_bots(), "tools": sorted(_agent().TOOLS)})
+            elif url.path == "/api/checkins":
+                import checkins
+                self._json(checkins.settings())
+            elif url.path == "/api/chats_count":
+                self._json({"count": len(normal_chats())})
             elif url.path == "/api/sessions":
                 import attachments
                 rows = chat_store.sessions()
@@ -976,6 +1290,9 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 rows = chat_store.history(sid)
                 if sid.startswith(groups.SESSION_PREFIX):
                     rows = [groups.clean_row(r) for r in rows]
+                import reply_clean
+
+                rows = [reply_clean.clean_row(r) for r in rows]
                 import attachments
                 import confirm_action
                 import polls
@@ -988,6 +1305,9 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                         r["text"], ids = attachments.split_marker(str(r["text"]))
                         r["files"] = attachments.info(ids)
                 self._json(rows)
+            elif url.path == "/api/tasks":   # 1.4.18: task board (PC and phone)
+                import task_board, model_pool
+                self._json({**task_board.snapshot(), "models": model_pool.snapshot()})
             elif url.path == "/api/routines":
                 import routines
                 self._json(routines.list_routines())
@@ -1023,9 +1343,7 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     self.end_headers()
                     self.wfile.write(blob)
             elif url.path == "/api/rules":
-                path = rules.rules_path() or (rules.APP_DIR / "rules.yaml")
-                text = path.read_text(encoding="utf-8") if path.is_file() else ""
-                self._json({"path": str(path), "text": text})
+                self._json(rules.editor_payload())
             elif url.path == "/api/wake":
                 import wake_word
 
@@ -1050,11 +1368,30 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             else:
                 self._send(404, b"{}")
 
+        _SYNC_PATHS = {"/api/card/answer", "/api/react", "/api/rename", "/api/delete_session", "/api/clear_chats", "/api/clear_chats/undo",
+                       "/api/pin", "/api/routines/update", "/api/bots", "/api/bots/delete", "/api/groups",
+                       "/api/groups/delete", "/api/undo", "/api/stop", "/api/pause_all", "/api/resume_all", "/api/tasks", "/api/pending/answer"}
+
         def do_POST(self) -> None:
+            path = urlparse(self.path).path
+            try:
+                self._do_post()
+            finally:
+                if path in self._SYNC_PATHS:
+                    try:
+                        import live_sync
+
+                        live_sync.notify("changed", what=path.rsplit("/", 1)[-1])
+                    except Exception:
+                        pass
+
+        def _do_post(self) -> None:
             if not self._gate():
                 return
             if not self._same_origin():
                 self._send(403, b'{"error":"cross-origin"}')
+                return
+            if not self._auth_ok():
                 return
             url = urlparse(self.path)
             if url.path == "/api/upload":   # raw file bytes; name in X-File-Name (URL-encoded)
@@ -1065,9 +1402,10 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     size = int(self.headers.get("Content-Length") or 0)
                 except ValueError:
                     size = 0
-                if size <= 0 or size > attachments.MAX_BYTES:
+                if size <= 0 or size > attachments.MAX_UPLOAD:
                     self.close_connection = True
-                    self._json({"ok": False, "error": "Files can be up to 15 MB."}, 413)
+                    mb = attachments.MAX_UPLOAD // (1024 * 1024)
+                    self._json({"ok": False, "error": f"Files can be up to {mb} MB."}, 413)
                     return
                 blob = self.rfile.read(size)
                 self._json(attachments.save_upload(unquote(self.headers.get("X-File-Name") or "file"), blob))
@@ -1118,6 +1456,13 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                         self._json(undo_store.undo_last_change())
             elif url.path == "/api/chat":
                 self._chat(data)
+            elif url.path == "/api/chat_side":
+                self._json(side_message(state, str(data.get("session") or ""), " ".join(str(data.get("text") or "").split())))
+            elif url.path == "/api/checkins":
+                import checkins
+                self._json(checkins.save_settings(**{k: data[k] for k in ("enabled", "frequency") if k in data}))
+            elif url.path == "/api/tasks":   # 1.4.18: add / split / pause / resume / stop / up / down / approve / decline
+                self._json(task_action(data))
             elif url.path == "/api/routines/update":   # Routines page buttons
                 self._json(routine_action(data))
             elif url.path == "/api/card/answer":   # tap on a question / approval card; the page then sends r.text
@@ -1125,6 +1470,17 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 choices = data.get("choices") if isinstance(data.get("choices"), list) else []
                 self._json(polls.answer(str(data.get("id") or ""), [str(c) for c in choices],
                                         str(data.get("other") or ""), str(data.get("decision") or "")))
+            elif url.path == "/api/pending/answer":   # 1.4.19: Approve/Deny resolve this exact request id
+                import confirm_action
+                out = confirm_action.resolve(str(data.get("id") or ""), bool(data.get("approve")), _agent().invoke_tool)
+                if out.get("resolved") and out.get("session"):
+                    try:
+                        import chat_store, live_sync
+                        chat_store.add(out["session"], "assistant", out["text"])
+                        live_sync.notify("changed", what="pending", session=out["session"])
+                    except Exception:
+                        pass
+                self._json(out)
             elif url.path == "/api/listen":
                 self._json(listen_once(state, float(data.get("timeout") or 8)))
             elif url.path == "/api/wake":
@@ -1137,12 +1493,73 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 else:
                     wake_word.stop_wake_word_listener()
                 self._json({"ok": True, "wake": state.wake_on, "phrase": _wake_phrase()})
+            elif url.path in {"/api/update/check", "/api/update/download", "/api/update/install"}:
+                import updater
+                if self.remote and url.path != "/api/update/check":
+                    self._json({"ok": False, "error": "Update from the PC."}, 403)
+                elif url.path.endswith("check"):
+                    self._json(updater.check())
+                elif url.path.endswith("download"):
+                    self._json(updater.download())
+                else:
+                    result = updater.install(str(data.get("confirm") or ""))
+                    self._json(result)
+                    if result.get("ok"):
+                        threading.Timer(2.0, lambda: os._exit(0)).start()
+            elif url.path == "/api/connections/connect":
+                import google_connections
+                if self.remote:
+                    self._json({"ok": False, "error": "Sign in on the PC; the Google page opens there."}, 403)
+                else:
+                    self._json(google_connections.connect(str(data.get("service") or "")))
+            elif url.path == "/api/connections/disconnect":
+                import google_connections
+                self._json(google_connections.disconnect(str(data.get("service") or "")))
+            elif url.path == "/api/crashes/open":
+                import crash_reports
+                if self.remote:
+                    self._json({"ok": False, "error": "Open the folder on the PC."}, 403)
+                else:
+                    self._json(crash_reports.open_folder())
+            elif url.path == "/api/theme":   # the phone may change it too: it is only colours
+                import themes
+                self._json(themes.save(data))
+            elif url.path in {"/api/shorts", "/api/shorts/token", "/api/shorts/dry_run"}:
+                import quiet_brain_shorts as qbs
+                if self.remote and url.path != "/api/shorts/dry_run":
+                    self._json({"ok": False, "error": "Change this on the PC."}, 403)
+                elif url.path.endswith("token"):
+                    self._json(qbs.set_token(str(data.get("token") or "")))
+                elif url.path.endswith("dry_run"):
+                    try:
+                        self._json(qbs.run_day(dry_run=True))
+                    except Exception as exc:
+                        self._json({"ok": False, "error": str(exc)})
+                else:
+                    keys = {"enabled", "per_day", "vts_dir", "start_time"}
+                    self._json(qbs.save_settings(**{k: v for k, v in data.items() if k in keys}))
+            elif url.path == "/api/background":
+                import background
+                if self.remote:
+                    self._json({"ok": False, "error": "Change this on the PC."}, 403)
+                else:
+                    keys = {"keep_running", "notifications", "start_with_windows"}
+                    self._json(background.save_settings(**{k: v for k, v in data.items() if k in keys}))
+            elif url.path == "/api/pause_all":
+                import safe_mode
+                self._json(safe_mode.pause_all(state, by="phone" if self.remote else "pc"))
+            elif url.path == "/api/resume_all":
+                import safe_mode
+                self._json(safe_mode.resume_all(state, by="phone" if self.remote else "pc"))
             elif url.path == "/api/stop":
                 stopped = str(data.get("session") or "")
+                import stop_token
                 if stopped:
                     state.cancel_session(stopped)
+                    stop_token.fire_async(state.session_cancel(stopped))   # kill its commands, let go of keys
                 else:
                     state.cancel_all()
+                    stop_token.fire_async(None)
                 try:
                     _agent().stop_agent_speech()
                 except Exception:
@@ -1150,19 +1567,24 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 self._json({"ok": True})
             elif url.path == "/api/rules":
                 try:
-                    path = rules.save_text(str(data.get("text") or ""))
+                    if isinstance(data.get("patch"), dict):
+                        path = rules.apply_patch(data["patch"])
+                    else:
+                        path = rules.save_text(str(data.get("text") or ""))
                     self._json({"ok": True, "path": str(path)})
                 except Exception as exc:
                     self._json({"ok": False, "error": str(exc)}, 400)
             elif url.path == "/api/connectors":
                 import connectors
                 action = str(data.get("action") or "")
-                if action in {"connect", "disconnect"} and self.remote:
+                if action in {"connect", "disconnect", "gmail_default"} and self.remote:
                     self._json({"ok": False, "error": "Connect on the PC."}, 403)
                 elif action == "connect":
                     self._json(connectors.connect(str(data.get("id") or ""), data))
                 elif action == "disconnect":
-                    self._json(connectors.disconnect(str(data.get("id") or "")))
+                    self._json(connectors.disconnect(str(data.get("id") or ""), str(data.get("account") or "")))
+                elif action == "gmail_default":
+                    self._json(connectors.gmail_set_default(str(data.get("account") or "")))
                 else:
                     self._json({"ok": False, "error": "Unknown connector action."}, 400)
             elif url.path == "/api/settings":
@@ -1205,7 +1627,8 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 else:
                     state.histories.pop(bots.SESSION_PREFIX + bot_id, None)
                     ok = bots.delete_bot(bot_id)
-                    self._json({"ok": ok, "groups_updated": groups.remove_bot(bot_id) if ok else 0})
+                    cleaned = bots.cleanup_after_delete(bot_id) if ok else {}
+                    self._json({"ok": ok, "groups_updated": groups.remove_bot(bot_id) if ok else 0, "cleaned": cleaned})
             elif url.path == "/api/bots/run_task":
                 bot_id, task_id = str(data.get("id") or ""), str(data.get("task") or "")
                 threading.Thread(target=bots.run_task, args=(bot_id, task_id),
@@ -1246,7 +1669,21 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 if data.get("confirm") != "clear":
                     self._json({"ok": False, "error": "Confirm clearing all chats."}, 400)
                 else:
-                    self._json({"ok": True, "deleted": clear_chats(state)})
+                    n = clear_chats(state)
+                    info = _LAST_CLEAR
+                    self._json({"ok": True, "deleted": n, "undo_seconds": 10,
+                                "backup": info["backup"].name if n and info.get("backup") else ""})
+            elif url.path == "/api/clear_chats/undo":
+                self._json(undo_clear_chats())
+            elif url.path == "/api/sidebar":
+                import fusion_api
+                self._json(fusion_api.save_sidebar(data))
+            elif url.path == "/api/message/delete":
+                import fusion_api
+                self._json(fusion_api.delete_message(data.get("id"), bool(data.get("confirm"))))
+            elif url.path == "/api/backup":
+                import fusion_api
+                self._json(fusion_api.backup_chats())
             else:
                 self._send(404, b"{}")
 
@@ -1263,6 +1700,11 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             if not text:
                 self._json({"error": "empty"}, 400)
                 return
+            import live_steer
+            import confirm_action as _ca
+            if live_steer.running(session) and not data.get("queue") and not _ca.is_short_yes(text):
+                self._json(side_message(state, session, text))   # 1.4.15: answered now; the task keeps running
+                return
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-store")
@@ -1270,7 +1712,8 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             events: queue.Queue = queue.Queue()
             worker = threading.Thread(
                 target=lambda: (stream_turn(state, session, text, events.put, speak=force_speak,
-                                           from_voice=from_voice, client_audio=client_audio, files=files), events.put(None)),
+                                           from_voice=from_voice, client_audio=client_audio, files=files,
+                                           origin=str(data.get("client") or "")), events.put(None)),
                 daemon=True,
             )
             worker.start()
@@ -1282,6 +1725,45 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 if not self._write(item):
                     state.cancel_session(session)
                     break
+
+        def _live_feed(self, query: dict[str, list[str]]) -> None:
+            """Server push for every window (PC and phone): same chats, live, with catch-up."""
+            import live_sync
+
+            raw = (query.get("since", [""])[0] or self.headers.get("Last-Event-ID") or "").strip()
+            try:
+                seq = int(raw) if raw else live_sync.current()
+            except ValueError:
+                seq = live_sync.current()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Accel-Buffering", "no")
+            self.end_headers()
+            if not self._write({"event": "hello", "seq": live_sync.current()}):
+                return
+            started = time.monotonic()
+            while time.monotonic() - started < 600:   # the client reconnects with ?since=
+                items, gap = live_sync.wait(seq, timeout=15)
+                if gap:
+                    if not self._write({"event": "resync", "seq": live_sync.current()}):
+                        return
+                    items = items[-200:]
+                if not items:
+                    try:   # comment line keeps the tunnel and proxies from closing an idle stream
+                        self.wfile.write(b": ping\n\n")
+                        self.wfile.flush()
+                    except OSError:
+                        return
+                    continue
+                for item in items:
+                    try:
+                        self.wfile.write(f"id: {item['seq']}\n".encode())
+                    except OSError:
+                        return
+                    if not self._write(item):
+                        return
+                    seq = item["seq"]
 
         def _write(self, item: dict[str, Any]) -> bool:
             try:
@@ -1392,6 +1874,39 @@ def start_routines(state: "AppState") -> None:
 
     routines.runner = run
     routines.start()
+    try:
+        import checkins
+        checkins.start()   # 1.4.15 proactive check-ins (Settings toggle + frequency)
+    except Exception as exc:
+        print(f"[checkins] {exc}", flush=True)
+    try:
+        import quiet_brain_shorts
+
+        quiet_brain_shorts.start_routine()   # does nothing until switched on in Settings
+        quiet_brain_shorts.ensure_bot_workflow()   # 1.5.4: Shorts Poster gets its own built-in workflow
+    except Exception as exc:
+        print(f"[quiet-brain] not started: {exc}", flush=True)
+    try:
+        import background
+
+        def _resume(t: dict) -> None:
+            events: list = []
+            chat_store.add(t["session"], "assistant", "Picking this back up after a restart: " + str(t["text"])[:200])
+            stream_turn(state, t["session"], "[Resumed after a restart] " + str(t["text"]), events.append, speak=False,
+                        files=list(t.get("files") or []))
+
+        got = background.resume_unfinished(_resume)
+        if got:
+            print(f"[background] resumed {len(got)} unfinished task(s)", flush=True)
+    except Exception as exc:
+        print(f"[background] resume failed: {exc}", flush=True)
+    try:
+        import updater
+
+        if os.environ.get("PEDBOT_NO_UPDATE_CHECK") != "1":
+            updater.start_background_check()
+    except Exception:
+        pass
 
 
 def serve(model: str, port: int = 8765) -> tuple[ThreadingHTTPServer, AppState]:
@@ -1402,9 +1917,85 @@ def serve(model: str, port: int = 8765) -> tuple[ThreadingHTTPServer, AppState]:
     bot_mind.busy_hook = state.any_busy
     bot_mind.freeze_hook = state.cancel_all
     bots.lock_for = state.session_lock
+    _wire_task_board(state)
     server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(state))
     server.daemon_threads = True
     return server, state
+
+
+def _wire_task_board(state: AppState) -> None:
+    """1.4.18: board tasks run as ordinary turns in their own session, each on its own worker thread."""
+    import task_board
+
+    def run(session: str, text: str, emit: Any) -> str:
+        return stream_turn(state, session, text, emit, speak=False, origin="board")
+
+    def stop(session: str) -> None:
+        import stop_token
+        state.cancel_session(session)
+        stop_token.fire_async(state.session_cancel(session))
+
+    def post(session: str, text: str) -> None:
+        mid = chat_store.add(session, "assistant", text)
+        try:
+            import live_sync
+            live_sync.publish(session, {"event": "update", "kind": "final", "text": text, "id": mid})
+            live_sync.notify("changed", what="task")
+        except Exception:
+            pass
+        try:   # 1.5.2: a finished (or failed) board task also notifies
+            import background as _bg
+            _bg.notify("Ped Bot", text[:250])
+        except Exception:
+            pass
+
+    task_board.runner, task_board.stopper, task_board.poster = run, stop, post
+    _wire_bg_progress()
+
+
+def _wire_bg_progress() -> None:
+    """1.5.2: long background jobs post milestones into their chat; final and failures also notify."""
+    import bg_progress, shutil, agent_config
+
+    def post(session: str, text: str, kind: str, image: str = "") -> None:
+        mid = chat_store.add(session, "assistant", text)
+        if image:
+            try:
+                src = Path(image)
+                if src.is_file():
+                    dest_dir = agent_config.storage_dir() / "progress"
+                    dest_dir.mkdir(parents=True, exist_ok=True)
+                    dest = dest_dir / f"progress-{int(time.time())}-{src.name}"
+                    shutil.copy2(src, dest)
+                    chat_store.remember_writes(mid, [str(dest)])
+            except Exception:
+                pass
+        try:
+            import live_sync
+            live_sync.publish(session, {"event": "update", "kind": "final" if kind != "progress" else "milestone",
+                                        "text": text, "id": mid})
+            live_sync.notify("changed", what="chat")
+        except Exception:
+            pass
+        if kind in ("final", "failed"):
+            try:
+                import background as _bg
+                _bg.notify("Ped Bot", text[:250])
+            except Exception:
+                pass
+
+    bg_progress.poster = post
+
+
+def task_action(data: dict[str, Any]) -> dict[str, Any]:
+    import task_board
+    action = str(data.get("action") or "").strip().casefold()
+    if action == "add":
+        return task_board.add(str(data.get("goal") or ""), bot=str(data.get("bot") or ""),
+                              origin=str(data.get("session") or ""))
+    if action == "split":
+        return task_board.split(str(data.get("goal") or ""), origin=str(data.get("session") or ""))
+    return task_board.control(str(data.get("id") or ""), action)
 
 
 def shutdown(server: Any) -> None:
@@ -1432,10 +2023,11 @@ def shutdown(server: Any) -> None:
 def run(model: str, port: int = 8765) -> int:
     try:
         import win_chrome
+        win_chrome.set_app_id()   # 1.4.17: notifications and the tray say 'Ped Bot', not 'Python'
 
         if not win_chrome.single_instance():
             win_chrome.focus_existing()
-            print("Pedro_Agent is already running; switched to its window.", flush=True)
+            print("Ped Bot is already running; switched to its window.", flush=True)
             return 0
     except Exception:
         pass
@@ -1444,9 +2036,9 @@ def run(model: str, port: int = 8765) -> int:
         sys.stdout = sys.stdout or log
         sys.stderr = sys.stderr or log
     server, state = serve(model, port)
-    url = f"http://127.0.0.1:{server.server_address[1]}/"
+    url = f"http://127.0.0.1:{server.server_address[1]}/?ui=grokskin"
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    print(f"Pedro_Agent chat app: {url}  (Ctrl+C to quit)", flush=True)
+    print(f"Ped Bot chat app: {url}  (Ctrl+C to quit)", flush=True)
     bots.Scheduler().start()  # scheduled bot tasks
     start_routines(state)  # Routines scheduler (includes the 7 PM Wingz scan + report in the "daily-report" chat)
     try:

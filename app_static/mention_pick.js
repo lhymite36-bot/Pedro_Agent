@@ -50,7 +50,7 @@
   }
   function roster(group, bots, main) {
     const out = [{ id: 'all', name: 'Everyone (@all)', color: '#8e8ea0', avatar: 'round', all: true },
-      { id: 'pedro', name: (main && main.name) || 'Pedro_Agent', color: (main && main.color) || '#5b6cff', avatar: 'round' }];
+      { id: 'pedro', name: (main && main.name) || 'Ped Bot', color: (main && main.color) || '#5b6cff', avatar: 'round' }];
     (group.members || []).forEach((id) => { const b = (bots || []).find((x) => x.id === id); if (b) out.push({ id: b.id, name: b.name, color: b.color, avatar: b.avatar }); });
     return out;
   }

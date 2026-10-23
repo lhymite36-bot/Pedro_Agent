@@ -155,7 +155,13 @@ def view(cid: str, pending: dict[str, Any] | None = None) -> dict[str, Any] | No
         return None
     c = dict(c)
     if c["kind"] == "approval" and c["status"] == "open":
-        if not pending or (pending.get("label") or "") != c["question"]:
+        live = {(pending or {}).get("label") or ""}
+        try:
+            import confirm_action
+            live |= confirm_action.waiting_labels()
+        except Exception:
+            pass
+        if c["question"] not in live:
             c["status"] = "expired"
     if c.get("order"):
         try:

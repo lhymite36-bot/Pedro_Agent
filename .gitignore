@@ -64,6 +64,7 @@ remote_token.txt
 *.jks
 *.keystore
 android_app/build/
+android_app/src/com/pedro/agent/Config.java
 groups/
 bots/
 dist/
@@ -72,3 +73,7 @@ bak-*/
 
 !docs/*.png
 !app_static/avatars/*.png
+*.jks.b64
+*.p12
+keystore-backup/
+python/

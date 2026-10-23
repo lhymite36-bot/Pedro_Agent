@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0e0f11">
+<title>Ped Bot</title>
+<style>
+html,body{margin:0;min-height:100%;background:#0e0f11;color:#e7e9ea;font:16px/1.45 system-ui,-apple-system,sans-serif}
+body{min-height:100vh;display:grid;place-items:center;padding:24px}
+.auth-card{width:min(420px,92vw);background:#16181c;border:1px solid #26292e;border-radius:16px;padding:28px 24px 22px;box-shadow:0 12px 40px #0008}
+.auth-mark{font-size:15px;font-weight:700;color:#8b9096;margin-bottom:10px;letter-spacing:.02em}
+h1{margin:0 0 6px;font-size:28px;font-weight:700;color:#e7e9ea}
+#auth-sub{margin:0 0 20px;color:#8b9096;font-size:14px;line-height:1.45}
+label{display:block;font-size:13px;font-weight:650;color:#e7e9ea;margin:0 0 12px}
+label span{color:#8b9096;font-weight:400}
+input{display:block;width:100%;margin-top:6px;box-sizing:border-box;background:#0e0f11;border:1px solid #26292e;border-radius:10px;color:#e7e9ea;padding:11px 12px;font-size:15px;outline:none}
+input:focus{border-color:#3e4247}
+#auth-submit{width:100%;margin-top:6px;border:0;border-radius:999px;padding:12px 16px;background:#1d9bf0;color:#fff;font-size:15px;font-weight:700}
+#auth-submit:disabled{opacity:.6}
+#auth-switch,#auth-link-toggle{display:block;width:100%;margin-top:12px;border:0;background:none;color:#1d9bf0;font-size:14px;font-weight:650;padding:8px}
+#auth-err{color:#f4212e;font-size:13px;min-height:1.2em;margin:4px 0 10px}
+#link-box{margin-top:8px;padding-top:8px;border-top:1px solid #26292e}
+#link-box[hidden],#auth-name-wrap[hidden]{display:none}
+</style>
+</head>
+<body>
+<div class="auth-card">
+  <div class="auth-mark">Ped Bot</div>
+  <h1 id="auth-title">Sign in</h1>
+  <p id="auth-sub">Email and password. Same account as the PC window.</p>
+  <form id="auth-form" data-mode="login">
+    <label id="auth-name-wrap" hidden>Full name <span>(optional)</span><input id="auth-name" name="name" autocomplete="name" maxlength="80"></label>
+    <label>Email<input id="auth-email" name="email" type="email" autocomplete="username" required></label>
+    <label>Password<input id="auth-pass" name="password" type="password" autocomplete="current-password" required minlength="6"></label>
+    <p id="auth-err"></p>
+    <button type="submit" id="auth-submit">Sign in</button>
+  </form>
+  <button type="button" id="auth-switch">Create an account</button>
+  <button type="button" id="auth-link-toggle">Use a PC link instead</button>
+  <div id="link-box" hidden>
+    <label>PC link<input id="link-url" type="url" placeholder="https://xxxx.trycloudflare.com/login#t=…"></label>
+    <label>Token or PIN <span>(empty if the link has #t=)</span><input id="link-secret" type="password"></label>
+    <button type="button" id="link-go">Connect with link</button>
+  </div>
+</div>
+<script>
+const SB_URL = {{URL}};
+const ANON = {{ANON}};
+const $ = (s) => document.querySelector(s);
+function setErr(t){ const e=$('#auth-err'); if(e) e.textContent=t||''; }
+function friendly(data, fallback){
+  const msg=String((data&& (data.error_description||data.msg||data.error||data.message))||fallback||'Something went wrong.');
+  const low=msg.toLowerCase();
+  if(low.indexOf('already registered')>=0||low.indexOf('user already')>=0) return 'This email is already registered. Sign in instead.';
+  if(low.indexOf('invalid login')>=0||low.indexOf('invalid credentials')>=0) return 'Wrong email or password.';
+  if(low.indexOf('email not confirmed')>=0) return 'Check your email to confirm this account, then sign in.';
+  if(low.indexOf('at least 6')>=0) return 'Password must be at least 6 characters.';
+  if(low.indexOf('invalid format')>=0||low.indexOf('valid email')>=0) return 'Enter a valid email address.';
+  return msg;
+}
+function modeSignup(on){
+  const form=$('#auth-form');
+  form.dataset.mode=on?'signup':'login';
+  $('#auth-title').textContent=on?'Create account':'Sign in';
+  $('#auth-sub').textContent=on?'New accounts start on the free plan.':'Email and password. Same account as the PC window.';
+  $('#auth-submit').textContent=on?'Create account':'Sign in';
+  $('#auth-switch').textContent=on?'Already have an account? Sign in':'Create an account';
+  $('#auth-name-wrap').hidden=!on;
+  setErr('');
+}
+async function sb(path, opt){
+  const headers={'apikey':ANON,'Authorization':'Bearer '+ANON,'Content-Type':'application/json'};
+  const res=await fetch(SB_URL+path, Object.assign({headers:headers}, opt||{}));
+  let data={}; try{ data=await res.json(); }catch(e){ data={}; }
+  return {res, data};
+}
+function passSession(data){
+  PedroNative.onSession(JSON.stringify({
+    access_token: data.access_token,
+    refresh_token: data.refresh_token||'',
+    expires_in: data.expires_in||3600,
+    expires_at: data.expires_at|| (Math.floor(Date.now()/1000)+Number(data.expires_in||3600))
+  }));
+}
+$('#auth-switch').onclick=()=>modeSignup($('#auth-form').dataset.mode!=='signup');
+$('#auth-link-toggle').onclick=()=>{ const b=$('#link-box'); b.hidden=!b.hidden; };
+$('#link-go').onclick=()=>PedroNative.saveLink($('#link-url').value||'', $('#link-secret').value||'');
+$('#auth-form').onsubmit=async (e)=>{
+  e.preventDefault();
+  setErr('');
+  const email=($('#auth-email').value||'').trim();
+  const password=$('#auth-pass').value||'';
+  const name=($('#auth-name').value||'').trim();
+  const signup=$('#auth-form').dataset.mode==='signup';
+  const submit=$('#auth-submit');
+  submit.disabled=true;
+  try{
+    if(signup){
+      const {res,data}=await sb('/auth/v1/signup',{method:'POST',body:JSON.stringify({email,password,data:{full_name:name||''}})});
+      if(!res.ok) throw new Error(friendly(data,'Could not create the account.'));
+      if(data&&data.access_token){ passSession(data); return; }
+      throw new Error('Check your email to confirm this account, then sign in.');
+    }else{
+      const {res,data}=await sb('/auth/v1/token?grant_type=password',{method:'POST',body:JSON.stringify({email,password})});
+      if(!res.ok||!data.access_token) throw new Error(friendly(data,'Could not sign in.'));
+      passSession(data);
+    }
+  }catch(err){ setErr(err.message||'Could not sign in.'); }
+  finally{ submit.disabled=false; }
+};
+</script>
+</body>
+</html>

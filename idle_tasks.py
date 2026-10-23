@@ -64,6 +64,13 @@ def run_idle_pass() -> dict[str, Any]:
     """Run the allowlisted tasks until the PC is no longer idle."""
     agent = _agent()
     try:
+        import safe_mode
+
+        if safe_mode.paused():
+            return agent._ok("Safe mode is on, so idle tasks are paused.", paused=True)
+    except Exception:
+        pass
+    try:
         limit = threshold_seconds()
         if idle_seconds() < limit:
             return agent._ok(

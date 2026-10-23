@@ -64,7 +64,7 @@ def normalise(data: dict[str, Any]) -> dict[str, Any]:
     color = str(data.get("color") or "#5b9dff")
     return {"id": _slug(str(data.get("id") or "")) or _slug(name) or uuid.uuid4().hex[:8], "name": name,
             "picture": pic, "color": color if bots.COLOR.fullmatch(color) else "#5b9dff",
-            "avatar": str(data.get("avatar")) if data.get("avatar") in bots.AVATARS else "round",
+            "avatar": bots.avatar_shape(data.get("avatar")),
             "purpose": str(data.get("purpose") or "").strip()[:1000], "members": members,
             "coordinator": coord, "created": float(data.get("created") or time.time())}
 
@@ -237,8 +237,8 @@ def mentions(text: str, group: dict[str, Any]) -> list[str]:
 
 def display(speaker: str) -> dict[str, Any]:
     if speaker == MAIN:
-        return {"id": MAIN, "name": "Pedro_Agent", "color": "#5b6cff", "avatar": "round"}
-    b = bots.get_bot(speaker) or {"id": speaker, "name": speaker, "color": "#5b6cff", "avatar": "round"}
+        return {"id": MAIN, "name": "Ped Bot", "color": "#5b6cff", "avatar": "circle"}
+    b = bots.get_bot(speaker) or {"id": speaker, "name": speaker, "color": "#5b6cff", "avatar": "circle"}
     return {"id": b["id"], "name": b["name"], "color": b.get("color"), "avatar": b.get("avatar")}
 
 
@@ -276,7 +276,7 @@ def _member_labels(group: dict[str, Any], speaker: str) -> list[tuple[str, str]]
 def _name_pattern(mid: str, label: str) -> str:
     tokens = {label, label.split()[0]}
     if mid == MAIN:
-        tokens.update({"Pedro", "Pedro_Agent"})
+        tokens.update({"Pedro", "Pedro_Agent", "Ped", "PedBot", "Ped Bot"})
     parts = [re.escape(token) for token in tokens if token]
     parts.append("@" + re.escape(mid))
     return "(?:" + "|".join(f"@?{part}" if not part.startswith("@") else part for part in parts) + ")"
@@ -324,7 +324,7 @@ def promised_job(text: str, group: dict[str, Any], speaker: str) -> tuple[str, s
 
 
 def _roster(group: dict[str, Any]) -> str:
-    return ", ".join(["@pedro (Pedro_Agent)"] + [f"@{m} ({display(m)['name']})" for m in group["members"]])
+    return ", ".join(["@pedro (Ped Bot)"] + [f"@{m} ({display(m)['name']})" for m in group["members"]])
 
 
 def _tail(transcript: list[str], n: int = 14, cap: int = 1500) -> str:
@@ -424,10 +424,23 @@ def run_group(group: dict[str, Any], text: str, history: list[Any], emit: Callab
         emit({"event": "group_status", "who": display(speaker)["name"], "doing": status})
         call_kw = dict(kw)
         call_kw["on_text"] = lambda chunk: emit({"event": "token", "text": chunk})
-        try:
-            reply = _run_one(speaker, prompt, history, model, call_kw)
-        except Exception as exc:
-            reply = f"(couldn't answer: {exc})"
+        import agent_core as _ac
+
+        reply = ""
+        for attempt in range(2):
+            try:
+                reply = _run_one(speaker, prompt, history, model, call_kw)
+                break
+            except Exception as exc:
+                reply = _ac.friendly_model_error(exc)
+                busy = "busy" in reply.casefold()
+                if attempt == 0 and busy and not (cancel_event is not None and cancel_event.is_set()):
+                    emit({"event": "step", "label": "Gemini is busy, retrying…", "name": ""})
+                    time.sleep(3)
+                    continue
+                if busy:
+                    reply = "Gemini is still busy. I'll stop here; please ask again in a minute."
+                break
         done.append((speaker, reply))
         transcript.append(f"{display(speaker)['name']}: {reply}")
         shown, chips = for_display(reply, group)

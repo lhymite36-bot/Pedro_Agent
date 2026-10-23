@@ -30,6 +30,7 @@ Setup and example prompts are in README.md.
 
 from __future__ import annotations
 
+import contextvars
 import ctypes
 import sys
 
@@ -65,6 +66,7 @@ import time
 import webbrowser
 import zipfile
 import mouse_controller
+import stop_token
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Callable
@@ -117,7 +119,7 @@ import screen_vision
 APP_DIR = agent_config.APP_DIR
 WORKSPACE = APP_DIR / "workspace"
 DEFAULT_MODEL = "gemini-3.5-flash-lite"
-AGENT_NAME = "Pedro_Agent"
+AGENT_NAME = "Ped Bot"
 # Used only after the selected model hits the free daily request cap.
 # Each model has its own quota. gemini-3.8-flash free tier is 20 requests a day.
 FALLBACK_MODELS = ("gemini-3.5-flash-lite", "gemini-3.1-flash-lite")
@@ -134,7 +136,7 @@ VOICE_MAX_OUTPUT_TOKENS = 384
 VOICE_SENTENCE_CHARS = 180
 # Trailing quiet that ends a phrase. Counted only after speech energy.
 # speech_recognition does not apply this wait before the phrase starts.
-LISTEN_PAUSE_THRESHOLD = 2.0
+LISTEN_PAUSE_THRESHOLD = 0.7   # 1.4.18: was 2.0 (most of the wait after he stopped talking)
 # Quiet audio kept on the phrase. Must stay <= pause_threshold.
 # This is not an extra wait; the phrase closes at pause_threshold.
 LISTEN_NON_SPEAKING_SECONDS = 0.4
@@ -345,6 +347,11 @@ def _set_turn(request: str, plan: dict[str, Any] | None) -> None:
     _turn_local.plan = plan
 
 
+def turn_tool_notes() -> list[str]:
+    """What this turn's tools reported as done (used by review_work as evidence)."""
+    return list(getattr(_turn_local, "tool_notes", None) or [])
+
+
 def _set_plan(plan: dict[str, Any] | None) -> None:
     _turn_local.plan = plan
 
@@ -394,7 +401,10 @@ KNOWN_APPS: dict[str, list[str]] = {
     "calculator": ["calc.exe"],
     "calc": ["calc.exe"],
     "file explorer": ["explorer.exe"],
+    "windows explorer": ["explorer.exe"],
     "explorer": ["explorer.exe"],
+    "this pc": ["explorer.exe"],
+    "my computer": ["explorer.exe"],
     "paint": ["mspaint.exe"],
     "vscode": ["Code.exe"],
     "visual studio code": ["Code.exe"],
@@ -408,7 +418,7 @@ BLOCKED_SQL = re.compile(
 )
 UNSAFE_EXCEL = ("CMD|", "MSEXCEL|", "DDE(", "WEBSERVICE(", "FILTERXML(", "REGISTER(", "CALL(")
 
-SYSTEM_PROMPT = """You are Pedro_Agent, a local assistant on this Windows PC. You do multi-step tasks on this PC, build original programs the user asks for, and can set up single-player Grand Theft Auto V mods.
+SYSTEM_PROMPT = """You are Ped Bot (formerly Pedro_Agent), a local assistant on this Windows PC. You do multi-step tasks on this PC, build original programs the user asks for, and can set up single-player Grand Theft Auto V mods.
 
 Where files go (never require an external drive):
 - Save exactly where the user says, as long as rules.yaml allows it. If a rule blocks it, say which paths.allowed entry to change.
@@ -476,6 +486,9 @@ Desktop control on this PC:
 
 Webcam, only when the user wants to be seen:
 - "Look at me", "What am I holding?", or any request to see the person or the room calls capture_webcam_image once. The image comes back with that tool result.
+- Log in: "log in to <site>" calls browser_login once. Never ask for, read or type a password; for a one-time code ask in chat. Graded tests/marked submissions: guide and check only, never press the final Submit. Never go silent.
+- Never say an action happened (recorded, saved, sent, opened, done) unless a tool call for it ran and returned ok in this turn. If you have not called the tool, call it now or say you have not done it. Report the exact path the tool returned.
+- "Can you see me?", "look at me" or "what do you see" calls webcam_vision_tool (PC camera) and describes the picture. "Take a photo" calls capture_webcam_image. "Record N seconds" calls record_pc_camera with seconds=N. Files go to Pictures\\Ped Bot.
 - The camera opens for one frame and then closes. Do not call it on a timer, in a loop, or during ordinary chat. Do not call it again unless the user asks for another look. The picture can be downloaded from the chat. Use the path the tool returns. Do not invent a link.
 - "Record me for 10 seconds", "take a video with the PC camera", or "film this for 5 seconds" calls record_pc_camera with seconds set to that number. It records this PC's camera for that many seconds, saves the video, and closes the camera. The video can be downloaded from the chat. If the user does not say how long, ask. Do not guess a length. The maximum is 600 seconds.
 - A live feed is a different request. Use stream_pc_camera or stream_phone_camera only when the user asks to watch a live camera. Do not use the live feed when they asked for a file.
@@ -487,7 +500,8 @@ Planning and execution:
 
 Multi-step work:
 - If the request has several parts (organizing files and then updating a spreadsheet or SQL), call create_task_plan first with the goal and a numbered list of steps.
-- Do the steps in order. After each step succeeds, call complete_plan_step. Say one short sentence about that step.
+- Do the steps in order. After each step succeeds, call complete_plan_step in the SAME response as the next step's action (two calls together), never in a response of its own; every extra model round costs Pedro about 20 seconds. A short task (4 actions or fewer) needs no plan: act directly.
+- To put text in a file, use write_text_file (exact and instant), not typing into Notepad; open the file afterwards only if the user wants to see it. If you do type, check the saved file's text before saying it is done.
 - If a step fails or the approach has to change, call revise_task_plan, tell the user what changed, and continue from the new steps.
 - A single action, such as "Open Excel" or "what did I copy?", does not need a plan.
 
@@ -497,6 +511,8 @@ Clipboard:
 
 Local files:
 - "Where did I save ..." or "find my notes about ..." calls search_local_files. Answer with the paths it returns. Do not invent a path. The index covers the Desktop, Documents, Downloads, the user home folder, and the external drive when that drive is connected. It does not open or run those files.
+- PC look-ups (1.4.16): "newest files in Downloads", "how many files on my Desktop", "PDFs in Documents" -> ONE list_files call (sort, pattern, limit, recursive). "Free space", "memory", "what is using RAM" -> ONE pc_status call. Do not use run_terminal_command, search_local_files or search_files_by_time for these. When several independent look-ups are needed, request them together in the same step.
+- Multitasking (1.4.18): a slow or long job ("in the background", "while I keep chatting", a long report, many sites) -> start_background_task, then reply in one line that it is on the task board. A big job with several independent parts -> split_big_job (parts run in parallel, answers are merged). Quick questions are answered here directly. Results other bots shared: read_shared.
 - "Where is the Excel file I saved yesterday?", "videos from last week", or "photos from yesterday" calls search_files_by_time. With no folder named, search the Desktop, Documents, Downloads, the home folder, and the external drive when it is connected. "On the external drive", "on the desktop", "in my documents", "in downloads", or "in my project folder" searches only that place. Excel means .xlsx, .xlsm, .xls, and .csv. Do not open or run the files it returns.
 
 Phone bridge:
@@ -536,6 +552,14 @@ How to work (reasoning and checking):
 - When continuing after an interruption, look at the screen and the plan first and resume from the first unfinished step. Do not redo finished steps.
 - To show a local PDF/Word/Excel/picture, use open_local_file (browsers refuse file:// links); do not search the web for a file path.
 - Decisions: when you need Pedro to choose (which product, size, time, option), call ask_user with 2-6 short options (multi_select / allow_other when it fits), then STOP and end your turn. His tapped answer arrives as his next message, starting with (Answer to "..."); continue the task from there. Approvals for send/delete/order/pay show Approve/Deny cards by themselves; just say what is waiting.
+- Work like a careful expert, and fast. For any task on this PC (any app, File Explorer, Settings, the desktop, or a website):
+  1. Say the goal in one short line to yourself, then LOOK first: ui_read on the window (or read_page_text for a web page). Use a screenshot only when those return nothing useful.
+  2. Act only on a control that the read listed, by its name: ui_click, ui_set_text. Never click a guessed position or a control you have not seen. Type values into fields with ui_set_text instead of only clicking them.
+  3. Each ui_click / ui_set_text re-reads what changed. If it says nothing changed or the value differs, the step is not done: read again and try a different way. Do not say it worked.
+  4. Batch obvious steps and do not take a new screenshot after every step; re-read the one control you changed.
+  5. A question gets a direct answer. Do not invent actions to answer it.
+  6. When you are unsure which of several options the user means, ask with ask_user (a question card) instead of guessing.
+  7. Report what actually changed, in plain words.
 - Routines: when Pedro asks for something on a schedule ("every day at 8 AM ...", "tomorrow 6 PM remind me ...", "in 10 minutes ..."), call create_routine (IST times; bot = the bot/group he names, else empty) and confirm the name, schedule and next run. A job that should keep happening on a bot is save_standing_duty on the bot bot_search already found. Do not make a new bot for a schedule. Use update/pause/resume/list_routines to manage them; delete_routine needs his Approve. During a routine run (message starts with [Routine: ...]) all safety rules still apply: no sending, deleting, ordering or paying without his approval. A routine runs only while Pedro is open and this PC is awake.
 - Orders ("order X on Amazon/Flipkart/Swiggy/Zomato/Blinkit/..."): call start_order, then in Edge search and compare 2-3 matches with read_page_text (price, seller/restaurant, delivery fee, rating, delivery time), pick the closest to what Pedro asked (ask him if it's unclear), add to cart with the right quantity, go to checkout and keep the saved address and saved payment method the site already shows. At the final review page call order_summary with exactly what the page shows, then STOP and end your turn: Pedro taps Approve or Deny. Never click Place Order / Pay / Buy Now yourself; only place_order may, and only after his Approve. Never type passwords, card numbers, CVV, UPI PIN or OTPs, never add a new card or address; if the site asks, stop and tell Pedro to finish that step himself. If not signed in, ask Pedro to sign in himself (Google/Microsoft sign-in only).
 - Attachments: when a message says "[Attached by the user in this message]", the pictures and PDFs are right there in the message: look at them and answer from what you see. Word/Excel/text content is pasted in. Each file is also saved at the listed path, so file tools can use it. Never claim to see an attachment that is not listed.
@@ -575,7 +599,7 @@ Git backups:
 - .env, .pem, and .key files are left unstaged. Do not try to commit them.
 
 Windows and processes:
-- A frozen app calls kill_process with the program name, such as notepad. Warn the user before closing a Windows system process.
+- To close an app you opened for the task (not frozen), focus it and press_keys alt+f4 (answer its save prompt if any); that needs no yes. - A frozen app calls kill_process with the program name, such as notepad. Warn the user before closing a Windows system process.
 - focus_window brings a window to the front by its title.
 - manage_window_layout action is maximize, minimize, restore, snap_left, or snap_right.
 - manage_windows_and_processes does one of those actions when a single call is clearer.
@@ -592,6 +616,8 @@ Blender models:
 - status "started" means Blender is still working. Do not say the file has been saved, and do not invent a drive letter.
 - status "ready" means the file exists. Tell the user that path.
 - A failed tool result means the model was not saved. Explain that error in plain language.
+- Work like a Blender expert: for a modelling, sculpting, UV, material, baking, lighting, camera, render, animation, rigging, geometry nodes, physics, compositing, VSE, Grease Pencil, import/export or add-on task, first read blender_guide for that topic, and check exact bpy names with blender_docs_search (it matches the installed Blender version) instead of guessing.
+- A ready result carries scene (objects, modifiers, materials) and preview (a small render). Check them against the request before saying it is done; look at the preview with analyze_image when it matters. On a traceback, look the failing call up with blender_docs_search, fix it, and run again.
 - "Are you done?" or "open it" calls blender_job_status. Do not call run_blender_task again unless the user asks to rebuild or change the model. Pass open_file true only when blender_job_status says the file is ready and the user wants it opened.
 
 Programs you build on this computer:
@@ -612,8 +638,6 @@ Script repair:
 MCP tools:
 - mcp_router reads servers from workspace/mcp_servers.json. action is list_servers, list_tools, or call.
 - Pass the server name and, for a call, the tool name and a JSON object of arguments. Do not pass a shell command.
-- Reverse engineering, decompilation, JavaScript/Electron unpacking, managed binary inspection, and native disassembly go through server "rea". Call list_tools on rea, then call the matching REA tool. Typical first tools: analyze_javascript_application for an ASAR or JS app, inspect_managed_artifact for a .NET assembly, open_binary for a native executable.
-- Skip REA when the work is ordinary source in this project. Do not use REA on game copies, BattlEye, .rpf archives, cracks, or repacks.
 - If no servers are configured, say so.
 
 Private replies:
@@ -1516,7 +1540,12 @@ def _search_rows(query: str, limit: int) -> list[dict[str, str]]:
             from ddgs import DDGS
         except ImportError:
             from duckduckgo_search import DDGS  # type: ignore
-        raw = DDGS().text(query, max_results=limit) or []
+        try:   # 1.4.18: the "auto" backend tried many engines (10-13 s, sometimes 0 rows); DuckDuckGo alone answers in ~1.4 s
+            raw = DDGS(timeout=6).text(query, max_results=limit, backend="duckduckgo") or []
+        except Exception:
+            raw = []
+        if not raw:
+            raw = DDGS(timeout=6).text(query, max_results=limit) or []
         rows: list[dict[str, str]] = []
         for item in raw:
             href = _unwrap_search_url(str(item.get("href") or item.get("url") or ""))
@@ -2340,6 +2369,98 @@ def launch_application(app_name: str) -> dict[str, Any]:
         return _err(f"launch_application failed: {exc}")
 
 
+_DIRECT_OPEN = re.compile(
+    r"(?is)^\s*(?:please\s+)?(?:can you\s+|could you\s+)?"
+    r"(?:open|launch|start)\s+(?:the\s+)?(.+?)"
+    r"(?:\s+for me)?(?:\s+now)?(?:\s+on this pc)?\s*[.!]?\s*$"
+)
+
+
+_DIRECT_RECORD = re.compile(
+    r"(?is)^\s*(?:please\s+)?(?:can you\s+|could you\s+)?"
+    r"(?:record|film|take(?:\s+a)?\s+video)\b.{0,60}?\b(\d{1,3})\s*(?:s|sec|secs|seconds?)\b.{0,40}$"
+)
+
+
+def _direct_record_camera(user_text: str, on_event: Callable[[dict[str, Any]], None] | None) -> str | None:
+    """Record the PC camera without waiting for Gemini. Attach and + menu were skipping clips."""
+    match = _DIRECT_RECORD.match(user_text or "")
+    if match is None:
+        return None
+    seconds = int(match.group(1))
+    if seconds < 1 or seconds > RECORD_MAX_SECONDS:
+        return None
+    if on_event is not None:
+        try:
+            on_event({"event": "tool_start", "name": "record_pc_camera", "arguments": {"seconds": seconds}})
+        except Exception:
+            pass
+    result = invoke_tool("record_pc_camera", {"seconds": seconds})
+    _note_tool_result("record_pc_camera", bool(result.get("ok")))
+    if on_event is not None:
+        try:
+            on_event({
+                "event": "tool_end",
+                "name": "record_pc_camera",
+                "ok": bool(result.get("ok")),
+                "detail": _scrub(str(result.get("message") or result.get("error") or ""))[:400],
+                "video": _result_video(result),
+                "image": _result_image(result),
+            })
+        except Exception:
+            pass
+    try:
+        import grounding
+
+        grounding.note("record_pc_camera", result)
+    except Exception:
+        pass
+    if result.get("ok"):
+        return str(result.get("message") or f"Recorded {seconds} seconds from the PC camera.")
+    return str(result.get("error") or "Could not record from the PC camera.")
+
+
+def _direct_pc_open(user_text: str, on_event: Callable[[dict[str, Any]], None] | None) -> str | None:
+    """Open a named desktop app without waiting for Gemini. Cloud misses were skipping this."""
+    if _wingz_on():
+        return None
+    match = _DIRECT_OPEN.match(user_text or "")
+    if match is None:
+        return None
+    name = " ".join(match.group(1).split()).strip(" .!")
+    if not name or len(name) > 48:
+        return None
+    if re.search(r"https?://|[\\/]|[.]{2}", name):
+        return None
+    target = _known_launch_name(name) or name
+    if on_event is not None:
+        try:
+            on_event({"event": "tool_start", "name": "launch_application", "arguments": {"app_name": target}})
+        except Exception:
+            pass
+    result = invoke_tool("launch_application", {"app_name": target})
+    _note_tool_result("launch_application", bool(result.get("ok")))
+    if on_event is not None:
+        try:
+            on_event({
+                "event": "tool_end",
+                "name": "launch_application",
+                "ok": bool(result.get("ok")),
+                "detail": _scrub(str(result.get("message") or result.get("error") or ""))[:400],
+            })
+        except Exception:
+            pass
+    try:
+        import grounding
+
+        grounding.note("launch_application", result)
+    except Exception:
+        pass
+    if result.get("ok"):
+        return str(result.get("message") or f"Opened {target}.")
+    return str(result.get("error") or f"Could not open {target}.")
+
+
 def _known_launch_name(name: str) -> str:
     key = " ".join((name or "").casefold().split())
     if not key:
@@ -3157,10 +3278,15 @@ def memory_prompt_block() -> str:
 
 
 def system_prompt() -> str:
+    parts = [SYSTEM_PROMPT]
+    notes = rules.instructions()
+    if notes:
+        parts.append("Standing rules from Settings (follow these):")
+        parts.extend(f"- {line}" for line in notes)
     block = memory_prompt_block()
-    if not block:
-        return SYSTEM_PROMPT
-    return f"{SYSTEM_PROMPT}\n{block}\n"
+    if block:
+        parts.append(block)
+    return "\n".join(parts) + "\n"
 
 
 def _capture_user_memory(text: str) -> None:
@@ -3507,6 +3633,12 @@ def _grab_webcam_jpeg() -> tuple[bytes, int, int]:
 
 def _camera_dir() -> Path:
     folder = WORKSPACE / "camera"
+    if os.name == "nt" and webcam_override is None and record_override is None:
+        try:   # 1.4.19: photos and clips go where Pedro looks for them
+            import pc_fast_tools
+            folder = pc_fast_tools.known_folder("Pictures") / "Ped Bot"
+        except Exception:
+            pass
     folder.mkdir(parents=True, exist_ok=True)
     return folder
 
@@ -3855,6 +3987,55 @@ def _record_on_camera(seconds: int) -> dict[str, Any]:
     return box["value"]
 
 
+def _describe_image(data: bytes, mime: str, question: str = "") -> str:
+    """1.4.19: a free Gemini vision model describes the picture, so text-only backup models can 'see' too."""
+    key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not key or genai_client_override is not None:
+        return ""
+    try:
+        from google import genai
+        from google.genai import types
+        client = _gemini_client(genai, key)
+        ask = ("Describe what this PC webcam photo shows in 2-4 plain sentences: people (expression, clothing, "
+               "what they hold or do), objects and the setting. Do not guess identities. " + (question or ""))
+        for model in ("gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-2.5-flash-lite"):
+            try:
+                resp = client.models.generate_content(model=model, contents=[
+                    types.Part.from_bytes(data=data, mime_type=mime), ask])
+                text = " ".join(str(getattr(resp, "text", "") or "").split())
+                if text:
+                    return text
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return ""
+
+
+def look_through_camera(question: str = "") -> dict[str, Any]:
+    """Capture one PC webcam frame, save it, and describe it with a free vision model."""
+    result = capture_webcam_image()
+    if not result.get("ok"):
+        return result
+    data = result.get("_screenshot_bytes") or b""
+    seen = _describe_image(data, str(result.get("_screenshot_mime") or "image/jpeg"), str(question or "")) if data else ""
+    if seen:
+        result["what_i_see"] = seen
+        result["message"] = (f"Captured one webcam frame (saved to {result.get('download_path')}). "
+                             f"What the camera sees: {seen}")
+    return result
+
+
+def _recording_indicator(seconds: int) -> None:
+    """A visible sign the camera is recording: a Windows notification plus the live status line."""
+    try:
+        import background
+        background._toast("Ped Bot is recording", f"The PC camera is recording for {seconds} s.")
+    except Exception:
+        pass
+    print(f"[camera] recording {seconds} s", flush=True)
+
+
 def record_pc_camera(seconds: Any = None) -> dict[str, Any]:
     """Record the PC webcam for the given seconds and save a downloadable mp4.
 
@@ -3868,6 +4049,7 @@ def record_pc_camera(seconds: Any = None) -> dict[str, Any]:
     try:
         if record_override is not None:
             return _record_from_override(length)
+        _recording_indicator(length)
         return _record_on_camera(length)
     except AssertionError:
         raise
@@ -4012,7 +4194,10 @@ def _type_into_focused_window(text: str) -> None:
         pointer_override("type", {"text": text})
         return
     if text.isascii() and not _caps_lock_on():
-        _desktop().write(text, interval=0)
+        for at in range(0, len(text), 8):   # 1.4.15: small chunks, so Stop ends typing mid-text
+            if stop_token.stopped():
+                raise stop_token.Stopped("Stopped.")
+            _desktop().write(text[at:at + 8], interval=0)
         return
     if os.name == "nt" and _caps_lock_on():
         _type_windows_unicode(text)  # Unicode input ignores Caps Lock, so case stays right
@@ -4265,6 +4450,8 @@ def _perform_held(
     mime: str | None,
 ) -> dict[str, Any]:
     for index, raw_step in enumerate(actions):
+        if stop_token.stopped():
+            return _err(f"Stopped by the user before step {index}.", completed=completed, stopped=True)
         step = _action_dict(raw_step)
         if step is None:
             return _err(
@@ -4709,7 +4896,7 @@ TOOLS: dict[str, Callable[..., dict[str, Any]]] = {
     "clipboard_action_dispatcher": clipboard_context.clipboard_action_dispatcher,
     "desktop_ui_automation": desktop_automation.desktop_ui_automation,
     "network_manager": network_manager.network_manager,
-    "webcam_vision_tool": capture_webcam_image,
+    "webcam_vision_tool": look_through_camera,
     "system_diagnostics": diagnostics.system_diagnostics,
     "file_content_rag_search": local_search.file_content_rag_search,
     "job_scheduler": task_schedule.job_scheduler,
@@ -5728,8 +5915,8 @@ TOOL_DECLARATIONS = [
         "description": (
             "Call a tool on an MCP server listed in workspace/mcp_servers.json. "
             "action is list_servers, list_tools, or call. Pass the server name "
-            "and, for a call, the tool name plus a JSON object. Reverse "
-            "engineering uses server rea. Do not pass a shell command."
+            "and, for a call, the tool name plus a JSON object. "
+            "Do not pass a shell command."
         ),
         "parameters": {
             "type": "object",
@@ -5837,10 +6024,9 @@ TOOL_DECLARATIONS.append(
     {
         "name": "webcam_vision_tool",
         "description": (
-            "Snap one webcam frame for a desk, a document, or an object, then "
-            "close the camera. On Windows this uses DirectShow. The image comes "
-            "back with the tool result. Same capture as capture_webcam_image. "
-            "Do not call it in a loop."
+            "Look through the PC webcam: snap one frame, save it to Pictures\\Ped Bot, close the camera, and "
+            "get a description of what it sees (people, objects, desk, documents). Use for 'can you see me', "
+            "'look at me', 'what do you see'. Do not call it in a loop."
         ),
         "parameters": {"type": "object", "properties": {}},
     }
@@ -5949,6 +6135,11 @@ TOOL_DECLARATIONS.append(
                 "request": {
                     "type": "string",
                     "description": "Optional original sentence when to and body are not split yet.",
+                },
+                "from_account": {
+                    "type": "string",
+                    "description": ("Which saved Gmail account sends it, when the user names one (an address or "
+                                    "part of it). Leave empty for the default account."),
                 },
             },
         },
@@ -6067,7 +6258,7 @@ TOOL_DECLARATIONS.append(
 # already manage their own background jobs.
 _NO_TIMEOUT_TOOLS = {
     "speak_response", "listen_to_microphone", "stream_pc_camera", "stream_phone_camera",
-    "record_pc_camera",
+    "record_pc_camera", "run_terminal_command",
 }
 tool_timeout_override: float | None = None
 
@@ -6117,6 +6308,60 @@ TOOL_DECLARATIONS.extend([
     },
 ])
 
+import ui_controls  # noqa: E402
+
+TOOL_DECLARATIONS.extend(ui_controls.DECLARATIONS)
+TOOLS.update(ui_controls.TOOLS)
+import blender_docs  # noqa: E402
+import google_connections  # noqa: E402
+
+TOOL_DECLARATIONS.extend(blender_docs.DECLARATIONS + google_connections.DECLARATIONS)
+TOOLS.update(blender_docs.TOOLS)
+TOOLS.update(google_connections.TOOLS)
+import quiet_brain_shorts  # noqa: E402
+
+TOOL_DECLARATIONS.extend(quiet_brain_shorts.DECLARATIONS)
+TOOLS.update(quiet_brain_shorts.TOOLS)
+import terminal_tool  # noqa: E402
+TOOL_DECLARATIONS.extend(terminal_tool.DECLARATIONS)
+def web_search(query: str, max_results: int = 5) -> dict[str, Any]:
+    """1.4.18: a free web search (DuckDuckGo) every model can use, read-only."""
+    query = " ".join(str(query or "").split())
+    if not query:
+        return _err("Say what to search for.")
+    rows = _search_rows(query, max(1, min(8, int(max_results or 5))))
+    if not rows:
+        return _err("The web search returned nothing. Try other words.")
+    lines = [f"{i + 1}. {r['title']} - {r['href']}\n   {r['body']}" for i, r in enumerate(rows)]
+    return _ok("\n".join(lines), results=rows)
+
+
+if "web_search" not in TOOLS:
+    TOOL_DECLARATIONS.append({"name": "web_search",
+        "description": "Search the web (free) and get titles, links and snippets. Use for current facts, prices, news, versions.",
+        "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "max_results": {"type": "integer"}},
+                       "required": ["query"]}})
+    TOOLS["web_search"] = web_search
+    _PLAN_FREE_TOOLS.update({"web_search": web_search})
+
+import task_board, shared_memory   # 1.4.18: background tasks, manager split, shared notebook
+TOOL_DECLARATIONS.extend(task_board.DECLARATIONS + shared_memory.DECLARATIONS)
+TOOLS.update(task_board.TOOLS)
+TOOLS.update(shared_memory.TOOLS)
+_PLAN_FREE_TOOLS.update(task_board.TOOLS)
+_PLAN_FREE_TOOLS.update(shared_memory.TOOLS)
+import app_builder as _app_builder   # 1.5.0: App Builder bot tools
+TOOL_DECLARATIONS.extend(_app_builder.DECLARATIONS)
+TOOLS.update(_app_builder.TOOLS)
+import browser_login as _browser_login   # 1.4.19: log in with Chrome's saved login (never a password)
+TOOL_DECLARATIONS.append(_browser_login.DECLARATION)
+TOOLS.update(_browser_login.TOOLS)
+import pc_fast_tools   # 1.4.16: read-only list_files / pc_status (no terminal, no approval)
+TOOL_DECLARATIONS.extend(pc_fast_tools.DECLARATIONS)
+TOOLS.update(pc_fast_tools.TOOLS)
+_PLAN_FREE_TOOLS.update(pc_fast_tools.TOOLS)
+TOOLS.update(terminal_tool.TOOLS)
+
 
 def _tool_timeout_seconds() -> float:
     if tool_timeout_override is not None:
@@ -6134,21 +6379,41 @@ def _call_with_timeout(name: str, function: Callable[..., Any], arguments: dict[
     thread is abandoned (Python cannot kill threads safely).
     """
     limit = _tool_timeout_seconds()
-    if limit <= 0 or name in _NO_TIMEOUT_TOOLS:
+    cancel = getattr(_turn_local, "cancel_event", None)
+    if (limit <= 0 or name in _NO_TIMEOUT_TOOLS) and cancel is None:
         return function(**arguments)
+    if limit <= 0 or name in _NO_TIMEOUT_TOOLS:
+        limit = 10 ** 7
     box: dict[str, Any] = {}
+    # The turn's plan, request and listener live in thread-locals; carry them into
+    # the worker and back, or create_task_plan's plan is lost after the call.
+    turn_state = dict(_turn_local.__dict__)
+    scope_state = dict(_tool_scope.__dict__)
 
     def runner() -> None:
+        _turn_local.__dict__.update(turn_state)
+        _tool_scope.__dict__.update(scope_state)
+        stop_token.bind(cancel)
         try:
             box["result"] = function(**arguments)
         except BaseException as exc:  # re-raised on the caller thread
             box["error"] = exc
+        finally:
+            box["turn"] = dict(_turn_local.__dict__)
 
-    worker = threading.Thread(target=runner, name=f"tool-{name}", daemon=True)
+    _ctx = contextvars.copy_context()   # 1.5.3: the tool sees the caller's chat (bg_progress.SESSION etc.)
+    worker = threading.Thread(target=lambda: _ctx.run(runner), name=f"tool-{name}", daemon=True)
     worker.start()
-    worker.join(limit)
+    deadline = time.monotonic() + limit
+    while worker.is_alive() and time.monotonic() < deadline:
+        worker.join(0.05)
+        if cancel is not None and cancel.is_set() and worker.is_alive():
+            stop_token.fire(cancel)   # kill its processes, let go of keys; the thread is abandoned
+            return {"ok": False, "stopped": True, "error": "Stopped by the user."}
     if worker.is_alive():
         raise ToolTimeout(f"timed out after {int(limit)}s (agent.tool_timeout_seconds in rules.yaml)")
+    if "turn" in box:
+        _turn_local.__dict__.update(box["turn"])
     if "error" in box:
         raise box["error"]
     return box.get("result")
@@ -6187,12 +6452,24 @@ def _clean_tool_arguments(arguments: dict[str, Any]) -> dict[str, Any]:
 
 def invoke_tool(name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
     """Run one declared tool. Exceptions become error payloads for the model."""
+    if name == "run_terminal_command" and isinstance(arguments, dict):
+        listing = pc_fast_tools.listing_from_terminal(str(arguments.get("command") or ""))
+        if listing is not None:   # 1.4.16: a plain folder listing is read-only: answer it with list_files, no console
+            name, arguments = "list_files", listing
     function = TOOLS.get(name)
     if function is None:
         return _err(f"Unknown tool: {name}")
     scope = getattr(_tool_scope, "allowed", None)
     if scope is not None and name not in scope:
         return _err(f"{name} is not one of this team member's tools.", blocked_by_scope=True)
+    try:
+        import safe_mode
+
+        held = safe_mode.refuse(name)
+    except Exception:
+        held = None
+    if held is not None:
+        return held
     blocked = _plan_blocks(name)
     if blocked is not None:
         return blocked
@@ -6206,6 +6483,16 @@ def invoke_tool(name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
         return _err(rule_block, blocked_by_rules=True)
     sensitive = confirm_action.is_sensitive(name, arguments)
     if sensitive:
+        if confirm_action.was_denied(name, arguments) and not confirm_action.consume_grant(name, arguments):
+            # 1.4.19: Pedro said no; never show the same card again in this chat
+            return _err("Pedro denied this. It was not done. Do not ask again or retry; tell him it was not done.",
+                        denied=True, needs_confirmation=False)
+        waiting_now = confirm_action.pending()
+        if (waiting_now and (confirm_action._same(waiting_now, name, arguments) or
+                             (waiting_now.get("name") in confirm_action.CAMERA_TOOLS and name in confirm_action.CAMERA_TOOLS))
+                and not confirm_action.consume_grant(name, arguments)):
+            return _err(f"Still waiting for Pedro to tap Approve or Deny for: {waiting_now.get('label')}. "
+                        "Do not call this again; tell him the card is waiting.", needs_confirmation=True, approved=False)
         earlier = confirm_action.already_done(name, arguments)
         if earlier is not None:   # already ran after the user's yes: never ask or run it twice
             return {**earlier, "already_done": True}
@@ -6297,16 +6584,119 @@ def _redacted_tool_arguments(name: str, arguments: dict[str, Any]) -> dict[str, 
     return shown
 
 
+# 1.4.17: results of read-only look-ups are reused for a short while, so a long task that asks the same
+# question twice (or a retry after a model switch) does not run it again. Any other tool call clears it.
+RESULT_CACHE_SECONDS = 90
+_RESULT_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_RESULT_LOCK = threading.Lock()
+CACHEABLE_TOOLS = frozenset({"list_files", "pc_status", "read_file", "read_page_text", "web_search", "recall_memory",
+                             "search_files_by_time", "search_local_files", "list_routines", "list_connectors"})
+
+
+def _cache_key(name: str, arguments: dict[str, Any]) -> str:
+    try:
+        return name + ":" + json.dumps(arguments or {}, sort_keys=True, default=str)
+    except Exception:
+        return ""
+
+
+def _cache_get(name: str, arguments: dict[str, Any]) -> dict[str, Any] | None:
+    if name not in CACHEABLE_TOOLS:
+        with _RESULT_LOCK:
+            _RESULT_CACHE.clear()   # something may have changed (a file written, a page clicked)
+        return None
+    key = _cache_key(name, arguments)
+    with _RESULT_LOCK:
+        hit = _RESULT_CACHE.get(key)
+    if hit and time.monotonic() - hit[0] < RESULT_CACHE_SECONDS:
+        return {**hit[1], "cached": True}
+    return None
+
+
+def _cache_put(name: str, arguments: dict[str, Any], result: dict[str, Any]) -> None:
+    if name in CACHEABLE_TOOLS and isinstance(result, dict) and result.get("ok"):
+        key = _cache_key(name, arguments)
+        if key:
+            with _RESULT_LOCK:
+                _RESULT_CACHE[key] = (time.monotonic(), dict(result))
+                if len(_RESULT_CACHE) > 200:
+                    _RESULT_CACHE.pop(next(iter(_RESULT_CACHE)))
+
+
+def clear_result_cache() -> None:
+    with _RESULT_LOCK:
+        _RESULT_CACHE.clear()
+
+
 def _execute_logged_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     """Print one tool call, run it, and print the result. Secrets are scrubbed."""
     shown = _redacted_tool_arguments(name, arguments)
     print(f"[tool] {_scrub(f'{name}({json.dumps(shown, default=str)})')}", flush=True)
     routine_macros.note_tool(name)
+    cached = _cache_get(name, arguments)
+    if cached is not None:   # 1.4.17: already worked out a moment ago in this task, nothing changed since
+        print(f"[tool] cached: {name}", flush=True)
+        return cached
     result = invoke_tool(name, arguments)
+    _cache_put(name, arguments, result)
     status = "ok" if result.get("ok") else "error"
     detail = _scrub(str(result.get("message") or result.get("error") or ""))
     print(f"[tool] {status}: {detail}", flush=True)
+    _note_tool_result(name, bool(result.get("ok")))
+    try:
+        import grounding
+
+        grounding.note(name, result)
+    except Exception:
+        pass
     return result
+
+
+# 1.4.16: independent read-only look-ups asked for in the same step run at the same time.
+PARALLEL_SAFE_TOOLS = frozenset({"list_files", "pc_status", "read_file", "read_page_text", "web_search", "recall_memory",
+                                 "get_task_progress", "list_routines", "search_files_by_time", "search_local_files",
+                                 "get_clipboard_text", "list_connectors", "read_shared", "task_board_status"})
+
+
+def parallel_results(calls: list[tuple[str, dict[str, Any]]]) -> dict[int, dict[str, Any]]:
+    """Run 2+ read-only calls at once. Returns {index: result}; {} when they must run one by one.
+
+    Only tools in PARALLEL_SAFE_TOOLS that need no approval qualify, so approvals are never skipped or merged.
+    """
+    if len(calls) < 2:
+        return {}
+    try:
+        import confirm_action
+        for name, args in calls:
+            if name not in PARALLEL_SAFE_TOOLS or name not in TOOLS or confirm_action.is_sensitive(name, args):
+                return {}
+    except Exception:
+        return {}
+    from concurrent.futures import ThreadPoolExecutor
+
+    turn_state = dict(_turn_local.__dict__)
+    scope_state = dict(_tool_scope.__dict__)
+    cancel = getattr(_turn_local, "cancel_event", None) or stop_token.current()
+
+    def one(item: tuple[str, dict[str, Any]]) -> dict[str, Any]:
+        _turn_local.__dict__.update(turn_state)
+        _tool_scope.__dict__.update(scope_state)
+        stop_token.bind(cancel)
+        try:
+            return _execute_logged_tool(item[0], item[1])
+        except Exception as exc:
+            return {"ok": False, "error": f"{item[0]} failed: {_scrub(str(exc))[:200]}"}
+
+    started = time.monotonic()
+    import contextvars
+    ctx = contextvars.copy_context()   # 1.4.19: the turn's tool log (grounding) follows the parallel look-ups
+    with ThreadPoolExecutor(max_workers=min(4, len(calls)), thread_name_prefix="tool-par") as pool:
+        results = list(pool.map(lambda item: ctx.copy().run(one, item), calls))
+    try:
+        agent_log.event("parallel_tools", n=len(calls), ms=int((time.monotonic() - started) * 1000))
+    except Exception:
+        pass
+    return dict(enumerate(results))
 
 
 def gemini_api_keys() -> list[str]:
@@ -6425,6 +6815,8 @@ def _transient_network_error(exc: BaseException) -> bool:
                 "503 unavailable",
                 "high demand",
                 "overloaded",
+                "no longer available",
+                "404 not_found",
             )
         ):
             return True
@@ -6504,6 +6896,7 @@ class _SentenceBuffer:
             piece = " ".join(self.pending[:end].split())
             self.pending = self.pending[end:]
             if piece:
+                self.spoke = True
                 ready.append(piece)
         return ready
 
@@ -6518,6 +6911,11 @@ class _SentenceBuffer:
         newline = text.find("\n")
         if newline != -1:
             return newline + 1
+        if not getattr(self, "spoke", False):   # 1.4.18: the first words go to the voice at the first comma
+            comma = text.find(", ", 24)
+            if 0 < comma <= 90:
+                self.spoke = True
+                return comma + 2
         if len(text) >= self.limit:
             window = text[: self.limit]
             cut = max(window.rfind(", "), window.rfind(" "))
@@ -6566,8 +6964,10 @@ def _accumulate_voice_stream(
             return text[len(current) :]
         return text
 
+    raw = bool(getattr(on_sentence, "raw_tokens", False))
+
     def emit(ready: list[str]) -> None:
-        if on_sentence is None:
+        if on_sentence is None or raw:
             return
         for sentence in ready:
             if cancel_event is not None and cancel_event.is_set():
@@ -6586,6 +6986,8 @@ def _accumulate_voice_stream(
             if loose:
                 visible.append(loose)
                 parts.append(_SpokenDelta(loose))
+                if raw and on_sentence is not None and not (cancel_event is not None and cancel_event.is_set()):
+                    on_sentence(loose)
                 emit(buffer.push(loose))
             continue
         for part in chunk_parts:
@@ -6613,6 +7015,8 @@ def _accumulate_voice_stream(
             visible.append(text)
             if not getattr(part, "thought_signature", None):
                 parts.append(_SpokenDelta(text))
+            if raw and on_sentence is not None and not (cancel_event is not None and cancel_event.is_set()):
+                on_sentence(text)
             emit(buffer.push(text))
     if cancel_event is None or not cancel_event.is_set():
         emit(buffer.flush())
@@ -6679,14 +7083,29 @@ def _result_image(result: dict[str, Any]) -> str | None:
     return None
 
 
+_COOLING: dict[str, float] = {}
+COOL_SECONDS = 300
+
+
+def cool_model(name: str) -> None:
+    """1.4.15: a model that timed out or was busy goes to the back of the line for 5 minutes."""
+    _COOLING[str(name)] = time.monotonic() + COOL_SECONDS
+
+
 def _turn_models(order: list[str], current: str, skipped: set[str]) -> list[str]:
-    """Models still worth calling. The one that just answered stays first."""
+    """Models still worth calling. The one that just answered stays first; cooling models go last."""
     names: list[str] = []
     for name in [current, *order]:
         name = str(name or "").strip()
         if name and name not in skipped and name not in names:
             names.append(name)
-    return names
+    now = time.monotonic()
+    try:   # 1.4.18: a Gemini model already at its per-minute limit (other tasks are using it) goes after the free ones
+        import model_pool
+        names = sorted(names, key=lambda n: model_pool.at_limit("gemini:" + n))
+    except Exception:
+        pass
+    return [n for n in names if _COOLING.get(n, 0) <= now] + [n for n in names if _COOLING.get(n, 0) > now]
 
 
 def model_candidates(first: str | None = None) -> list[str]:
@@ -6718,6 +7137,31 @@ def _spent_models() -> set[str]:
         return set()
 
 
+_LOCAL_FAIL = ("ollama is not running", "the local model was too slow", "the local model is busy",
+               "ollama returned", "this request was not sent online")
+
+
+def _local_failed(reply: Any) -> bool:
+    folded = str(reply or "").strip().casefold()
+    return not folded or any(m in folded for m in _LOCAL_FAIL)
+
+
+def _busy_fallback(user_text: str, history: list[Any], types: Any, on_event: Any, cancel_event: Any) -> str:
+    """1.5.6: Gemini busy and no local answer: retry the free backups (Groq etc.) twice, then say so plainly."""
+    for wait in (0, 6):
+        if wait and stop_token.wait(wait, cancel_event):
+            break
+        try:
+            for kind in ("busy", "net"):
+                switched = _switch_providers(user_text, history, types, on_event, kind)
+                if switched and not _local_failed(switched):
+                    return switched
+        except Exception:
+            pass
+    return ("Gemini is busy right now and my free backup models didn't answer either. "
+            "Nothing was done; please ask again in a minute.")
+
+
 def _switch_providers(user_text: str, history: list[Any], types: Any, on_event: Callable[[dict[str, Any]], None] | None, kind: str) -> str | None:
     """Answer with the next saved free provider. None when none are set or all decline."""
     import cloud_fallback
@@ -6725,6 +7169,7 @@ def _switch_providers(user_text: str, history: list[Any], types: Any, on_event: 
     reply = cloud_fallback.run_chain(user_text, on_event=on_event, kind=kind)
     if not reply:
         return None
+    reply = _finalize_backup_reply(user_text, reply, on_event)
     history.append(types.Content(role="model", parts=[types.Part.from_text(text=reply)]))
     return reply
 
@@ -6737,8 +7182,24 @@ def _use_quota_backup(user_text: str, history: list[Any], types: Any, on_event: 
         return None
     print("[quota] Every Gemini model is out of free requests today. Using the backup model.", flush=True)
     reply = cloud_fallback.run(user_text, on_event=on_event)
+    reply = _finalize_backup_reply(user_text, reply, on_event)
     history.append(types.Content(role="model", parts=[types.Part.from_text(text=reply)]))
     return reply
+
+
+def _finalize_backup_reply(user_text: str, reply: str, on_event: Callable[[dict[str, Any]], None] | None) -> str:
+    """If the backup model claimed to open something, actually open it. Then drop unverified claims."""
+    import grounding
+
+    def emit(kind: str, **fields: Any) -> None:
+        if on_event is not None:
+            try:
+                on_event({"event": kind, **fields})
+            except Exception:
+                pass
+
+    said = _finish_claimed_launch(reply, emit, user_text)
+    return grounding.ground_reply(user_text, said)
 
 
 def max_tool_rounds() -> int:
@@ -6759,6 +7220,20 @@ def _model_configs(voice: bool) -> tuple[Any, Any | None]:
     instruction = system_prompt()
     if voice:
         instruction += VOICE_REPLY_GUIDE
+    cache_key = (voice, instruction, id(TOOL_DECLARATIONS), len(TOOL_DECLARATIONS))
+    hit = _CONFIG_CACHE.get(cache_key)
+    if hit is not None:   # 1.4.15: same prompt + tools -> same objects (and a stable prefix for Gemini's implicit cache)
+        return hit
+    if len(_CONFIG_CACHE) > 8:
+        _CONFIG_CACHE.clear()
+    built = _build_model_configs(voice, instruction)
+    _CONFIG_CACHE[cache_key] = built
+    return built
+
+
+def _build_model_configs(voice: bool, instruction: str) -> tuple[Any, Any | None]:
+    from google.genai import types
+
     shared: dict[str, Any] = {
         "system_instruction": instruction,
         "tools": [types.Tool(function_declarations=TOOL_DECLARATIONS)],
@@ -6812,21 +7287,94 @@ def _request_voice_model(
     on_sentence: Callable[[str], None] | None,
     cancel_event: threading.Event | None,
     spoke: dict[str, bool],
+    first: threading.Event | None = None,
 ) -> _StreamedTurn:
     def emit(sentence: str) -> None:
         spoke["yes"] = True
         if on_sentence is not None:
             on_sentence(sentence)
 
+    emit.raw_tokens = bool(getattr(on_sentence, "raw_tokens", False))  # type: ignore[attr-defined]
+
+    try:
+        import model_pool
+        model_pool.note("gemini:" + str(model))
+    except Exception:
+        pass
     stream = client.models.generate_content_stream(
         model=model,
         contents=history,
         config=config,
     )
+    if first is not None:
+        stream = _mark_first(stream, first)
     return _finish_voice_stream(stream, emit, cancel_event)
 
 
-EVIDENCE_TOOLS = frozenset({"take_screenshot", "scroll", "capture_screenshot_file", "find_on_screen", "read_page_text"})
+def _mark_first(chunks: Any, first: threading.Event) -> Any:
+    for chunk in chunks:
+        first.set()
+        yield chunk
+
+
+def _attempt(fn: Callable[[threading.Event], Any], cancel_event: Any, *, streaming: bool) -> Any:
+    """1.4.15: one model attempt. Streaming: the first chunk must arrive within 8 s; otherwise the attempt
+    is dropped (the worker is abandoned) and the caller fails over at once. Stop ends it immediately."""
+    first = threading.Event()
+    box: dict[str, Any] = {}
+    parent = dict(_turn_local.__dict__)
+
+    def runner() -> None:
+        _turn_local.__dict__.update(parent)
+        stop_token.bind(cancel_event)
+        try:
+            box["result"] = fn(first)
+        except BaseException as exc:
+            box["error"] = exc
+
+    worker = threading.Thread(target=runner, name="pb-model", daemon=True)
+    worker.start()
+    limit = ATTEMPT_TIMEOUT_MS / 1000.0 if streaming else NONSTREAM_TIMEOUT_S
+    started = time.monotonic()
+    while worker.is_alive():
+        worker.join(0.05)
+        if cancel_event is not None and cancel_event.is_set() and worker.is_alive():
+            raise stop_token.Stopped("Stopped.")
+        if worker.is_alive() and not first.is_set() and time.monotonic() - started > limit:
+            raise TimeoutError(f"The model did not start answering within {int(limit)} s (timed out).")
+    if "error" in box:
+        raise box["error"]
+    return box.get("result")
+
+
+EVIDENCE_TOOLS = frozenset({"take_screenshot", "scroll", "capture_screenshot_file", "find_on_screen", "read_page_text",
+                            "ui_read", "ui_find", "ui_click", "ui_set_text"})
+EMPTY_REPLY_NOTE = "The model is busy and sent an empty answer. Please ask again in a moment."
+
+
+def friendly_model_error(exc: BaseException | str) -> str:
+    """One short line for a model error instead of the raw JSON (503, 429, empty)."""
+    text = str(exc or "")
+    low = text.casefold()
+    if low.startswith(("the free gemini quota", "every gemini model", "all gemini models are busy")):
+        return text[:400]   # already a plain message
+    if any(k in low for k in ("503", "unavailable", "high demand", "overloaded", "busy")):
+        return "Gemini is busy right now, retrying… If this keeps up, try again in a minute."
+    if any(k in low for k in ("429", "resource_exhausted", "quota")):
+        return ALL_QUOTA_MESSAGE if "every gemini model" in low else "Gemini's free limit is used up for now. The backup model is tried next."
+    if "no text" in low or "no content" in low or "empty" in low:
+        return EMPTY_REPLY_NOTE
+    if "timed out" in low or "timeout" in low:
+        return "The model took too long to answer. Please try again."
+    return text[:200]
+
+
+TEXT_CALL_NUDGE = (
+    "Your reply wrote a tool call as text, like [[tool(...)]]. Text does nothing. "
+    "If the step is needed, call the tool with a real function call now. "
+    "If it is not needed, answer in plain words without any [[...]] call and without saying it ran."
+)
+
 EVIDENCE_NUDGE = (
     "[self-check] You are about to report this task as done/complete, but in this turn you have not "
     "looked at the screen (take_screenshot or scroll) to confirm it. Check the real result now, "
@@ -6844,7 +7392,216 @@ _DONE_CLAIM = re.compile(
     re.I,
 )
 AUTO_RESUMES = 2
-RESUME_WAIT_SECONDS = 60
+RESUME_WAIT_SECONDS = 3   # 1.4.15: was 60 s; failover is immediate now
+ATTEMPT_TIMEOUT_MS = 8000   # 1.4.15: time to the first streamed chunk; a slow model fails over instead of hanging
+HTTP_DEADLINE_MS = 60000    # Gemini rejects a server deadline under 10 s, so the 8 s limit is enforced here
+NONSTREAM_TIMEOUT_S = 20.0
+_CLIENTS: dict[str, Any] = {}
+_CONFIG_CACHE: dict[tuple[Any, ...], tuple[Any, Any]] = {}
+FAST_SYSTEM = (
+    "You are Ped Bot, Pedro's friendly assistant on his Windows PC. Reply briefly, warmly and in plain words. "
+    "You have no tools in this reply. If the message asks you to do, open, check, find or change anything "
+    "on the PC, the web, files, apps, email, routines or bots, or needs current information "
+    "(time, date, news, weather, prices), reply with exactly [[NEEDS_TOOLS]] and nothing else."
+)
+NEEDS_TOOLS = "[[NEEDS_TOOLS]]"
+_FAST_GREETING = re.compile(
+    r"^(hi+|hey+|hello+|hiya|yo|sup|wassup|what'?s up|hola|namaste|good (morning|afternoon|evening|night)|"
+    r"thanks?( you)?|thank u|ty|ok(ay)?|cool|nice|great|awesome|bye|see you|how are (you|u)|how'?s it going|"
+    r"who are you|what can you do)\b[\s!.?,:)\w']*$", re.I)
+_FAST_QUESTION = re.compile(r"^(what|who|why|how|when|where|which|is|are|does|do|can you explain|explain|define|"
+                            r"tell me (a joke|a fact|about)|meaning of|difference between)\b", re.I)
+_FAST_BLOCK = re.compile(
+    r"\b(my|me|mine|i|i'm|pc|computer|laptop|file|files|folder|open|screen|click|download|downloads|desktop|run|"
+    r"install|chrome|edge|browser|email|mail|gmail|send|order|buy|today|tonight|tomorrow|now|time|date|weather|"
+    r"news|latest|current|price|remind|routine|schedule|bot|bots|youtube|post|upload|write|create|make|save|"
+    r"delete|close|play|search|find|check|show|list|start|stop|set|turn|wingz|task|workflow|replay|terminal|"
+    r"command|this|that|it|here|there|above|previous|again|continue)\b", re.I)
+
+
+def simple_chat(text: str) -> bool:
+    """1.4.15: a greeting or a general question that needs no tools (answered on the fast path)."""
+    t = " ".join(str(text or "").split())
+    if not t or len(t) > 160 or t.startswith("[") or "\n" in str(text or ""):
+        return False
+    if _FAST_BLOCK.search(t):
+        return False
+    return bool(_FAST_GREETING.match(t) or _FAST_QUESTION.match(t))
+
+
+def _gemini_client(genai: Any, key: str) -> Any:
+    """One client per key, reused: keeps the HTTPS connection warm. Every attempt times out after 8 s."""
+    if genai_client_override is not None:
+        return genai_client_override(key)
+    client = _CLIENTS.get(key)
+    if client is None:
+        from google.genai import types
+        client = genai.Client(api_key=key, http_options=types.HttpOptions(timeout=HTTP_DEADLINE_MS))
+        _CLIENTS[key] = client
+    return client
+
+
+def _fast_reply(user_text: str, history: list[Any], model: str, *, on_text: Any, cancel_event: Any,
+                on_event: Any) -> str | None:
+    """Answer simple chat with a small no-tools request on Flash-Lite (Groq if Gemini fails).
+
+    None means "use the full agent" (the model asked for tools, or every fast model failed).
+    """
+    from google import genai
+    from google.genai import types
+
+    keys = gemini_api_keys()
+    if not keys:
+        return None
+    block = memory_prompt_block()
+    config = types.GenerateContentConfig(
+        system_instruction=FAST_SYSTEM + ("\n" + block if block else ""), temperature=0.4, max_output_tokens=600,
+        thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL))
+    plain = types.GenerateContentConfig(system_instruction=config.system_instruction, temperature=0.4,
+                                        max_output_tokens=600)
+    recent = [c for c in history[-8:] if getattr(c, "role", "") in ("user", "model")
+              and all(getattr(p, "text", None) for p in (getattr(c, "parts", None) or []))]
+    contents = [*recent, types.Content(role="user", parts=[types.Part.from_text(text=user_text)])]
+    held = {"buf": "", "open": False}
+
+    def gate(chunk: str) -> None:   # hold the first characters until we know it is not [[NEEDS_TOOLS]]
+        if held["open"]:
+            on_text(chunk)
+            return
+        held["buf"] += chunk
+        probe = held["buf"].lstrip()
+        if NEEDS_TOOLS.startswith(probe) or NEEDS_TOOLS in probe:
+            return
+        held["open"] = True
+        on_text(held["buf"])
+
+    gate.raw_tokens = bool(getattr(on_text, "raw_tokens", False))  # type: ignore[attr-defined]
+    try:   # Groq first: a tiny request answers in about a second while Gemini is often slow or busy
+        import cloud_fallback
+        if cloud_fallback.providers_for("busy"):
+            started = time.monotonic()
+            msgs = []
+            for c in recent:
+                txt = " ".join(getattr(p, "text", "") or "" for p in (c.parts or []))
+                msgs.append({"role": "assistant" if c.role == "model" else "user", "content": txt[:2000]})
+            msgs.append({"role": "user", "content": user_text})
+            text = stop_token.run(lambda: cloud_fallback.quick_chat(config.system_instruction, msgs), cancel_event)
+            if text and NEEDS_TOOLS in text:
+                return None
+            if text:
+                agent_log.event("fast_reply", model="backup", ms=int((time.monotonic() - started) * 1000))
+                if on_text:
+                    on_text(text)
+                history.append(types.Content(role="user", parts=[types.Part.from_text(text=user_text)]))
+                history.append(types.Content(role="model", parts=[types.Part.from_text(text=text)]))
+                if on_event is not None:
+                    on_event({"event": "final", "text": text})
+                return text
+    except stop_token.Stopped:
+        return ""
+    except Exception:
+        pass
+    client = _gemini_client(genai, keys[0])
+    lites = [m for m in model_candidates(model) if "lite" in m] or [model]
+    for name in _turn_models(lites, lites[0], set()):
+        for cfg in (config, plain):
+            spoke = {"yes": False}
+            try:
+                stop_token.checkpoint(cancel_event)
+                started = time.monotonic()
+                resp = _attempt(lambda first: _request_voice_model(
+                    client, name, contents, cfg, on_sentence=gate if on_text else None,
+                    cancel_event=cancel_event, spoke=spoke, first=first), cancel_event, streaming=True)
+                text = str(getattr(resp, "spoken_text", "") or "").strip()
+                _note_usage(name, True)
+                agent_log.event("fast_reply", model=name, ms=int((time.monotonic() - started) * 1000))
+                if not text or NEEDS_TOOLS in text:
+                    return None
+                if on_text and not held["open"] and held["buf"]:
+                    on_text(held["buf"])
+                history.append(types.Content(role="user", parts=[types.Part.from_text(text=user_text)]))
+                history.append(types.Content(role="model", parts=[types.Part.from_text(text=text)]))
+                if on_event is not None:
+                    on_event({"event": "final", "text": text})
+                return text
+            except stop_token.Stopped:
+                return ""
+            except Exception as exc:
+                _note_usage(name, False, str(exc))
+                if spoke["yes"]:
+                    return None
+                if cfg is config and _thinking_rejected(exc):
+                    continue
+                agent_log.event("model_switch", frm=name, to="next", reason=_scrub(str(exc))[:120])
+                if _transient_network_error(exc) or _is_daily_quota(exc):
+                    cool_model(name)
+                break
+    try:
+        import cloud_fallback
+        if cloud_fallback.providers_for("busy"):
+            reply = stop_token.run(lambda: cloud_fallback.run_chain(user_text, on_event=on_event, kind="busy",
+                                                                    max_rounds=1), cancel_event)
+            if reply:
+                history.append(types.Content(role="user", parts=[types.Part.from_text(text=user_text)]))
+                history.append(types.Content(role="model", parts=[types.Part.from_text(text=reply)]))
+                return reply
+    except stop_token.Stopped:
+        return ""
+    except Exception:
+        pass
+    return None
+
+
+# 1.4.16: Groq plans the tool steps for everyday PC tasks (about 0.7 s a round vs 1-12 s on a busy Gemini).
+# Gemini still takes the turn when Groq is not saved, declines, or the task is a big build/creative job.
+_PLANNER_SKIP = re.compile(r"\b(blender|youtube|wingz|itvedant|excel|sql|build|code|program|script|mod|video|shorts|"
+                           r"routine|bot|teach|taught|remember|plan)\b", re.I)
+
+
+def _fast_planner_turn(user_text: str) -> bool:
+    text = str(user_text or "")
+    if text.startswith("[resume]") or len(text) > 600 or _PLANNER_SKIP.search(text):
+        return False
+    if getattr(_tool_scope, "allowed", None) is not None or _active_parts():
+        return False
+    try:
+        if not bool(rules.agent_setting("fast_planner", True)):
+            return False
+        import cloud_fallback
+        return bool(cloud_fallback.providers_for("busy"))
+    except Exception:
+        return False
+
+
+def _history_text(history: list[Any], limit: int = 8) -> list[dict[str, str]]:
+    out: list[dict[str, str]] = []
+    for item in history[-limit * 2:]:
+        role = "assistant" if getattr(item, "role", "") == "model" else "user"
+        text = " ".join(str(getattr(p, "text", "") or "") for p in (getattr(item, "parts", None) or [])).strip()
+        if text:
+            out.append({"role": role, "content": text[:1500]})
+    return out[-limit:]
+
+
+def _plan_with_backup(user_text: str, history: list[Any], types: Any, on_event: Any, cancel_event: Any) -> str | None:
+    import cloud_fallback
+
+    started = time.monotonic()
+    try:
+        prior = _history_text(history)
+        reply = stop_token.run(lambda: cloud_fallback.run_chain(user_text, on_event=on_event, kind="busy", history=prior),
+                               cancel_event)
+    except stop_token.Stopped:
+        return ""
+    except Exception as exc:
+        agent_log.event("planner_fail", reason=_scrub(str(exc))[:120])
+        return None
+    if not reply:
+        return None
+    agent_log.event("planner", ms=int((time.monotonic() - started) * 1000))
+    history.append(types.Content(role="user", parts=[types.Part.from_text(text=user_text)]))
+    history.append(types.Content(role="model", parts=[types.Part.from_text(text=reply)]))
+    return reply
 
 
 CHANGE_LOG_TOOLS = frozenset({"make_document", "write_text_file", "create_directory", "capture_screenshot_file", "build_local_program"})
@@ -6910,13 +7667,182 @@ def _user_parts(types: Any, user_text: str) -> list[Any]:
     return parts
 
 
+# 1.4.18: a spoken chat line ("how are you", "tell me a joke", a quick question) is answered by
+# Groq as a stream, so the first words can be spoken while the rest is still being written.
+# Anything that sounds like a PC job, a file, a message or a web look-up keeps the full tool path.
+_VOICE_TOOLISH = re.compile(
+    r"\b(open|close|launch|start|run|click|type|send|email|mail|message|whatsapp|call|file|folder|download|"
+    r"desktop|documents|screen|screenshot|search|look up|google|find|delete|remove|move|copy|install|order|buy|"
+    r"pay|remind|routine|schedule|timer|alarm|music|play|youtube|volume|pc|computer|drive|disk|space|memory|"
+    r"weather|news|price|latest|today|tomorrow|bot|task|code|build|app|website|page|browser|"
+    r"camera|webcam|cam|photo|picture|pic|selfie|video|record|recording|film|clip|see|look|watch|show|view|"
+    r"save|take|capture|snap|check|turn|set|make|create|write|note|upload|post|print|share|scan|read)\b", re.I)
+
+
+_VOICE_WARM = {"at": 0.0}
+
+
+def prewarm_voice() -> None:
+    """1.4.18: the first edge-tts call of a session took ~5 s (DNS, TLS, token); a warm one ~0.7 s.
+    While he is talking, say one silent word to the voice service and open the Groq connection."""
+    now = time.monotonic()
+    if now - _VOICE_WARM["at"] < 45:
+        return
+    _VOICE_WARM["at"] = now
+
+    def go() -> None:
+        try:
+            import cloud_fallback
+            cloud_fallback.warm()
+        except Exception:
+            pass
+        try:
+            import edge_tts
+
+            async def _one() -> None:
+                async for _ in edge_tts.Communicate("Hi.", _neural_voice() or DEFAULT_NEURAL_VOICE).stream():
+                    pass
+            _run_coroutine(_one())
+        except Exception:
+            pass
+    threading.Thread(target=go, daemon=True, name="pb-voice-warm").start()
+
+
+# 1.4.19: a reply may only say an action happened when a tool really ran and succeeded this turn.
+_ACTION_CLAIM = re.compile(
+    r"\b(i(?:'ve| have)? (?:just )?(?:saved|recorded|captured|taken|took|sent|emailed|deleted|removed|created|made|"
+    r"opened|closed|started|installed|downloaded|uploaded|posted|moved|copied|renamed|scheduled|set up|turned)|"
+    r"(?:is|are|was|were|has been|have been) (?:now )?(?:saved|recorded|captured|sent|deleted|created|uploaded|posted|"
+    r"scheduled|installed|downloaded)|all done|done!|recording now|i'?m recording|it'?s saved|saved to|"
+    r"here(?:'s| is) (?:the|your) (?:photo|picture|video|clip|recording|file))\b", re.I)
+_TURN_TOOLS: Any = None
+
+
+def _turn_tool_log() -> list[tuple[str, bool]]:
+    import contextvars
+    global _TURN_TOOLS
+    if _TURN_TOOLS is None:
+        _TURN_TOOLS = contextvars.ContextVar("pb_turn_tools", default=None)
+    log = _TURN_TOOLS.get()
+    return log if log is not None else []
+
+
+def _note_tool_result(name: str, ok: bool) -> None:
+    if _TURN_TOOLS is not None:
+        log = _TURN_TOOLS.get()
+        if log is not None:
+            log.append((name, bool(ok)))
+
+
+_INFO_TOOLS = frozenset({"ask_user", "read_shared", "task_board_status", "recall_memory", "list_routines"})
+
+
+def ground_reply(reply: str, tools: list[tuple[str, bool]]) -> str:
+    """Flag a reply that claims an action when no action tool succeeded this turn."""
+    text = str(reply or "")
+    if not text or not _ACTION_CLAIM.search(text):
+        return text
+    if any(ok and name not in _INFO_TOOLS for name, ok in tools):
+        return text
+    failed = [name for name, ok in tools if not ok]
+    agent_log.event("ungrounded_claim", tools=len(tools), failed=len(failed))
+    note = ("I have to correct that: no action actually ran" +
+            (f" ({', '.join(sorted(set(failed)))} failed)" if failed else "") +
+            ", so nothing was done or saved. Ask again and I'll really do it.")
+    return note
+
+
+def _voice_chat_only(text: str) -> bool:
+    t = " ".join(str(text or "").split())
+    return 0 < len(t) <= 240 and not _VOICE_TOOLISH.search(t)
+
+
+def _voice_fast_reply(user_text: str, history: list[Any], on_text: Callable[[str], None], cancel_event: Any) -> str | None:
+    import cloud_fallback
+    try:
+        prior = _history_text(history)[-6:]
+    except Exception:
+        prior = []
+    messages = [{"role": "system", "content": (
+        "You are Ped Bot, Pedro's friendly assistant on his PC, talking out loud. Answer in one to three short "
+        "spoken sentences, warm and natural. No lists, no markdown, no stage directions. You have NO tools here: "
+        "if he asks you to do, check, see, record, save, open or find anything, reply with exactly ACT and nothing "
+        "else. Never say you did, are doing or saved something.")}]
+    messages += [m for m in prior if isinstance(m, dict) and m.get("role") in ("user", "assistant")]
+    messages.append({"role": "user", "content": user_text})
+    started = time.monotonic()
+    first = {"t": None}
+
+    held = {"buf": "", "open": False}
+
+    def feed(chunk: str) -> None:
+        # 1.4.19: hold the first few characters, so an "ACT" (needs a tool) is never spoken
+        if first["t"] is None:
+            first["t"] = time.monotonic() - started
+        if held["open"]:
+            on_text(chunk)
+            return
+        held["buf"] += chunk
+        if len(held["buf"].strip()) >= 4:
+            if held["buf"].strip().upper().startswith("ACT"):
+                return
+            held["open"] = True
+            on_text(held["buf"])
+
+    reply = cloud_fallback.stream_text(messages, feed, cancel=cancel_event)
+    if not reply or reply.strip().upper().startswith("ACT") or _ACTION_CLAIM.search(reply):
+        agent_log.event("voice_fast_handoff", spoken=held["open"])
+        return None if not held["open"] else (reply if not reply.strip().upper().startswith("ACT") else None)
+    if not held["open"] and held["buf"]:
+        on_text(held["buf"])
+    try:
+        from google.genai import types
+        history.append(types.Content(role="user", parts=[types.Part.from_text(text=user_text)]))
+        history.append(types.Content(role="model", parts=[types.Part.from_text(text=reply)]))
+    except Exception:
+        pass
+    agent_log.event("voice_fast", first_token_ms=int((first["t"] or 0) * 1000), ms=int((time.monotonic() - started) * 1000))
+    return reply
+
+
 def run_agent(user_text: str, history: list[Any], model: str, **kwargs: Any) -> str:
+    """1.4.19: every reply is checked against the tools that really ran (no invented "done/saved")."""
+    _turn_tool_log()
+    token = _TURN_TOOLS.set([])
+    try:
+        reply = _run_agent_turn(user_text, history, model, **kwargs)
+        tools = list(_TURN_TOOLS.get() or [])
+    finally:
+        _TURN_TOOLS.reset(token)
+    if isinstance(reply, str) and not str(user_text).startswith("[resume]"):
+        fixed = ground_reply(reply, tools)
+        if fixed != reply:
+            on_text = kwargs.get("on_text")
+            try:
+                if callable(on_text):
+                    on_text("\n\n" + fixed)
+            except Exception:
+                pass
+            return reply.rstrip() + "\n\n" + fixed
+    return reply
+
+
+def _run_agent_turn(user_text: str, history: list[Any], model: str, **kwargs: Any) -> str:
     """Run a turn; if the model service drops mid-task, wait and resume from the screen.
 
     Voice turns are never resumed. The history (with all finished steps) is kept.
     """
     voice = bool(kwargs.get("voice"))
     cancel_event = kwargs.get("cancel_event")
+    try:   # 1.4.17: open the connection to the planner model while the turn is being set up
+        import cloud_fallback
+        threading.Thread(target=cloud_fallback.warm, daemon=True, name="warm").start()
+    except Exception:
+        pass
+    if voice and kwargs.get("on_text") is not None and _voice_chat_only(user_text):
+        quick = _voice_fast_reply(user_text, history, kwargs["on_text"], cancel_event)
+        if quick:
+            return quick
     on_event = kwargs.get("on_event")
     text = user_text
     if not str(user_text).startswith("[resume]"):
@@ -6963,6 +7889,14 @@ def _run_agent_core(
     begin_task_turn(user_text)
     import grounding
     grounding.begin()
+    recorded = _direct_record_camera(user_text, on_event)
+    if recorded is not None:
+        return recorded
+    opened = _direct_pc_open(user_text, on_event)
+    if opened is not None:
+        return opened
+    stop_token.bind(cancel_event)
+    _turn_local.cancel_event = cancel_event
     if local_llm.use_local_first(user_text):
         return local_llm.local_llm_fallback(
             user_text,
@@ -6986,10 +7920,16 @@ def _run_agent_core(
         )
     key_at = 0
     _capture_user_memory(user_text)
-    if genai_client_override is not None:
-        client = genai_client_override(keys[0])
-    else:
-        client = genai.Client(api_key=keys[0])
+    if not voice and getattr(_tool_scope, "allowed", None) is None and not _active_parts() \
+            and simple_chat(user_text):
+        fast = _fast_reply(user_text, history, model, on_text=on_text, cancel_event=cancel_event, on_event=on_event)
+        if fast is not None:
+            return fast
+    if not voice and _fast_planner_turn(user_text):
+        planned = _plan_with_backup(user_text, history, types, on_event, cancel_event)
+        if planned is not None:
+            return planned
+    client = _gemini_client(genai, keys[0])
     config, voice_plain = _model_configs(voice)
     active_config = config
     history.append(types.Content(role="user", parts=_user_parts(types, user_text)))
@@ -7005,13 +7945,41 @@ def _run_agent_core(
             except Exception:
                 pass
 
+    if not voice and model_order and all(_COOLING.get(m, 0) > time.monotonic() for m in model_order):
+        # 1.4.15: every Gemini model timed out or was busy in the last 5 minutes: go straight to the backup
+        try:
+            import cloud_fallback
+            if cloud_fallback.providers_for("busy"):
+                print("[busy] Gemini models are cooling down. Using the saved backup provider right away.", flush=True)
+                switched = _switch_providers(user_text, history, types, on_event, "busy")
+                if switched is not None:
+                    return switched
+        except stop_token.Stopped:
+            return ""
     used_tools: set[str] = set()
     evidence_nudges = 0
+    text_call_nudges = 0
     skipped: set[str] = set()
     saw_quota = False
     chosen = model
     for _round in range(rounds):
-        delays = (5, 15, 30)
+        stop_token.checkpoint(cancel_event, on_pause=lambda: _emit("step", label="Paused. Press Resume to go on.", name=""),
+                              on_resume=lambda: _emit("step", label="Resumed.", name=""))
+        delays: tuple[int, ...] = ()   # 1.4.15: no 5/15/30 s backoff; a failed model hands over at once
+        try:   # 1.4.15: messages Pedro sent while this task runs (add/change instructions, answers)
+            import live_steer
+            steer = live_steer.take()
+        except Exception:
+            steer = []
+        if steer:
+            note = live_steer.STEER_NOTE + "\n".join(f"- {m}" for m in steer)
+            last = history[-1] if history else None
+            if last is not None and getattr(last, "role", "") == "user" and getattr(last, "parts", None) is not None:
+                last.parts.append(types.Part.from_text(text=note))
+            else:
+                history.append(types.Content(role="user", parts=[types.Part.from_text(text=note)]))
+            _emit("step", label="Got your message - adjusting the task.", name="steer")
+            agent_log.event("steer", n=len(steer))
         response = None
         quota_error: BaseException | None = None
         reason = ""
@@ -7041,7 +8009,7 @@ def _run_agent_core(
                 spoke = {"yes": False}
                 try:
                     if stream_text:
-                        response = _request_voice_model(
+                        response = _attempt(lambda first: _request_voice_model(
                             client,
                             active_model,
                             history,
@@ -7049,7 +8017,8 @@ def _run_agent_core(
                             on_sentence=on_text,
                             cancel_event=cancel_event,
                             spoke=spoke,
-                        )
+                            first=first,
+                        ), cancel_event, streaming=True)
                     elif voice:
                         response = _request_voice_model(
                             client,
@@ -7061,13 +8030,15 @@ def _run_agent_core(
                             spoke=spoke,
                         )
                     else:
-                        response = client.models.generate_content(
+                        response = _attempt(lambda first: client.models.generate_content(
                             model=active_model,
                             contents=history,
                             config=active_config,
-                        )
+                        ), cancel_event, streaming=False)
                     _note_usage(active_model, True)
                     break
+                except stop_token.Stopped:
+                    return "\n".join(voice_lines)
                 except Exception as exc:
                     _note_usage(active_model, False, str(exc))
                     if (
@@ -7098,9 +8069,13 @@ def _run_agent_core(
                             f"[net] Gemini connection dropped. Retrying in {delay}s.",
                             flush=True,
                         )
-                        time.sleep(delay)
+                        if stop_token.wait(delay, cancel_event):
+                            return "\n".join(voice_lines)
                         continue
                     if _transient_network_error(exc) and not spoke["yes"] and not voice:
+                        print(f"[net] {active_model}: {_scrub(str(exc))[:160]}", flush=True)
+                        agent_log.event("model_fail", model=active_model, error=_scrub(str(exc))[:200])
+                        cool_model(active_model)
                         skipped.add(active_model)
                         reason = "net"
                         if index < len(order) - 1:
@@ -7113,7 +8088,7 @@ def _run_agent_core(
                             if switched is not None:
                                 return switched
                         if not local_llm.ollama_reachable():
-                            raise RuntimeError(cloud_fallback.NO_BACKUP_MESSAGE) from exc
+                            return _busy_fallback(user_text, history, types, on_event, cancel_event)
                     if (
                         _transient_network_error(exc)
                         and not spoke["yes"]
@@ -7128,6 +8103,9 @@ def _run_agent_core(
                             voice=voice,
                             on_sentence=on_sentence,
                         )
+                        if _local_failed(reply):   # 1.5.6: never answer "Ollama is not running" for a busy Gemini
+                            reply = _busy_fallback(user_text, history, types, on_event, cancel_event)
+                            return reply
                         history.append(
                             types.Content(
                                 role="model",
@@ -7145,7 +8123,7 @@ def _run_agent_core(
                 if key_at + 1 < len(keys):
                     key_at += 1
                     nxt = keys[key_at]
-                    client = genai_client_override(nxt) if genai_client_override is not None else genai.Client(api_key=nxt)
+                    client = _gemini_client(genai, nxt)
                     print("[quota] This Gemini key is out of free requests. Trying the next saved key.", flush=True)
                     agent_log.event("model_switch", frm="gemini-key", to="next-gemini-key")
                     skipped.clear()
@@ -7161,9 +8139,16 @@ def _run_agent_core(
 
         candidate = (response.candidates or [None])[0]
         if candidate is None or candidate.content is None:
+            try:
+                agent_log.event("empty_reply", model=str(chosen), reason=str(getattr(candidate, "finish_reason", None)),
+                                feedback=str(getattr(response, "prompt_feedback", None))[:300])
+                print(f"[model] empty answer from {chosen}: finish_reason={getattr(candidate, 'finish_reason', None)} "
+                      f"feedback={str(getattr(response, 'prompt_feedback', None))[:200]}", flush=True)
+            except Exception:
+                pass
             if voice and voice_lines:
                 return "\n".join(voice_lines)
-            return "Gemini returned no content for that request."
+            return EMPTY_REPLY_NOTE
         calls = list(response.function_calls or [])
         if voice:
             piece = str(getattr(response, "spoken_text", "") or "").strip()
@@ -7178,9 +8163,22 @@ def _run_agent_core(
         if not calls:
             if voice:
                 said = _finish_claimed_launch(
-                    "\n".join(voice_lines) or "Gemini returned no text.", _emit, user_text
+                    "\n".join(voice_lines) or EMPTY_REPLY_NOTE, _emit, user_text
                 )
                 return grounding.ground_reply(user_text, said)
+            written = grounding.text_calls(_text_from(response))
+            if written and text_call_nudges < 2:
+                text_call_nudges += 1
+                print(f"[check] Tool call written as text ({written[0]}). Asking for a real call.", flush=True)
+                _emit("self_check", text="Running the step for real instead of describing it.")
+                history.append(types.Content(role="user", parts=[types.Part.from_text(text=TEXT_CALL_NUDGE)]))
+                continue
+            try:   # a message arrived during this last step: keep going with it instead of ending
+                import live_steer
+                if live_steer.pending():
+                    continue
+            except Exception:
+                pass
             raw = _finish_claimed_launch(_text_from(response), _emit, user_text)
             text = grounding.ground_reply(user_text, raw)
             if text != (raw or "").strip():
@@ -7196,7 +8194,7 @@ def _run_agent_core(
                 history.append(types.Content(role="user", parts=[types.Part.from_text(text=EVIDENCE_NUDGE)]))
                 continue
             _emit("final", text=text)
-            return text or "Gemini returned no text."
+            return text or EMPTY_REPLY_NOTE
 
         preamble = voice_lines[-1] if voice and voice_lines else _text_from(response)
         if preamble and not voice:
@@ -7205,8 +8203,20 @@ def _run_agent_core(
             if short:
                 _emit("step", label=short, name="reason")
         response_parts = []
+        stop_reply = ""
         acted = False
-        for call in calls:
+        try:
+            pre = parallel_results([(c.name or "", dict(c.args or {})) for c in calls])
+        except Exception:
+            pre = {}
+        for idx, call in enumerate(calls):
+            if cancel_event is not None and cancel_event.is_set():
+                break
+            try:
+                stop_token.checkpoint(cancel_event, on_pause=lambda: _emit("step", label="Paused. Press Resume to go on.", name=""),
+                                      on_resume=lambda: _emit("step", label="Resumed.", name=""))
+            except stop_token.Stopped:
+                break
             name = call.name or ""
             arguments = dict(call.args or {})
             used_tools.add(name)
@@ -7223,10 +8233,22 @@ def _run_agent_core(
             else:
                 result = grounding.repeat_error(name, arguments)
                 if result is None:
-                    result = _execute_logged_tool(name, arguments)
+                    result = pre[idx] if idx in pre else _execute_logged_tool(name, arguments)
                 if name in grounding.ACTION_TOOLS:
                     acted = True
             grounding.note(name, result)
+            if result.get("denied"):
+                stop_reply = stop_reply or "Pedro denied this, so I did not do it and I won't retry."
+            elif result.get("needs_confirmation") and str(result.get("error", "")).startswith("Still waiting"):
+                stop_reply = stop_reply or "The approval card is still waiting for you. Tap Approve or Deny; I won't ask again until then."
+            if result.get("ok"):
+                notes = getattr(_turn_local, "tool_notes", None)
+                if notes is None or getattr(_turn_local, "tool_notes_for", None) != user_text:
+                    notes = _turn_local.tool_notes = []
+                    _turn_local.tool_notes_for = user_text
+                args_txt = " ".join(str(v) for v in (arguments or {}).values() if isinstance(v, (str, int, float)))
+                notes.append(f"{name.replace('_', ' ')} {args_txt[:160]} {result.get('message') or ''}"[:400])
+                del notes[:-60]
             _emit(
                 "tool_end",
                 name=name,
@@ -7244,6 +8266,8 @@ def _run_agent_core(
         history.append(types.Content(role="user", parts=response_parts))
         if cancel_event is not None and cancel_event.is_set():
             return "\n".join(voice_lines)
+        if stop_reply:   # 1.5.1: a deny (or a still-open card) ends the turn; no tool retries
+            return stop_reply
 
     if voice and voice_lines:
         return "\n".join(voice_lines)
@@ -7960,12 +8984,54 @@ def _warn_barge_once(exc: BaseException) -> None:
     print(f"Voice: interruption listener unavailable: {exc}", flush=True)
 
 
+GROQ_STT_MODEL = "whisper-large-v3-turbo"
+groq_stt_override: Callable[[bytes], str | None] | None = None
+
+
+def _groq_transcribe(audio: Any) -> str | None:
+    """Text from Groq's free Whisper, or None to use the next recogniser. Never logs the key."""
+    if groq_stt_override is not None:
+        try:
+            return groq_stt_override(audio.get_wav_data())
+        except Exception:
+            return None
+    key = os.environ.get("GROQ_API_KEY", "").strip()
+    if not key or os.environ.get("PEDRO_GROQ_STT", "1") == "0":
+        return None
+    try:
+        wav = audio.get_wav_data(convert_rate=16000, convert_width=2)
+        import cloud_fallback, uuid as _uuid
+        boundary = "pb" + _uuid.uuid4().hex
+        parts = [
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\n{GROQ_STT_MODEL}\r\n".encode(),
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"language\"\r\n\r\nen\r\n".encode(),
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"response_format\"\r\n\r\njson\r\n".encode(),
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"speech.wav\"\r\nContent-Type: audio/wav\r\n\r\n".encode() + wav + b"\r\n",
+            f"--{boundary}--\r\n".encode(),
+        ]
+        status, raw = cloud_fallback._pooled_post(
+            "https://api.groq.com/openai/v1/audio/transcriptions", b"".join(parts),
+            {"Content-Type": f"multipart/form-data; boundary={boundary}", "Authorization": f"Bearer {key}",
+             "User-Agent": "PedroAgent/1.4.18"}, 8)
+        if status != 200:
+            return None
+        return str(json.loads(raw.decode("utf-8")).get("text") or "")
+    except Exception:
+        return None
+
+
 def _transcribe_audio(
     recognizer: Any,
     audio: Any,
     speech_module: Any,
     whisper_loader: Callable[[], Any] | None = None,
 ) -> dict[str, Any]:
+    fast = _groq_transcribe(audio)   # 1.4.18: Groq Whisper (free) answers in ~0.3-0.5 s; Google is the fallback
+    if fast is not None:
+        fast = fast.strip()
+        if not fast:
+            return _err("Could not understand that. Try again.")
+        return _ok(fast, text=fast)
     try:
         text = recognizer.recognize_google(audio, language="en-US")
     except speech_module.UnknownValueError:
@@ -8101,6 +9167,8 @@ def _pause_threshold() -> float:
         value = float(rules.voice_setting("pause_threshold", LISTEN_PAUSE_THRESHOLD))
     except (TypeError, ValueError):
         return LISTEN_PAUSE_THRESHOLD
+    if abs(value - 1.2) < 1e-6:   # 1.4.18: the old default; 0.7 s of quiet now ends a spoken turn
+        value = LISTEN_PAUSE_THRESHOLD
     return min(max(value, 0.5), 5.0)
 
 
@@ -8444,7 +9512,32 @@ class _SpeechPipeline:
         self._closed = False
 
     def submit(self, sentence: str) -> None:
-        """Synthesize one sentence, then queue it. The caller can keep reading."""
+        """Queue one sentence. 1.4.18: on real playback the voice is made on its own thread, so the
+        reply keeps streaming in while a sentence is being synthesized (tests stay in order, in line)."""
+        if self.player is not None:
+            self._submit_now(sentence)
+            return
+        if not hasattr(self, "_texts"):
+            self._texts: queue.Queue[str | None] = queue.Queue()
+            self._synth = threading.Thread(target=self._synth_loop, daemon=True, name="pb-voice-synth")
+            self._synth.start()
+        self._texts.put(sentence)
+
+    def _synth_loop(self) -> None:
+        while True:
+            item = self._texts.get()
+            if item is None:
+                return
+            if not self.cancel.is_set():
+                self._submit_now(item)
+
+    def _wait_synth(self) -> None:
+        th = getattr(self, "_synth", None)
+        if th is not None and th.is_alive():
+            self._texts.put(None)
+            th.join(timeout=120)
+
+    def _submit_now(self, sentence: str) -> None:
         if self.cancel.is_set() or self.error is not None:
             return
         spoken = " ".join((sentence or "").split())
@@ -8545,6 +9638,7 @@ class _SpeechPipeline:
     def finish(self) -> dict[str, Any]:
         """Wait until the queued audio has played or the user interrupted it."""
         if not self._closed:
+            self._wait_synth()
             self._closed = True
             if self._started and self._thread is not None:
                 self.audio.put(None)
@@ -8566,6 +9660,8 @@ class _SpeechPipeline:
     def abort(self) -> None:
         """Stop playback and drop sentences that have not been spoken."""
         self.cancel.set()
+        if hasattr(self, "_texts"):
+            self._texts.put(None)
         if self._started and self._thread is not None and self._thread.is_alive():
             stop_agent_speech()
             self.audio.put(None)
@@ -8897,7 +9993,6 @@ def run_init() -> int:
     print("Folders:")
     for folder in created["folders"]:
         print(f"  {folder}")
-    mcp_router.ensure_rea_server()
     ffmpeg = agent_config.ffmpeg_status()
     if ffmpeg:
         print(f"ffmpeg: {ffmpeg}")
@@ -8909,8 +10004,6 @@ def run_init() -> int:
         print(f"OpenCV: {cv2.__version__}")
     except ImportError:
         print("OpenCV: not installed. From the project folder run: pip install -r requirements.txt")
-    rea = agent_config.rea_status()
-    print(f"REA: {rea.get('message') or 'not checked.'}")
     if os.name == "nt":
         print("Connected volumes:")
         try:
@@ -8936,7 +10029,7 @@ def run_init() -> int:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Pedro_Agent, a local assistant for files, voice, and desktop tools."
+        description="Ped Bot, a local assistant for files, voice, and desktop tools."
     )
     parser.add_argument(
         "prompt",
@@ -8962,6 +10055,11 @@ def _parser() -> argparse.ArgumentParser:
         "--app",
         action="store_true",
         help="Open the desktop chat window (local web UI) instead of the console.",
+    )
+    parser.add_argument(
+        "--background",
+        action="store_true",
+        help="With --app: start hidden in the tray (used by Start with Windows).",
     )
     parser.add_argument(
         "--port", type=int, default=int(os.environ.get("PEDRO_APP_PORT", "8765")),
@@ -9012,7 +10110,22 @@ def main(argv: list[str] | None = None) -> int:
     if args.init:
         return run_init()
     if args.app:
+        os.environ["PEDBOT_PORT"] = str(args.port)
+        if getattr(args, "background", False):
+            os.environ["PEDBOT_START_HIDDEN"] = "1"
         import chat_app
+
+        try:
+            import agent_config as _agent_config
+            import storage_migrate
+
+            moved = storage_migrate.run_at_start(APP_DIR, _agent_config.storage_dir())
+            if moved.get("migrated"):
+                print("[storage] " + str(moved.get("message")), flush=True)
+                if moved.get("env_keys"):
+                    load_env_file(APP_DIR / ".env")
+        except Exception as exc:
+            print(f"[storage] Could not bring over the older chat history: {exc}", flush=True)
 
         return chat_app.run(args.model, port=args.port)
     if args.check_tools:
@@ -9061,18 +10174,11 @@ def main(argv: list[str] | None = None) -> int:
             f"Voice: {_neural_voice()}. "
             "Set ELEVENLABS_API_KEY in .env for the cloud voice."
         )
-    if shutil.which("rea"):
-        rea_line = "REA: rea is on PATH. Reverse engineering uses mcp_router server rea."
-    elif shutil.which("npx"):
-        rea_line = "REA: npx is available. Reverse engineering uses mcp_router server rea."
-    else:
-        rea_line = "REA: not found. Install with npm install --global rea-agents."
     print(
         f"{AGENT_NAME}. Type a request, or exit to quit.\n"
         "Type v and press Enter to speak. Press T while it listens, "
         'or say "text mode", to type again.\n'
-        f"{voice_line}\n"
-        f"{rea_line}"
+        f"{voice_line}"
     )
     if voice:
         print(

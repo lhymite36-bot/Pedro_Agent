@@ -39,8 +39,9 @@
   function formFor(row) {
     if (row.kind === 'gmail') {
       return '<label>Gmail address<input class="cn-address" type="email" autocomplete="off" placeholder="you@gmail.com"></label>' +
-        '<label>App password<input class="cn-secret" type="password" autocomplete="off" placeholder="App password"></label>' +
-        '<button type="button" class="cn-go">Connect</button>';
+        '<label>App password<input class="cn-secret" type="password" autocomplete="off" placeholder="16-letter app password"></label>' +
+        (row.connected ? '<label class="cn-check"><input class="cn-default" type="checkbox"> Make it the default</label>' : '') +
+        '<button type="button" class="cn-go">' + (row.connected ? 'Add account' : 'Connect') + '</button>';
     }
     if (row.kind === 'token') {
       return '<label>Token<input class="cn-secret" type="password" autocomplete="off" placeholder="Paste token"></label>' +
@@ -59,9 +60,12 @@
       card.className = 'cn-item' + (row.connected ? ' on' : '');
       card.innerHTML = '<div class="cn-top"><b>' + esc(row.name) + '</b><span class="cn-pill">' + (row.connected ? 'Connected' : 'Not connected') + '</span></div>' +
         '<p>' + esc(row.blurb) + '</p>' +
-        (row.account ? '<p class="cn-account">' + esc(row.account) + '</p>' : '') +
+        (row.accounts && row.accounts.length ? '<ul class="cn-accounts">' + row.accounts.map((a) => '<li data-acc="' + esc(a.address) + '"><span>' + esc(a.address) + '</span>' +
+          (a.default ? '<span class="cn-pill">Default</span>' : '<button type="button" class="cn-def">Make default</button>') +
+          '<button type="button" class="cn-rm">Remove</button></li>').join('') + '</ul>' :
+          (row.account ? '<p class="cn-account">' + esc(row.account) + '</p>' : '')) +
         (row.detail ? '<p class="cn-detail">' + esc(row.detail) + '</p>' : '') +
-        '<div class="cn-acts">' + formFor(row) + (row.connected && (row.kind === 'gmail' || row.kind === 'token') ? '<button type="button" class="cn-off">Disconnect</button>' : '') + '</div>';
+        '<div class="cn-acts">' + formFor(row) + (row.connected && (row.kind === 'token' || (row.kind === 'gmail' && !(row.accounts && row.accounts.length))) ? '<button type="button" class="cn-off">Disconnect</button>' : '') + '</div>';
       const go = card.querySelector('.cn-go');
       if (go) go.onclick = async () => {
         const secret = card.querySelector('.cn-secret');
@@ -69,6 +73,7 @@
         const body = { action: 'connect', id: row.id };
         if (address) body.address = address.value.trim();
         if (secret) body.secret = secret.value;
+        const def = card.querySelector('.cn-default'); if (def && def.checked) body.default = true;
         $('#cn-msg').textContent = 'Connecting…';
         const result = await post('/api/connectors', body);
         if (secret) secret.value = '';
@@ -81,6 +86,15 @@
         $('#cn-msg').textContent = result.ok ? (result.message || 'Disconnected.') : (result.error || 'Could not disconnect.');
         load();
       };
+      card.querySelectorAll('.cn-accounts li').forEach((li) => {   // 1.4.16: several Gmail accounts
+        const acc = li.dataset.acc;
+        const d = li.querySelector('.cn-def');
+        if (d) d.onclick = async () => { const r = await post('/api/connectors', { action: 'gmail_default', id: row.id, account: acc }); $('#cn-msg').textContent = r.ok ? r.message : (r.error || 'Could not change it.'); load(); };
+        li.querySelector('.cn-rm').onclick = async () => {
+          if (!confirm('Remove ' + acc + ' from Ped Bot? Its app password is deleted from this PC.')) return;
+          const r = await post('/api/connectors', { action: 'disconnect', id: row.id, account: acc }); $('#cn-msg').textContent = r.ok ? r.message : (r.error || 'Could not remove it.'); load();
+        };
+      });
       box.appendChild(card);
     });
     if (!box.children.length) box.innerHTML = '<p class="cn-empty">No connectors match.</p>';

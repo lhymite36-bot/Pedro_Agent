@@ -127,3 +127,25 @@ def _apply_standard(text: str) -> str:
     elif _active == "neutral" and "..." in text:
         _active = "pause"
     return cleaned
+
+
+# 1.4.17: stage directions are for the voice only; written replies never show them.
+_STAGE = re.compile(
+    r"[ \t]*[\[(*](?:chuckles?|laughs?|laughing|giggles?|playful(?:ly)?|sighs?|smiles?|grins?|winks?|gasps?|whispers?|"
+    r"clears throat|pauses?|sarcastic(?:ally)?|excited(?:ly)?|cheerful(?:ly)?|cheers|softly|happily|sadly|snorts?|"
+    r"hums?|coughs?|thoughtful(?:ly)?|warmly|gently|proudly|nervously|curious(?:ly)?|breathes?|crying|sorrowful|"
+    r"soft tone|nods?|shrugs?|beams?)[\])*][ \t]*",
+    re.IGNORECASE,
+)
+
+
+def strip_stage(text: str) -> str:
+    """Remove [sighs], (laughs), *chuckles* and the like from text meant to be read."""
+    if not text:
+        return text
+    out = _STAGE.sub(" ", str(text))
+    out = re.sub(r"[ \t]{2,}", " ", out)
+    out = re.sub(r"^[ \t]+", "", out, flags=re.M)
+    out = re.sub(r"[ \t]+([,.!?])", r"\1", out)
+    return out.strip()
+

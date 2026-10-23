@@ -1,10 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
-  <color name="bg">#0B0B0F</color>
-  <style name="Splash" parent="@android:style/Theme.Material.NoActionBar">
-    <item name="android:windowBackground">@drawable/splash</item>
-    <item name="android:statusBarColor">#0B0B0F</item>
-    <item name="android:navigationBarColor">#0B0B0F</item>
-    <item name="android:windowSplashScreenBackground">#0B0B0F</item>
-    <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_icon</item>
+  <style name="Splash" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+    <item name="android:windowBackground">#ff0e0f11</item>
+    <item name="android:statusBarColor">#ff0e0f11</item>
+    <item name="android:navigationBarColor">#ff0e0f11</item>
   </style>
 </resources>

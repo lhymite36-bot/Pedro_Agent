@@ -1,27 +1,53 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>Pedro_Agent</title>
+<html lang="en" class="auth-boot"><head><meta charset="utf-8"><title>Ped Bot</title>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<link rel="stylesheet" href="/app.css">
+<script src="/lite.js"></script>
+<script src="/auth.js?v=grokskin16"></script>
+<link rel="stylesheet" href="/avatars.css">
+<link rel="stylesheet" href="/app.css?v=grokskin16">
+<link rel="stylesheet" href="/glass.css?v=grokskin16">
 <link rel="manifest" href="/manifest.webmanifest">
-<meta name="theme-color" content="#0b0b0f">
+<meta name="theme-color" content="#0e0f11">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="icon" href="/favicon.ico" sizes="any"><link rel="icon" href="/icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="/icon-192.png">
-</head><body>
+</head><body class="glass grok-skin">
 <aside id="side">
-  <div class="brand"><div class="mini" id="brand-avatar"></div><div><b>Pedro_Agent</b><small>Your PC assistant</small></div></div>
-  <button class="side-btn" id="new" type="button"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>New chat</button>
-  <div class="side-label row-label">Bots<button class="ib small" id="newbot" type="button" title="New bot">+</button></div>
-  <div id="bots"></div>
-  <div class="side-label row-label">Groups<button class="ib small" id="newgroup" type="button" title="New group">+</button></div>
-  <div id="groups"></div>
-  <div class="side-label">Chats</div>
-  <input id="chat-find" class="chat-find" type="search" placeholder="Search chats" autocomplete="off">
-  <div id="sessions"></div>
-  <button class="side-btn" id="livebtn" type="button"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>Live PC</button>
-  <button class="side-btn" id="avcbtn" type="button"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="3.2"/><path d="M5 19c1.2-3 3.6-4.5 7-4.5S17.8 16 19 19"/></svg>Avatar</button>
-  <button class="side-btn" id="setbtn" type="button"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</button>
-  <div id="status-card">
+  <div class="side-top">
+    <button type="button" class="icon-btn" id="btn-search" aria-label="Search" title="Search (Ctrl+K)">
+      <svg viewBox="0 0 24 24" width="18" height="18"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16.5 16.5L21 21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+    </button>
+    <button type="button" class="icon-btn" id="newbot" aria-label="New bot" title="New bot">
+      <svg viewBox="0 0 24 24" width="18" height="18"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg>
+    </button>
+  </div>
+  <div class="side-scroll">
+    <div id="bots"></div>
+    <button type="button" class="text-btn" id="btn-new-section">New section</button>
+    <button class="side-btn store-link" id="storebtn" type="button">Browse bots</button>
+    <div class="side-label row-label">Projects<button class="ib small" id="newgroup" type="button" title="New project">+</button></div>
+    <div id="groups"></div>
+    <div class="side-label">Chats</div>
+    <input id="chat-find" class="chat-find" type="search" placeholder="Search chats" autocomplete="off">
+    <div id="sessions"></div>
+  </div>
+  <div class="side-foot">
+    <button type="button" class="acct-who" id="btn-account" aria-label="Account menu" title="Account"><div class="mini" id="brand-avatar"></div></button>
+    <button type="button" class="connect" id="btn-connect" aria-label="Connect apps" title="Connections">Connect apps<span class="dots"></span></button>
+    <div id="acct-menu" class="acct-menu" hidden>
+      <button type="button" id="livebtn">Live PC</button>
+      <button type="button" id="avcbtn">Avatar</button>
+      <button type="button" id="acct-projects">Projects</button>
+      <button type="button" id="setbtn">Settings</button>
+      <button type="button" id="acct-usage">Usage</button>
+      <button type="button" id="acct-updates">Updates</button>
+      <button type="button" id="acct-help">Help</button>
+      <button type="button" id="acct-admin" hidden>Users</button>
+      <button type="button" id="acct-logout">Log out</button>
+    </div>
+  </div>
+  <div id="side-resizer" title="Resize sidebar"></div>
+  <div id="status-card" hidden>
     <div><span><i class="dot" id="st-agent"></i>Agent</span><span id="st-agent-t">ready</span></div>
     <div><span><i class="dot" id="st-tg"></i>Telegram</span><span id="st-tg-t">off</span></div>
     <div><span><i class="dot" id="st-voice"></i>Voice</span><span id="st-voice-t">off</span></div>
@@ -31,10 +57,15 @@
 <main>
   <header>
     <button class="ib" id="menubtn" type="button" title="Chats"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
-    <div id="hdr-avatar"></div>
-    <div class="who"><b>Pedro_Agent</b><small id="mood">Idle</small><small id="live-step" hidden></small></div>
+    <button type="button" class="bot-pill" id="btn-bot-info">
+      <div id="hdr-avatar"></div>
+      <div class="who"><b>Ped Bot</b><small id="mood">Idle</small><small id="live-step" hidden></small></div>
+    </button>
+    <button type="button" class="badge" id="hdr-model" title="Model">auto</button>
+    <button class="ghost" id="new" type="button">New chat</button>
     <div class="spacer"></div>
     <button type="button" id="avc-open" title="Talk face to face">Avatar</button>
+    <button class="ib pause-all" id="pause-all" type="button" title="Safe mode: pause every bot, routine and task now">Pause all</button>
     <button class="ib" id="hdr-stop" type="button" title="Stop" hidden><svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2"/></svg></button>
   </header>
   <div id="log"></div>
@@ -99,9 +130,19 @@
     </div>
     <div id="att-tray" hidden></div>
     <div class="box">
-      <button type="button" class="ib" id="attach" title="Attach pictures or files (or paste / drop them)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5l-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9"/></svg></button>
-      <input type="file" id="att-file" multiple hidden accept="image/*,.pdf,.docx,.xlsx,.xlsm,.csv,.txt,.md,.json,.log,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain,text/csv">
-      <textarea id="t" rows="1" placeholder="Message Pedro_Agent…"></textarea>
+      <button type="button" class="ib plus" id="attach" title="Attach pictures or files (or paste / drop them)">+</button>
+      <input type="file" id="att-file" multiple hidden accept="image/*,video/*,.mp4,.webm,.mov,.mkv,.m4v,.avi,.pdf,.docx,.xlsx,.xlsm,.csv,.txt,.md,.json,.log,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain,text/csv">
+      <input type="file" id="att-file-any" multiple hidden>
+      <input type="file" id="att-file-img" multiple hidden accept="image/*">
+      <input type="file" id="att-file-vid" multiple hidden accept="video/*,.mp4,.webm,.mov,.mkv,.m4v,.avi">
+      <div id="plus-menu" class="plus-menu" hidden>
+        <button type="button" id="btn-upload-file">Upload file</button>
+        <button type="button" id="btn-upload-image">Upload image</button>
+        <button type="button" id="btn-upload-video">Upload video</button>
+        <button type="button" id="btn-record-video">Record 10s camera</button>
+        <button type="button" id="btn-screenshot">Screenshot my screen</button>
+      </div>
+      <textarea id="t" rows="1" placeholder="Message Ped Bot…"></textarea>
       <div id="wave"></div>
       <button type="button" class="ib" id="hands" title="Hands-free: keep listening after each reply"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h2l3-7 4 14 3-9 2 4h4"/></svg></button>
       <button type="button" class="ib" id="mic" title="Talk (or press Space)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
@@ -118,12 +159,74 @@
 </nav>
 <div id="sidescrim"></div>
 <div id="overlay"></div>
+<div id="search-ov" class="grok-ov" hidden>
+  <div class="search-box">
+    <input id="search-input" placeholder="Search bots, chats, projects" aria-label="Search" autocomplete="off">
+    <div id="search-results"></div>
+  </div>
+</div>
+<div id="usage-ov" class="grok-ov" hidden>
+  <div class="help-box">
+    <div class="set-head"><h3>Usage</h3><button class="ib" id="usage-close" type="button" title="Close">×</button></div>
+    <div id="usage-body"><pre>Loading…</pre></div>
+  </div>
+</div>
+<div id="help-ov" class="grok-ov" hidden>
+  <div class="help-box">
+    <div class="set-head"><h3>Help</h3><button class="ib" id="help-close" type="button" title="Close">×</button></div>
+    <ul>
+      <li>Type a message, or press the mic and talk.</li>
+      <li>Attach files with + in the composer.</li>
+      <li>Settings, Live PC, Usage and Projects are in the account menu at the bottom of the sidebar.</li>
+      <li>Close the window to hide to the tray. Quit from the tray icon.</li>
+    </ul>
+  </div>
+</div>
+<div id="admin-ov" class="grok-ov" hidden>
+  <div class="help-box admin-box">
+    <div class="set-head"><h3>Users</h3><span id="admin-count"></span><button class="ib" id="admin-close" type="button" title="Close">×</button></div>
+    <div id="admin-body"><p>Loading…</p></div>
+  </div>
+</div>
+<div id="auth-gate">
+  <div class="auth-card">
+    <div class="auth-mark">Ped Bot</div>
+    <h1 id="auth-title">Sign in</h1>
+    <p id="auth-sub">Email and password. Your data stays in your database.</p>
+    <div id="auth-setup" hidden></div>
+    <form id="auth-form" data-mode="login">
+      <label id="auth-name-wrap" hidden>Full name <span>(optional)</span><input id="auth-name" name="name" autocomplete="name" maxlength="80"></label>
+      <label>Email<input id="auth-email" name="email" type="email" autocomplete="username" required></label>
+      <label>Password<input id="auth-pass" name="password" type="password" autocomplete="current-password" required minlength="6"></label>
+      <p id="auth-err" class="auth-err"></p>
+      <button type="submit" id="auth-submit">Sign in</button>
+    </form>
+    <div id="auth-oauth" hidden>
+      <button type="button" id="auth-google">Continue with Google</button>
+      <button type="button" id="auth-github">Continue with GitHub</button>
+    </div>
+    <button type="button" id="auth-switch">Create an account</button>
+  </div>
+</div>
 <section id="settings" aria-label="Settings">
   <div class="set-head"><b>Settings</b><button class="ib" id="close-set" type="button" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
-  <div class="tabs"><button class="tab active" data-pane="p-general" type="button">General</button><button class="tab" data-pane="p-voice" type="button">Voice</button><button class="tab" data-pane="p-rules" type="button">Rules</button></div>
+  <div class="tabs"><button class="tab active" data-pane="p-general" type="button">General</button><button class="tab" data-pane="p-voice" type="button">Voice</button><button class="tab" data-pane="p-rules" type="button">Rules</button><button class="tab" data-pane="p-themes" type="button">Themes</button><button class="tab" data-pane="p-more" type="button">Connections &amp; updates</button></div>
+  <div class="pane" id="p-themes"><div class="set-head">Themes</div><div class="hint-line">Grok Dark, Grok Light, and Liquid Glass. Tap one; your phone switches too.</div></div>
+  <div class="pane" id="p-more">
+    <div class="field col"><div>Quiet Brain Shorts (backup for Grok Bot)<small>6 funny 2D psychology Shorts a day to YouTube + TikTok through Buffer, skipping ideas already posted. Off until you switch it on. The token stays in your local .env.</small></div>
+      <span><label class="switch"><input type="checkbox" id="qbs-on"><span></span></label> <input id="qbs-token" type="password" placeholder="Buffer access token" autocomplete="off"> <button class="btn" id="qbs-save" type="button">Save token</button> <button class="btn" id="qbs-dry" type="button">Dry run</button></span>
+      <input id="qbs-vts" placeholder="Voice to Short folder (e.g. C:\Users\you\Projects\voice-to-short)"><small id="qbs-line"></small></div>
+    <div class="field"><div>Lite mode<small>Lighter and smoother on phones: no glass blur or moving background, avatars move when you tap them, long chats show the newest messages first. Auto turns it on for phones.</small></div><select id="lite-mode"><option value="auto">Auto</option><option value="on">On</option><option value="off">Off</option></select></div>
+    <div class="field"><div>Keep working when closed<small>Closing the window hides Ped Bot in the tray; bots, routines and the phone keep running. Quit from the tray icon.</small></div><label class="switch"><input type="checkbox" id="bg-keep"><span></span></label></div>
+    <div class="field"><div>Start with Windows<small>Starts hidden in the tray when you sign in. Off unless you turn it on.</small></div><label class="switch"><input type="checkbox" id="bg-start"><span></span></label></div>
+    <div class="field"><div>Windows notifications<small>Progress and results of long tasks.</small></div><label class="switch"><input type="checkbox" id="bg-notes"><span></span></label></div>
+    <div class="field"><div>Updates<small id="upd-line">Checking GitHub for a newer Ped Bot…</small></div><span><button class="btn" id="upd-check" type="button">Check</button> <button class="btn" id="upd-get" type="button" hidden>Download</button> <button class="btn" id="upd-install" type="button" hidden>Install</button></span></div>
+    <div class="field col"><div>Connections<small>Sign in once to YouTube, Gmail and Google Drive. You sign in yourself on Google's page; the permission stays only on this PC.</small></div><div id="conn-list"></div><small id="conn-setup" class="err-text"></small></div>
+    <div class="field col"><div>Crash reports<small>Saved on this PC only. Nothing is sent anywhere; copy one if you want to share it.</small></div><div id="crash-list"></div><span><button class="btn" id="crash-open" type="button">Open folder</button></span></div>
+  </div>
   <div class="pane active" id="p-general">
     <div id="phone-sec" class="phone-sec">
-      <div class="field"><div>Connect phone<small>Use Pedro Agent from your Android phone, anywhere. Uses a free Cloudflare tunnel; sign-in protected.</small></div><label class="switch"><input type="checkbox" id="phone-on"><span></span></label></div>
+      <div class="field"><div>Connect phone<small>Use Ped Bot from your Android phone, anywhere. Uses a free Cloudflare tunnel; sign-in protected.</small></div><label class="switch"><input type="checkbox" id="phone-on"><span></span></label></div>
       <div id="phone-consent" hidden><small>Phone access needs Cloudflare's free <b>cloudflared</b> tool (about 60 MB, from github.com/cloudflare). Download it now?</small> <button class="btn" id="phone-allow" type="button">Allow download</button></div>
       <div id="phone-body" hidden>
         <p id="phone-msg" class="phone-msg"></p>
@@ -133,7 +236,8 @@
       </div>
     </div>
     <div class="field"><div>Undo last file<small>Puts back the previous copy of the last file the agent wrote, or removes a file it just created. Stops if that file changed afterwards.</small></div><button class="btn ghost" id="undo-last" type="button">Undo</button><span id="undo-msg"></span></div>
-    <div class="field"><div>Chats<small>Deletes every normal chat. Bots, groups and their rooms stay.</small></div><button class="btn ghost danger" id="clear-chats" type="button">Clear all chats</button></div>
+    <div class="field"><div>Check-ins<small>Ped Bot messages you on its own: a 9 AM summary, a heads-up when something needs your OK or fails, and a short report after long tasks. Quiet 11 PM-8 AM except urgent items.</small></div><label class="switch"><input type="checkbox" id="checkins-on"><span></span></label><select id="checkins-freq"><option value="low">Low (2 a day)</option><option value="normal">Normal (4 a day)</option><option value="high">High (6 a day)</option></select></div>
+    <div class="field danger-zone"><div>Delete all chats<small>Deletes every normal chat on the PC and the phone (they share one history). Bots, routines, groups and settings stay. A backup is saved first.</small></div><button class="btn danger-solid" id="clear-chats" type="button">Delete all chats</button></div>
     <div class="field"><div>Model<small>Free Gemini models, tried in order on quota errors.</small></div><select id="model2"></select></div><div class="field"><div>Backup model key<small>Used only when every Gemini model is busy. Free Groq key from console.groq.com/keys. Stays on this PC.</small></div><input id="backup-key" type="password" placeholder="Paste Groq key" autocomplete="off"><button type="button" id="backup-save">Save</button><span id="backup-msg"></span></div>
     <div class="field"><div>More Gemini keys<small>One key per line, each from a different Google account at aistudio.google.com/apikey. Used when this account is out of free requests. A second key in the same Google project does not help. Stays on this PC.</small></div><textarea id="gemini-keys" rows="3" placeholder="Paste extra Gemini keys" autocomplete="off"></textarea></div>
     <div class="field"><div>OpenRouter<small>Free models when Gemini is out. Key from openrouter.ai/keys. Stays on this PC.</small></div><input id="openrouter-key" type="password" placeholder="Paste OpenRouter key" autocomplete="off"></div>
@@ -150,10 +254,46 @@
     <p style="color:var(--dim);font-size:13px">End-of-sentence pause and other voice timings are in Rules → <code>voice:</code>.</p>
   </div>
   <div class="pane" id="p-rules">
-    <p style="color:var(--dim);margin-top:0">Your rules decide what the agent may do. Changes apply on the next action.</p>
+    <p style="color:var(--dim);margin-top:0">Add, change, or remove rules here. They apply on the next message. No restart.</p>
     <div id="rulespath" style="color:var(--dim);font-size:12px;margin-bottom:6px"></div>
-    <textarea id="rules" spellcheck="false"></textarea>
-    <div style="display:flex;gap:8px;align-items:center;margin-top:10px"><button class="btn" id="saverules" type="button">Save rules</button><button class="btn ghost" id="reloadrules" type="button">Reload</button><span id="rulesmsg"></span></div>
+
+    <h4 class="rule-h">Standing rules</h4>
+    <p class="rule-hint">Plain English. Ped follows these every turn. Example: “Always save PDFs on the Desktop.”</p>
+    <div class="rule-list" id="rule-instructions"></div>
+    <form class="rule-add" id="rule-add-instructions"><input placeholder="Add a standing rule" maxlength="500" autocomplete="off"><button type="submit">Add</button></form>
+
+    <h4 class="rule-h">Folders it may write</h4>
+    <p class="rule-hint"><code>*</code> means everywhere. <code>~</code> is your user folder. Blocked folders always win.</p>
+    <div class="rule-list" id="rule-paths-allowed"></div>
+    <form class="rule-add" id="rule-add-allowed"><input placeholder="Add a folder, e.g. ~\Desktop" maxlength="260" autocomplete="off"><button type="submit">Add</button></form>
+
+    <h4 class="rule-h">Folders it must never write</h4>
+    <div class="rule-list" id="rule-paths-blocked"></div>
+    <form class="rule-add" id="rule-add-blocked"><input placeholder="Add a blocked folder" maxlength="260" autocomplete="off"><button type="submit">Add</button></form>
+
+    <h4 class="rule-h">File types it must never write</h4>
+    <div class="rule-list" id="rule-ext-blocked"></div>
+    <form class="rule-add" id="rule-add-ext"><input placeholder="Add an extension, e.g. .exe" maxlength="20" autocomplete="off"><button type="submit">Add</button></form>
+
+    <h4 class="rule-h">Tools it must never run</h4>
+    <div class="rule-list" id="rule-tools-blocked"></div>
+    <form class="rule-add" id="rule-add-tools"><input placeholder="Add a tool name, e.g. kill_process" maxlength="80" autocomplete="off"><button type="submit">Add</button></form>
+
+    <h4 class="rule-h">Ask me first</h4>
+    <div class="field"><div>Ask before risky actions</div><label class="switch"><input type="checkbox" id="rule-confirm-on"><span></span></label></div>
+    <div class="rule-checks" id="rule-confirm-cats"></div>
+    <p class="rule-hint">Extra tools that always need a yes:</p>
+    <div class="rule-list" id="rule-confirm-extra"></div>
+    <form class="rule-add" id="rule-add-extra"><input placeholder="Add a tool name" maxlength="80" autocomplete="off"><button type="submit">Add</button></form>
+
+    <h4 class="rule-h">Safety</h4>
+    <div class="field"><div>Allow writing .exe files</div><label class="switch"><input type="checkbox" id="rule-allow-exe"><span></span></label></div>
+    <div class="rule-checks" id="rule-protect"></div>
+
+    <div class="rule-actions"><button class="btn" id="saverules" type="button">Save rules</button><button class="btn ghost" id="reloadrules" type="button">Reload</button><span id="rulesmsg"></span></div>
+    <details id="rules-yaml"><summary>Advanced YAML</summary>
+      <textarea id="rules" spellcheck="false"></textarea>
+    </details>
   </div>
 </section>
 <section id="grped" class="drawer" aria-label="Group editor">
@@ -204,22 +344,26 @@
 </section>
 <div id="lightbox"><img alt=""></div>
 <script src="/markdown.js"></script>
+<script src="/pedbot-avatars.js"></script>
 <script src="/avatar.js"></script>
 <script src="/handsfree.js"></script>
 <script src="/reactions.js"></script>
-<script src="/app.js"></script>
+<script src="/app.js?v=grokskin16"></script>
 <script src="/bots_ui.js"></script>
-<script src="/titlebar.js"></script>
+<script src="/glass.js"></script>
+<script src="/themes.js?v=grokskin16"></script>
+<script src="/titlebar.js?v=grokskin16"></script>
 <script src="/mention_pick.js"></script>
 <script src="/groups_ui.js"></script>
 <script src="/phone_ui.js"></script>
-<script src="/live_ui.js"></script>
-<script src="/routines_ui.js"></script>
-<script src="/connectors_ui.js"></script>
-<script src="/avatar_mode.js"></script>
-<div id="firstrun" class="firstrun" hidden><form id="fr-form"><h2>Welcome to Pedro_Agent</h2>
+<div id="firstrun" class="firstrun" hidden><form id="fr-form"><h2>Welcome to Ped Bot</h2>
 <p>Paste your own free Gemini API key to start. Get one free at aistudio.google.com/apikey. It is saved only in the .env file on this PC.</p>
 <input id="fr-key" type="password" placeholder="Gemini API key" autocomplete="off">
 <details><summary>Telegram (optional)</summary><input id="fr-tg" type="password" placeholder="Telegram bot token" autocomplete="off"><input id="fr-chat" placeholder="Your Telegram chat ID"></details>
 <p id="fr-err" class="fr-err"></p><button type="submit">Save and start</button></form></div>
+<script>/* 1.4.18: secondary screens load after the first paint (right away on PC, when idle in Lite mode) */
+(function () { var late = ["/newbot_ui.js", "/live_ui.js", "/routines_ui.js", "/tasks_ui.js", "/connectors_ui.js", "/avatar_mode.js", "/maintenance_ui.js", "/navtabs.js"];
+  function go() { late.forEach(function (n) { var s = document.createElement('script'); s.src = n; s.async = false; document.body.appendChild(s); }); }
+  if (window.LITE && window.LITE.on) (window.requestIdleCallback || function (f) { setTimeout(f, 300); })(go, { timeout: 1200 }); else go();
+})();</script>
 </body></html>

@@ -513,17 +513,18 @@ def _confirm_reply(text: str) -> str | None:
     """
     import confirm_action
 
+    folded = " ".join((text or "").casefold().split()).strip(" .!?")
+    confirm_action._lift_denied_by_request(confirm_action._bucket(), folded)   # 1.4.19: his own new request lifts a no
     waiting = confirm_action.pending()
     if waiting is None:
         return None
-    folded = " ".join((text or "").casefold().split()).strip(" .!?")
     agent = _agent()
     if folded in confirm_action.POSITIVE:
         _log("user", text)
         agent.begin_task_turn(text)  # grants the waiting action
         result = agent.invoke_tool(waiting["name"], waiting["arguments"])
         detail = str(result.get("message") or result.get("error") or "")
-        reply = ("Done: " if result.get("ok") else "That failed: ") + detail
+        reply = ("Done: " if result.get("ok") else "That failed: ") + __import__("confirm_action")._user_detail(result, detail)
         _log("assistant", reply)
         return reply
     if folded in NEGATIVE:
@@ -899,7 +900,7 @@ def poll_once() -> dict[str, Any]:
             if not _conflict_logged:
                 _conflict_logged = True
                 print("[phone] Another copy of the bot is polling Telegram (409). "
-                      "Close the other Pedro_Agent window.", flush=True)
+                      "Close the other Ped Bot window.", flush=True)
             return agent._err("Telegram conflict (409): another bridge is polling.", conflict=True)
         return agent._err(f"Telegram could not be reached. {_scrubbed(str(exc))}")
     updates = payload.get("result") if isinstance(payload, dict) else None
@@ -1038,7 +1039,7 @@ def start_remote_bridge() -> None:
     if _thread is not None and _thread.is_alive():
         return
     if not _acquire_instance_lock():
-        print("[phone] Telegram bridge is already running in another Pedro_Agent "
+        print("[phone] Telegram bridge is already running in another Ped Bot "
               "window; this one will not poll.", flush=True)
         return
     _stop.clear()

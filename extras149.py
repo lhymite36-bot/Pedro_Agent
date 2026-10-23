@@ -147,6 +147,12 @@ def review_work(task: str, claims: list[str] | None = None, files: list[str] | N
         if wins and not shown and Path(f).suffix.lower() in OPENABLE:
             bad.append(f"No proof screenshot shows {Path(f).name} open")
     text = " ".join(f"{e.get('step','')} {e.get('check','')} {e.get('window','')}" for e in proofs).lower()
+    try:   # what this turn's tools actually reported (opened, typed, pressed, saved...)
+        import agent_core
+        text += " " + " ".join(agent_core.turn_tool_notes()).lower()
+    except Exception:
+        pass
+    text += " " + " ".join(ok_lines).lower()
     for c in claims or []:
         words = [w for w in "".join(ch if ch.isalnum() else " " for ch in c.lower()).split() if len(w) > 3]
         hit = words and sum(w in text for w in words) >= max(1, len(words) // 2)

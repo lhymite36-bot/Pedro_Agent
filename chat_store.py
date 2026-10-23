@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+import re
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -66,13 +67,18 @@ def message_time(msg_id: int, path: Path | None = None) -> float:
 def add(session: str, role: str, text: str, path: Path | None = None) -> int:
     """Save one message; returns its id. [[react:EMOJI]] markers in a reply become reactions on the
     user's latest message (by the speaker) instead of text."""
+    if role == "assistant" and not str(text or "").strip():
+        return 0   # 1.5.6: never save (or show) an empty bot message
     text, emojis = extract_reactions(text) if role == "assistant" else (text, [])
+    empty = role == "assistant" and not re.sub(r"^\[\[@[a-z0-9-]+\]\]", "", str(text or "")).strip()
     with _lock, _session(path) as con:
-        cur = con.execute(
-            "INSERT INTO messages(session, role, text, ts) VALUES (?,?,?,?)",
-            (session, role, text, time.time()),
-        )
-        new_id = int(cur.lastrowid)
+        new_id = 0
+        if not empty:   # 1.5.6: a reaction-only reply adds the reaction, not an empty bubble
+            cur = con.execute(
+                "INSERT INTO messages(session, role, text, ts) VALUES (?,?,?,?)",
+                (session, role, text, time.time()),
+            )
+            new_id = int(cur.lastrowid)
         if emojis:
             row = con.execute("SELECT id FROM messages WHERE session=? AND role='user' ORDER BY id DESC LIMIT 1",
                               (session,)).fetchone()
@@ -93,7 +99,7 @@ def add(session: str, role: str, text: str, path: Path | None = None) -> int:
 import re as _re
 
 QUICK = ["👍", "❤️", "😂", "😮", "😢", "🎉", "✅"]
-REACT_RE = _re.compile(r"\s*\[\[react:([^\]\s]{1,16})\]\]")
+REACT_RE = _re.compile(r"\s*\[{1,2}react:([^\]\s]{1,16})\]{1,2}")  # 1.5.3: tolerate [react:X]]
 _TAG = _re.compile(r"^\[\[@([a-z0-9-]+)\]\]")
 added_hook = None   # chat_app sets it to push fresh reactions to the window
 
@@ -277,3 +283,46 @@ def delete_session(session: str, path: Path | None = None) -> None:
         con.execute("DELETE FROM messages WHERE session=?", (session,))
         con.execute("DELETE FROM titles WHERE session=?", (session,))
         con.execute("DELETE FROM pins WHERE session=?", (session,))
+
+
+# ---- 1.4.15: Delete all chats with an automatic backup and Undo ----
+def backup_db(folder: Path | None = None, path: Path | None = None) -> Path:
+    """Copy chat_history.db to backups/chat_history-YYYYmmdd-HHMMSS.db (sqlite online backup)."""
+    src = path or db_path()
+    folder = folder or src.parent / "backups"
+    folder.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    dest = folder / f"chat_history-{stamp}.db"
+    n = 1
+    while dest.exists():
+        n += 1
+        dest = folder / f"chat_history-{stamp}-{n}.db"
+    with _lock:
+        source = sqlite3.connect(str(src))
+        target = sqlite3.connect(str(dest))
+        try:
+            source.backup(target)
+        finally:
+            target.close()
+            source.close()
+    return dest
+
+
+def restore_sessions(backup: Path, sessions: list[str], path: Path | None = None) -> int:
+    """Put the given chats back from a backup file. Messages written since are kept."""
+    if not sessions:
+        return 0
+    with _lock, _session(path) as con:
+        con.execute("ATTACH DATABASE ? AS bk", (str(backup),))
+        try:
+            marks = ",".join("?" * len(sessions))
+            ids = f"SELECT id FROM bk.messages WHERE session IN ({marks})"
+            con.execute(f"INSERT OR IGNORE INTO messages SELECT * FROM bk.messages WHERE session IN ({marks})", sessions)
+            con.execute(f"INSERT OR IGNORE INTO reactions SELECT * FROM bk.reactions WHERE msg_id IN ({ids})", sessions)
+            con.execute(f"INSERT OR IGNORE INTO writes SELECT * FROM bk.writes WHERE msg_id IN ({ids})", sessions)
+            con.execute(f"INSERT OR IGNORE INTO titles SELECT * FROM bk.titles WHERE session IN ({marks})", sessions)
+            con.execute(f"INSERT OR IGNORE INTO pins SELECT * FROM bk.pins WHERE session IN ({marks})", sessions)
+            con.commit()
+        finally:
+            con.execute("DETACH DATABASE bk")
+    return len(sessions)

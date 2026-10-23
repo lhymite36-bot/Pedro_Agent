@@ -30,7 +30,16 @@ import rules
 
 SESSION_PREFIX = "bot-"
 COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
-AVATARS = ("round", "square", "spark", "robot", "cat", "ghost", "bunny", "fox", "bear", "owl", "alien", "dino", "panda", "frog", "chick", "octopus", "star")
+# 1.4.14 flat blob avatars. Older bots' animal shapes map to the nearest one (colour kept).
+AVATARS = ("circle", "ball", "square", "pill", "triangle", "hexagon", "cloud", "drop", "clover", "star", "heart")
+LEGACY_AVATARS = {"round": "circle", "blob": "ball", "spark": "ball", "ghost": "drop", "robot": "square",
+                  "octopus": "cloud", "fox": "triangle", "frog": "pill", "chick": "star", "dino": "clover", "alien": "drop"}
+PALETTE = ("#8b5a32", "#e5383b", "#ff6a00", "#f5a524", "#00c473", "#14b8a6", "#1683f5", "#8b5cf6", "#ec4899", "#7a7a7a")
+
+
+def avatar_shape(value: Any) -> str:
+    v = str(value or "")
+    return v if v in AVATARS else LEGACY_AVATARS.get(v, "ball" if v else "circle")
 _lock = threading.RLock()
 # A bot may call ask_bot once. run_team stays blocked. The callee runs with
 # handoff off, so the chain cannot grow.
@@ -163,7 +172,7 @@ def normalise(data: dict[str, Any], existing: dict[str, Any] | None = None) -> d
     if not name:
         raise ValueError("A bot needs a name.")
     bot_id = _slug(str(data.get("id") or "")) or _slug(name) or uuid.uuid4().hex[:8]
-    color = str(data.get("color") or "#7c5cff")
+    color = str(data.get("color") or "#1683f5")
     override = data.get("rules") or {}
     if isinstance(override, str):
         override = rules.parse_text(override, ".yaml") if override.strip() else {}
@@ -178,8 +187,8 @@ def normalise(data: dict[str, Any], existing: dict[str, Any] | None = None) -> d
     return {
         "id": bot_id,
         "name": name,
-        "color": color if COLOR.match(color) else "#7c5cff",
-        "avatar": data.get("avatar") if data.get("avatar") in AVATARS else "round",
+        "color": color if COLOR.match(color) else "#1683f5",
+        "avatar": avatar_shape(data.get("avatar")),
         "role": str(data.get("role") or "")[:8000],
         "model": str(data.get("model") or "")[:80],
         "tools": sorted({str(t) for t in tools}),
@@ -242,6 +251,39 @@ def save_bot(data: dict[str, Any]) -> dict[str, Any]:
     return bot
 
 
+def cleanup_after_delete(bot_id: str) -> dict[str, int]:
+    """1.5.0: a deleted bot leaves nothing behind: its waiting approvals are denied, its board tasks stopped,
+    and its routines paused (kept so they can be reviewed, but they never run for a bot that is gone)."""
+    out = {"approvals": 0, "tasks": 0, "routines": 0}
+    session = SESSION_PREFIX + bot_id
+    try:
+        import confirm_action
+        for bucket in list(confirm_action._pending_by):
+            if bucket == session or bucket.startswith(session + "#"):
+                confirm_action._pending_by.pop(bucket, None)
+                confirm_action._granted_by.pop(bucket, None)
+                out["approvals"] += 1
+    except Exception:
+        pass
+    try:
+        import task_board
+        for row in task_board.snapshot().get("tasks", []):
+            if str(row.get("bot") or "") == bot_id and row.get("status") in ("waiting", "queued", "running", "paused", "approval"):
+                task_board.control(str(row.get("id")), "stop")
+                out["tasks"] += 1
+    except Exception:
+        pass
+    try:
+        import routines
+        for r in routines._load().get("routines", []):
+            if r.get("target") == "bot" and str(r.get("target_id") or "") == bot_id and not r.get("paused"):
+                routines.pause_routine(r["id"])
+                out["routines"] += 1
+    except Exception:
+        pass
+    return out
+
+
 def delete_bot(bot_id: str) -> bool:
     with _lock:
         path = _path(bot_id)
@@ -264,7 +306,7 @@ def session_for(bot: dict[str, Any]) -> str:
 def bot_for_session(session: str) -> dict[str, Any] | None:
     if not str(session or "").startswith(SESSION_PREFIX):
         return None
-    return get_bot(session[len(SESSION_PREFIX):])
+    return get_bot(session[len(SESSION_PREFIX):].split("#", 1)[0])   # 1.4.18: "bot-<id>#task-<n>" is that bot's task
 
 
 def _bind(bot_id: str, handoff: bool) -> tuple[str, bool, list[str]]:
@@ -353,7 +395,7 @@ def _work_sense(bot: dict[str, Any]) -> list[str]:
         if not owner or owner == mine:
             continue
         if owner.startswith(SESSION_PREFIX):
-            who = get_bot(owner[len(SESSION_PREFIX):])
+            who = get_bot(owner[len(SESSION_PREFIX):].split("#", 1)[0])
             name = str(who["name"]) if who else "another bot"
         else:
             name = "another chat"

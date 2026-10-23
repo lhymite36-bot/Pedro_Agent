@@ -14,8 +14,11 @@ import threading
 from pathlib import Path
 from typing import Any
 
-TIMEOUT_SECONDS = 20
+TIMEOUT_SECONDS = 20          # kept for callers that read it; see _timeouts()
+START_TIMEOUT_SECONDS = 180   # first start may download the server (npx -y ...)
+CALL_TIMEOUT_SECONDS = 300    # some MCP tools run for minutes
 _PROTOCOL = "2024-11-05"
+DISABLED_SERVERS = frozenset({"rea"})
 
 
 def _agent() -> Any:
@@ -62,6 +65,8 @@ def _load_servers() -> dict[str, dict[str, Any]]:
             continue
         if not isinstance(args, list) or not all(isinstance(item, str) for item in args):
             continue
+        if name.strip().casefold() in DISABLED_SERVERS or any("rea-agents" in a.casefold() for a in [command, *args]):
+            continue   # reverse-engineering servers are not part of Ped Bot
         servers[name.strip()] = {"command": command.strip(), "args": list(args)}
     return servers
 
@@ -84,25 +89,68 @@ def _object_arguments(raw: Any) -> dict[str, Any] | None:
     return None
 
 
+def _timeouts() -> tuple[float, float]:
+    """(start, call) seconds. rules.yaml mcp.start_timeout_seconds / mcp.call_timeout_seconds."""
+    try:
+        import rules
+
+        section = rules.section("mcp", {"start_timeout_seconds": START_TIMEOUT_SECONDS,
+                                        "call_timeout_seconds": CALL_TIMEOUT_SECONDS})
+        return (float(section.get("start_timeout_seconds") or START_TIMEOUT_SECONDS),
+                float(section.get("call_timeout_seconds") or CALL_TIMEOUT_SECONDS))
+    except Exception:
+        return float(START_TIMEOUT_SECONDS), float(CALL_TIMEOUT_SECONDS)
+
+
+# MCP stdio is one JSON message per line (the spec). 1.4.13 and earlier wrote
+# LSP-style Content-Length headers, which current MCP servers never parse,
+# so every call waited and then "timed out". Reading accepts both.
+FRAMING = "lines"
+
+
 def _write_frame(stdin: Any, payload: dict[str, Any]) -> None:
-    raw = json.dumps(payload).encode("utf-8")
-    header = f"Content-Length: {len(raw)}\r\n\r\n".encode("ascii")
-    stdin.write(header + raw)
+    raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    if FRAMING == "headers":
+        stdin.write(f"Content-Length: {len(raw)}\r\n\r\n".encode("ascii") + raw)
+    else:
+        stdin.write(raw + b"\n")
     stdin.flush()
 
 
 def _read_frame(stdout: Any) -> dict[str, Any]:
-    header = b""
-    while b"\r\n\r\n" not in header:
-        chunk = stdout.read(1)
+    while True:
+        line = stdout.readline()
+        if not line:
+            raise RuntimeError("The MCP server closed the connection.")
+        if len(line) > 4_000_000:
+            raise RuntimeError("The MCP server sent a message that is too large.")
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.lower().startswith(b"content-length:"):
+            return _read_header_frame(stdout, line)
+        if not stripped.startswith(b"{"):
+            continue   # a log line on stdout: skip it
+        try:
+            parsed = json.loads(stripped.decode("utf-8"))
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+
+
+def _read_header_frame(stdout: Any, first: bytes) -> dict[str, Any]:
+    header = first
+    while b"\r\n\r\n" not in header and not header.endswith(b"\n\n"):
+        chunk = stdout.readline()
         if not chunk:
             raise RuntimeError("The MCP server closed the connection.")
         header += chunk
         if len(header) > 65536:
             raise RuntimeError("The MCP server sent a header that is too large.")
-    text = header.split(b"\r\n\r\n", 1)[0].decode("ascii", errors="replace")
+    text = header.replace(b"\r\n", b"\n").split(b"\n\n", 1)[0].decode("ascii", errors="replace")
     length = 0
-    for line in text.split("\r\n"):
+    for line in text.split("\n"):
         if line.lower().startswith("content-length:"):
             length = int(line.split(":", 1)[1].strip())
     if length <= 0 or length > 2_000_000:
@@ -119,7 +167,8 @@ def _read_frame(stdout: Any) -> dict[str, Any]:
     return parsed
 
 
-def _request(process: subprocess.Popen[bytes], method: str, params: dict[str, Any], ident: int) -> dict[str, Any]:
+def _request(process: subprocess.Popen[bytes], method: str, params: dict[str, Any], ident: int,
+             timeout: float | None = None) -> dict[str, Any]:
     _write_frame(
         process.stdin,
         {"jsonrpc": "2.0", "id": ident, "method": method, "params": params},
@@ -138,10 +187,11 @@ def _request(process: subprocess.Popen[bytes], method: str, params: dict[str, An
 
     reader = threading.Thread(target=_read, name="mcp-read", daemon=True)
     reader.start()
-    reader.join(TIMEOUT_SECONDS)
+    wait = float(timeout if timeout is not None else _timeouts()[1])
+    reader.join(wait)
     if reader.is_alive():
         process.kill()
-        raise TimeoutError("The MCP server timed out.")
+        raise TimeoutError(f"The MCP server did not answer {method} within {int(wait)} seconds.")
     if "error" in box:
         raise RuntimeError(str(box["error"]))
     message = box.get("message") or {}
@@ -154,14 +204,25 @@ def _request(process: subprocess.Popen[bytes], method: str, params: dict[str, An
 
 
 def _stdio(server: dict[str, Any], method: str, params: dict[str, Any]) -> dict[str, Any]:
-    command = [server["command"], *server["args"]]
-    process = subprocess.Popen(
-        command,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        shell=False,
-    )
+    import shutil
+
+    exe = shutil.which(server["command"]) or server["command"]   # npx -> npx.cmd on Windows
+    command = [exe, *server["args"]]
+    flags: dict[str, Any] = {}
+    if os.name == "nt":
+        flags["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        process = subprocess.Popen(
+            command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,   # an unread stderr pipe can fill and freeze the server
+            shell=False,
+            **flags,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"Could not start {server['command']}. Is it installed (Node.js for npx)?") from exc
+    start_wait, call_wait = _timeouts()
     try:
         assert process.stdin is not None
         assert process.stdout is not None
@@ -171,12 +232,13 @@ def _stdio(server: dict[str, Any], method: str, params: dict[str, Any]) -> dict[
             {
                 "protocolVersion": _PROTOCOL,
                 "capabilities": {},
-                "clientInfo": {"name": "gta5-agent", "version": "1"},
+                "clientInfo": {"name": "pedro-agent", "version": "1.5.9"},
             },
             1,
+            timeout=start_wait,
         )
         _write_frame(process.stdin, {"jsonrpc": "2.0", "method": "notifications/initialized"})
-        return _request(process, method, params, 2)
+        return _request(process, method, params, 2, timeout=call_wait)
     finally:
         if process.stdin is not None:
             try:
@@ -291,47 +353,3 @@ def mcp_router(
         raise
     except Exception as exc:
         return agent._err(f"mcp_router failed: {agent._scrub(str(exc))[:500]}")
-
-
-def rea_server_spec() -> dict[str, Any]:
-    """Command line for the REA MCP server. The model cannot change this."""
-    import agent_config
-
-    command = agent_config.rea_command()
-    if command and Path(command[0]).name.lower().startswith("rea"):
-        return {"command": command[0], "args": ["--mcp"]}
-    if command:
-        return {"command": command[0], "args": [*command[1:], "--mcp"]}
-    return {"command": "npx", "args": ["-y", "rea-agents@latest", "--mcp"]}
-
-
-def ensure_rea_server(path: Path | None = None) -> dict[str, Any]:
-    """Add the REA server to the MCP config when it is missing. Existing names stay."""
-    target = Path(path) if path is not None else _config_path()
-    if target is None:
-        return {}
-    servers: dict[str, dict[str, Any]] = {}
-    data: dict[str, Any] = {}
-    if target.is_file():
-        try:
-            loaded = json.loads(target.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            loaded = {}
-        if isinstance(loaded, dict):
-            data = loaded
-            raw = loaded.get("servers")
-            if not isinstance(raw, dict):
-                raw = loaded.get("mcpServers")
-            if isinstance(raw, dict):
-                servers = {
-                    str(name): dict(spec)
-                    for name, spec in raw.items()
-                    if isinstance(name, str) and isinstance(spec, dict)
-                }
-    if "rea" not in servers:
-        servers["rea"] = rea_server_spec()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        payload = dict(data)
-        payload["servers"] = servers
-        target.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    return servers

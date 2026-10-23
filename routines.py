@@ -338,11 +338,26 @@ _running: set[str] = set()
 
 def due(now: float | None = None) -> list[dict[str, Any]]:
     now = _now() if now is None else now
+    try:
+        import safe_mode
+
+        if safe_mode.paused():
+            return []
+    except Exception:
+        pass
     return [r for r in _load()["routines"] if not r.get("paused") and r.get("next_run") and r["next_run"] <= now
             and r["id"] not in _running]
 
 
 def run_routine(r: dict[str, Any], manual: bool = False) -> dict[str, Any]:
+    if r.get("target") == "bot" and r.get("target_id"):
+        try:   # 1.5.0: never run for a bot that was deleted (an orphan once asked to post a video publicly)
+            import bots
+            if bots.get_bot(str(r["target_id"])) is None:
+                pause_routine(r["id"])
+                return {"ok": False, "error": f"The bot '{r['target_id']}' was deleted, so '{r.get('name')}' is paused."}
+        except ImportError:
+            pass
     _running.add(r["id"])
     started = _now()
     status, result = "ok", ""

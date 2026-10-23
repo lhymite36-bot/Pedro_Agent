@@ -2,12 +2,15 @@
 
 OFF unless rules.yaml remote.enabled is true. It runs as a SEPARATE server
 (default 127.0.0.1:8766) so the normal local app on 8765 is never exposed.
-Every request needs a session cookie; you get one only by logging in with the
-long random access token (storage/remote_token.txt) or, if set, the PIN in the
-REMOTE_PIN environment variable (6+ digits). Failed logins are rate-limited
-and lock out. View-only by default; remote clicks/typing need
-remote.allow_control: true AND (if the remote_control confirm category is on)
-a "yes" from the phone that opens a short control window.
+Every request needs a session cookie; you get one by logging in with a
+Supabase access_token (email/password on the phone app), the long random
+access token (storage/remote_token.txt), or, if set, the PIN in REMOTE_PIN
+(6+ digits). Failed token/PIN logins are rate-limited and lock out.
+View-only by default; remote clicks/typing need remote.allow_control: true
+AND (if the remote_control confirm category is on) a "yes" from the phone.
+
+The current tunnel URL (never the token) is also written to Supabase
+pc_presence so the phone can skip pasting a Cloudflare link.
 
 To reach it from outside your home, run a free tunnel to that port, e.g.
 cloudflared (Cloudflare quick tunnel) or Tailscale. See README.
@@ -125,7 +128,7 @@ def rotate_token() -> str:
 
 # ---- one-time pairing codes (QR) ----
 PAIR_TTL = 600
-APK_URL = "https://github.com/lhymite36-bot/Pedro_Agent/releases/download/android-v1.3.0/PedroAgent-1.3.0.apk"
+APK_URL = "https://github.com/lhymite36-bot/Pedro_Agent/releases/download/android-v1.5.9/PedBot-1.5.9.apk"
 _pair_codes: dict[str, float] = {}
 _PAIR_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 
@@ -360,7 +363,9 @@ def remote_control_action(type: str, x: float = 0.0, y: float = 0.0, text: str =
     return {"ok": False, "error": "type must be click or type."}
 
 
-def do_control(data: dict[str, Any]) -> dict[str, Any]:
+def control_refusal() -> dict[str, Any] | None:
+    """Why phone input is refused right now, or None when it may run.
+    Needs remote.allow_control, the 'Allow control' yes, and remote_control_action not blocked."""
     if not settings()["allow_control"]:
         return {"ok": False, "error": "View only. Set remote.allow_control: true in rules.yaml to allow control."}
     if not control_open():
@@ -368,6 +373,27 @@ def do_control(data: dict[str, Any]) -> dict[str, Any]:
     reason = rules.tool_block_reason("remote_control_action")
     if reason:
         return {"ok": False, "error": reason}
+    return None
+
+
+def phone_control(data: dict[str, Any]) -> dict[str, Any]:
+    """Live PC input from the phone: the same permission checks as do_control, then the
+    Live PC control (clicks, drags, scrolls, typing)."""
+    refused = control_refusal()
+    if refused is not None:
+        _note("Remote control refused")
+        return refused
+    import live_pc
+
+    result = live_pc.local_control(data if isinstance(data, dict) else {})
+    _note(f"Remote {str((data or {}).get('type') or '')}" + (" ok" if result.get("ok") else " failed"))
+    return result
+
+
+def do_control(data: dict[str, Any]) -> dict[str, Any]:
+    refused = control_refusal()
+    if refused is not None:
+        return refused
     import agent_core
 
     function = agent_core.TOOLS.get("remote_control_action", remote_control_action)
@@ -393,20 +419,29 @@ def _note(text: str) -> None:
 # ---- login page (self-contained, no external assets) ----
 
 LOGIN_HTML = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Pedro_Agent - sign in</title><meta name="theme-color" content="#0b0b0f"><link rel="manifest" href="/manifest.webmanifest">
-<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0b0f;color:#ececf1;font:16px system-ui,sans-serif}
-form{background:#111116;border:1px solid #23232d;border-radius:16px;padding:28px;width:min(360px,88vw)}h1{font-size:20px;margin:0 0 6px}
-p{color:#8e8ea0;font-size:14px;margin:0 0 16px}input{width:100%;box-sizing:border-box;padding:12px;border-radius:10px;border:1px solid #23232d;background:#17171e;color:#fff;font-size:16px}
-button{margin-top:12px;width:100%;padding:12px;border:0;border-radius:10px;background:#7c8cff;color:#fff;font-size:16px}#e{color:#ff6b6b;font-size:14px;min-height:20px;margin-top:8px}</style></head>
-<body><form id="f"><h1>Pedro_Agent</h1><p>Enter your access token or PIN.</p><input id="s" type="password" autocomplete="current-password" autofocus>
-<button>Sign in</button><div id="e"></div></form><script>
+<title>Ped Bot - sign in</title><meta name="theme-color" content="#0e0f11"><link rel="manifest" href="/manifest.webmanifest">
+<style>html,body{margin:0;min-height:100%;background:#0e0f11;color:#e7e9ea;font:16px system-ui,sans-serif}
+body{min-height:100vh;display:grid;place-items:center;padding:24px}
+.auth-card{width:min(420px,92vw);background:#16181c;border:1px solid #26292e;border-radius:16px;padding:28px 24px 22px}
+.auth-mark{font-size:15px;font-weight:700;color:#8b9096;margin-bottom:10px;letter-spacing:.02em}
+h1{margin:0 0 6px;font-size:28px;font-weight:700;color:#e7e9ea}
+p{margin:0 0 20px;color:#8b9096;font-size:14px;line-height:1.45}
+label{display:block;font-size:13px;font-weight:650;color:#e7e9ea;margin:0 0 12px}
+input{display:block;width:100%;margin-top:6px;box-sizing:border-box;background:#0e0f11;border:1px solid #26292e;border-radius:10px;color:#e7e9ea;padding:11px 12px;font-size:15px;outline:none}
+input:focus{border-color:#3e4247}
+button{width:100%;margin-top:6px;border:0;border-radius:999px;padding:12px 16px;background:#1d9bf0;color:#fff;font-size:15px;font-weight:700;cursor:pointer}
+#e{color:#f4212e;font-size:13px;min-height:1.2em;margin:4px 0 10px}</style></head>
+<body><form id="f" class="auth-card"><div class="auth-mark">Ped Bot</div><h1>Sign in</h1>
+<p>Use the token from your PC, or the phone app with email and password.</p>
+<label>Access token or PIN<input id="s" type="password" autocomplete="current-password" autofocus></label>
+<p id="e"></p><button>Sign in</button></form><script>
 async function go(secret){const r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({secret})});
-const j=await r.json();if(j.ok){location.replace('/');}else{document.getElementById('e').textContent=j.error||'Failed';}}
+const j=await r.json();if(j.ok){location.replace('/?ui=grokskin');}else{document.getElementById('e').textContent=j.error||'Failed';}}
 document.getElementById('f').onsubmit=(e)=>{e.preventDefault();go(document.getElementById('s').value);};
 const h=new URLSearchParams(location.hash.slice(1)).get('t');if(h){history.replaceState(null,'','/login');go(h);}
 </script></body></html>"""
 
-PUBLIC_PATHS = {"/login", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"}
+PUBLIC_PATHS = {"/login", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png", "/api/auth/config"}
 
 
 def make_remote_handler(state: Any) -> type:
@@ -426,13 +461,22 @@ def make_remote_handler(state: Any) -> type:
                 return True
             if session_valid(self.headers.get("Cookie", "")):
                 return True
+            try:
+                import supabase_auth
+                user = supabase_auth.user_from_request(self)
+            except Exception:
+                user = None
+            if user:
+                self.auth_user = user
+                return True
             if path in {"/", "/index.html"} and self.command == "GET":
                 self.send_response(302)
                 self.send_header("Location", "/login")
                 self.send_header("Content-Length", "0")
                 self.end_headers()
             else:
-                self._send(401, b'{"error":"sign in first"}')
+                # 403 so an older APK does not treat this as a dead tunnel.
+                self._send(403, b'{"ok":false,"error":"sign in first","code":"auth_required"}')
             return False
 
         def _body(self) -> dict[str, Any]:
@@ -503,10 +547,24 @@ def make_remote_handler(state: Any) -> type:
                     self._send(403, b'{"error":"cross-origin"}')
                     return
                 data = self._body()
-                ok, error = check_login(str(data.get("secret") or ""), self._client_ip())
+                access = str(data.get("access_token") or "").strip()
+                ok, error = False, "Wrong token or PIN."
+                if access:
+                    try:
+                        import supabase_auth
+                        user = supabase_auth.user_from_token(access)
+                    except Exception:
+                        user = None
+                    if user:
+                        ok, error = True, ""
+                        self.auth_user = user
+                    else:
+                        ok, error = False, "Please sign in."
+                else:
+                    ok, error = check_login(str(data.get("secret") or ""), self._client_ip())
                 if not ok:
                     _note("Failed remote sign-in")
-                    self._json({"ok": False, "error": error}, 401)
+                    self._json({"ok": False, "error": error}, 403 if access else 401)
                     return
                 sid = new_session()
                 max_age = int(float(settings()["session_hours"]) * 3600)
@@ -532,9 +590,8 @@ def make_remote_handler(state: Any) -> type:
                 self._json(allow_control(str(self._body().get("confirm") or "")))
                 return
             if path == "/live/control":
-                import live_pc
-
-                self._json(live_pc.local_control(self._body()))
+                result = phone_control(self._body())
+                self._json(result)
                 return
             super().do_POST()
 
@@ -650,6 +707,52 @@ def _follow_tunnel_output(proc: subprocess.Popen) -> bool:
     return alive
 
 
+def _tunnel_pid_file() -> Path:
+    import agent_config
+    return agent_config.storage_dir() / "tunnel.pid"
+
+
+def _end_stale_tunnel() -> None:
+    """1.4.15: a tunnel left running by an earlier app run (app killed, crash, upgrade) is closed first.
+    Before this, every restart left one more cloudflared.exe (~32 MB each) running."""
+    try:
+        pid = int(_tunnel_pid_file().read_text(encoding="utf-8").strip() or 0)
+    except Exception:
+        return
+    if pid <= 0 or pid == os.getpid():
+        return
+    try:
+        if os.name == "nt":   # ctypes, not tasklist: tasklist /FI needs WMI, which is broken on some PCs
+            import ctypes
+            from ctypes import wintypes
+            k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            k32.OpenProcess.restype = wintypes.HANDLE
+            handle = k32.OpenProcess(0x1000 | 0x0001, False, pid)   # QUERY_LIMITED_INFORMATION | TERMINATE
+            if not handle:
+                return
+            try:
+                buf = ctypes.create_unicode_buffer(1024)
+                size = wintypes.DWORD(1024)
+                if k32.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size)) and \
+                        "cloudflared" in buf.value.casefold():
+                    k32.TerminateProcess(handle, 1)
+            finally:
+                k32.CloseHandle(handle)
+        else:
+            with open(f"/proc/{pid}/comm", encoding="utf-8") as f:
+                if "cloudflared" in f.read():
+                    os.kill(pid, 9)
+    except Exception:
+        pass
+
+
+def _remember_tunnel(proc: Any) -> None:
+    try:
+        _tunnel_pid_file().write_text(str(proc.pid), encoding="utf-8")
+    except Exception:
+        pass
+
+
 def start_tunnel(port: int) -> str:
     """Cloudflare quick tunnel (free, no account). Returns the https URL."""
     global _tunnel, public_url
@@ -657,6 +760,7 @@ def start_tunnel(port: int) -> str:
     if not exe:
         print("Remote: cloudflared not found. Install it (winget install Cloudflare.cloudflared) or use Tailscale.", flush=True)
         return ""
+    _end_stale_tunnel()
     flags: dict[str, Any] = {}
     if os.name == "nt":
         flags["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -668,6 +772,7 @@ def start_tunnel(port: int) -> str:
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
             text=True, encoding="utf-8", errors="replace", bufsize=1, shell=False, **flags)
         _tunnel = proc
+        _remember_tunnel(proc)
         if generation != _tunnel_gen:
             _end_process(proc)
             if _tunnel is proc:
@@ -748,11 +853,23 @@ def publish_url(url: str, token: str) -> bool:
         return False
 
 
+def _publish_presence(url: str) -> None:
+    try:
+        import supabase_auth
+
+        if supabase_auth.publish_pc_url(url):
+            print("Remote: phone account can find this PC.", flush=True)
+    except Exception:
+        pass
+
+
 def _republish_loop(url: str, token: str) -> None:
     hours = max(1.0, float(settings()["publish_every_hours"] or 6))
+    _publish_presence(url)
     while public_url == url and access_token(create=False) == token:
         if publish_url(url, token):
             print("Remote: phone app auto-connect link published.", flush=True)
+        _publish_presence(url)
         time.sleep(hours * 3600)
 
 
@@ -768,7 +885,7 @@ def _announce(url: str, token: str) -> None:
         import remote_bridge
 
         if remote_bridge.paired():
-            remote_bridge.notify(f"Pedro_Agent on your phone: {link_with_token(url, token)}\n"
+            remote_bridge.notify(f"Ped Bot on your phone: {link_with_token(url, token)}\n"
                                  "Open it, then use 'Add to Home screen' to install. Don't share this link.")
     except Exception:
         pass

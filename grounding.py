@@ -17,6 +17,9 @@ ACTION_TOOLS = frozenset({
     "press_keys",
     "scroll",
 })
+# Clicks and typing that check themselves (ui_controls). Several may run in one step
+# (faster), but the third identical one is still refused.
+VERIFIED_ACTIONS = frozenset({"ui_click", "ui_set_text"})
 
 _PATH = re.compile(r"[A-Za-z]:\\[^\s\"'`<>|*?\n]+")
 _URL = re.compile(r"https?://[^\s\"'<>\n]+")
@@ -52,6 +55,36 @@ _NAME_TAIL = frozenset({
     "browser", "window", "program", "up",
 })
 
+# A tool call written into the reply as text, e.g. [[replay_skill(name='lesson')]].
+# Writing it does nothing; the agent loop asks the model to make a real call, then drops it.
+TEXT_CALL = re.compile(r"\[\[\s*([A-Za-z_][A-Za-z0-9_]{2,60})\s*\((?:[^\[\]]|\[[^\[\]]*\])*\)\s*\]\]")
+_STRONG_DONE = re.compile(
+    r"\b(completed|finished|all done|it is done|it's done|task is complete|have done it|recorded|"
+    r"submitted|uploaded|saved|sent|placed the order|deleted|fully built|is built|been built|built and ready|ready to use)\b",
+    re.I,
+)
+
+
+def text_calls(reply: str) -> list[str]:
+    """Tool names written as text instead of called."""
+    return [m.group(1) for m in TEXT_CALL.finditer(reply or "")]
+
+
+def strip_text_calls(reply: str) -> str:
+    out = TEXT_CALL.sub("", reply or "")
+    return re.sub(r"[ \t]{2,}", " ", out).strip()
+
+
+def _strong_claim(text: str) -> bool:
+    for match in _STRONG_DONE.finditer(text or ""):
+        start = max(0, match.start() - 16)
+        window = text[start:match.end()].casefold()
+        if any(neg in window for neg in _NEG):
+            continue
+        return True
+    return False
+
+
 _local = threading.local()
 
 
@@ -77,7 +110,7 @@ def signature(name: str, arguments: dict[str, Any]) -> str:
 
 def repeat_error(name: str, arguments: dict[str, Any]) -> dict[str, Any] | None:
     """Refuse the third identical screen action. The first two still run."""
-    if name not in ACTION_TOOLS:
+    if name not in ACTION_TOOLS and name not in VERIFIED_ACTIONS:
         return None
     bag = _bag()
     key = signature(name, arguments)
@@ -262,12 +295,12 @@ def _keep_token(token: str, evidence: str) -> bool:
 
 def ground_reply(user_text: str, reply: str) -> str:
     """Drop a path, a link, or a success that no tool in this turn returned."""
-    text = (reply or "").strip()
+    text = strip_text_calls((reply or "").strip())
     calls = list(getattr(_bag(), "calls", []) or [])
     if not text:
         return text
     if not calls:
-        if unbacked_action(text):
+        if unbacked_action(text) or _strong_claim(text):
             return "I have not done that. No tool ran, so nothing was opened, clicked, or sent."
         return text
     evidence = _evidence(user_text)
@@ -276,14 +309,18 @@ def ground_reply(user_text: str, reply: str) -> str:
         token = match.group(0)
         if _keep_token(token, evidence):
             return token
-        return "[not returned by a tool]"
+        return "\x00"   # 1.5.3: dropped silently (no placeholder text in replies)
 
     cleaned = _PATH.sub(missing, text)
     cleaned = _URL.sub(missing, cleaned)
+    cleaned = re.sub(r"`?\x00`?", "", cleaned)
+    cleaned = re.sub(r"[ \t]+([,.;:)])", r"\1", cleaned).replace("()", "")
     last = calls[-1]
     if not any(row["ok"] for row in calls) and _claims_done(cleaned):
         reason = last["message"] or "the tool failed"
         return f"I am not calling this done. The last tool said: {reason}"
-    if not last["ok"] and last["message"] and _claims_done(cleaned) and last["message"] not in cleaned:
-        cleaned = cleaned.rstrip() + f"\n\nChecked: the last step failed. {last['message']}"
+    if not last["ok"] and _claims_done(cleaned):
+        # Never "done" and "failed" in one message: the failure wins.
+        reason = last["message"] or "the tool failed"
+        return f"Not done yet. The last step failed: {reason}"
     return cleaned

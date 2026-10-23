@@ -176,7 +176,52 @@ def _wrapped_script(user_script: str, output: Path) -> str:
         + "        bpy.ops.export_scene.obj(filepath=_out, use_selection=False)\n"
         + "else:\n"
         + "    raise RuntimeError('Unsupported export type: ' + _ext)\n"
+        + VERIFY_TAIL
     )
+
+
+# 1.4.14: every build leaves proof next to the file - a scene report and a small
+# preview render - so the bot checks what it made instead of assuming.
+VERIFY_TAIL = (
+    "import json as _json\n"
+    "_rep = {'objects': [], 'materials': [m.name for m in bpy.data.materials if m.users]}\n"
+    "for _o in bpy.context.scene.objects:\n"
+    "    _d = {'name': _o.name, 'type': _o.type, 'location': [round(v, 3) for v in _o.location],\n"
+    "          'dimensions': [round(v, 3) for v in _o.dimensions], 'modifiers': [m.type for m in getattr(_o, 'modifiers', [])],\n"
+    "          'materials': [s.material.name for s in getattr(_o, 'material_slots', []) if s.material]}\n"
+    "    if _o.type == 'MESH':\n"
+    "        _d['verts'] = len(_o.data.vertices); _d['faces'] = len(_o.data.polygons)\n"
+    "    _rep['objects'].append(_d)\n"
+    "try:\n"
+    "    _sc = bpy.context.scene\n"
+    "    if _sc.camera is not None:\n"
+    "        _sc.render.resolution_percentage = 25\n"
+    "        if _sc.render.engine == 'CYCLES':\n"
+    "            _sc.cycles.samples = min(_sc.cycles.samples, 16)\n"
+    "        _sc.render.filepath = _out + '.preview.png'\n"
+    "        _sc.render.image_settings.file_format = 'PNG'\n"
+    "        bpy.ops.render.render(write_still=True)\n"
+    "        _rep['preview'] = _out + '.preview.png'\n"
+    "except Exception as _e:\n"
+    "    _rep['preview_error'] = str(_e)\n"
+    "with open(_out + '.scene.json', 'w', encoding='utf-8') as _f:\n"
+    "    _json.dump(_rep, _f)\n"
+)
+
+
+def _proof(path: Path) -> dict[str, Any]:
+    """Scene report + preview render written by VERIFY_TAIL, for the bot to check."""
+    out: dict[str, Any] = {}
+    try:
+        rep = json.loads(Path(str(path) + ".scene.json").read_text(encoding="utf-8"))
+        out["scene"] = {"objects": rep.get("objects", [])[:40], "materials": rep.get("materials", [])[:40]}
+        if rep.get("preview") and Path(rep["preview"]).is_file():
+            out["preview"] = rep["preview"]
+        elif rep.get("preview_error"):
+            out["preview_error"] = rep["preview_error"]
+    except (OSError, ValueError):
+        pass
+    return out
 
 
 def _model_problem(path: Path) -> str | None:
@@ -452,6 +497,7 @@ def run_blender_task(
                     status="ready",
                     path=str(output),
                     job_id=job_id,
+                    **_proof(Path(output)),
                 )
             return agent._err(
                 str(notice.get("message") or "Blender could not build the model."),
@@ -513,6 +559,7 @@ def blender_job_status(open_file: bool = False) -> dict[str, Any]:
             str(notice.get("message") or "The 3D model is ready."),
             status="ready",
             path=str(path),
+            **_proof(path),
         )
     except AssertionError:
         raise

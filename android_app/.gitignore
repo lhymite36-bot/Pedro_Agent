@@ -1,3 +1,2 @@
 build/
-*.jks
-*.keystore
+src/com/pedro/agent/Config.java

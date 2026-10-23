@@ -245,7 +245,35 @@ def _interpret(to: str, subject: str, body: str, request: str) -> dict[str, Any]
     return {"to": recipient, "subject": subject_text, "body": body_text}
 
 
-def _configured() -> tuple[str, str] | None:
+def _accounts() -> list[dict[str, Any]]:
+    try:
+        import connectors
+        return connectors.gmail_accounts()["accounts"]
+    except Exception:
+        return []
+
+
+def sending_account(from_account: str = "") -> str:
+    """What the approval card shows as the sender. Never includes a password."""
+    if not from_account:
+        try:
+            import google_connections as _gc
+            if _gc._read("gmail"):
+                return "your Google sign-in"
+        except Exception:
+            pass
+    found = _configured(from_account)
+    return found[0] if found else ""
+
+
+def _configured(account: str = "") -> tuple[str, str] | None:
+    """Address + app password: the named saved account, else the environment, else the default saved one."""
+    if account:
+        try:
+            import connectors
+            return connectors.gmail_login(account)
+        except Exception:
+            return None
     address = os.environ.get("GMAIL_ADDRESS", "").strip()
     password = "".join(os.environ.get("GMAIL_APP_PASSWORD", "").split())
     if valid_email(address) and len(password) >= 8:
@@ -276,7 +304,33 @@ def _mail_drop(exc: BaseException) -> bool:
     return isinstance(exc, (TimeoutError, ConnectionError))
 
 
-def _smtp_send(sender: str, password: str, recipient: str, subject: str, body: str) -> None:
+APP_PASSWORD_HINT = "This isn't a Gmail app password. Make one at myaccount.google.com/apppasswords"
+SIGN_IN_DROP = ("Gmail closed the connection while signing in, so this is a sign-in problem, not a network problem. "
+                "Check the Gmail address and app password (myaccount.google.com/apppasswords).")
+
+
+class _SignInDrop(RuntimeError):
+    """The connection dropped during login: a sign-in problem, so the other port is not tried."""
+
+
+def app_password_ok(password: str) -> bool:
+    """1.4.16: a Gmail app password is 16 letters (spaces ignored). Only the shape is checked; never logged."""
+    value = "".join(str(password or "").split())
+    return len(value) == 16 and value.isascii() and value.isalpha()
+
+
+def _login(smtp: Any, sender: str, password: str) -> None:
+    import smtplib
+
+    try:
+        smtp.login(sender, password)
+    except smtplib.SMTPAuthenticationError:
+        raise
+    except (smtplib.SMTPServerDisconnected, ConnectionError, TimeoutError, OSError) as exc:
+        raise _SignInDrop(type(exc).__name__) from None
+
+
+def _smtp_send(sender: str, password: str, recipient: str, subject: str, body: str, port: int = 587) -> None:
     import smtplib
     from email.message import EmailMessage
 
@@ -285,15 +339,25 @@ def _smtp_send(sender: str, password: str, recipient: str, subject: str, body: s
     message["To"] = recipient
     message["Subject"] = subject
     message.set_content(body)
-    with smtplib.SMTP("smtp.gmail.com", 587, timeout=20) as smtp:
+    import ssl
+
+    context = ssl.create_default_context()
+    if port == 465:
+        # Direct TLS. Works where 587 + STARTTLS is closed early by a network or antivirus mail scan,
+        # which shows up as "Connection unexpectedly closed".
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30, context=context) as smtp:
+            _login(smtp, sender, password)
+            smtp.send_message(message)
+        return
+    with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as smtp:
         smtp.ehlo()
-        smtp.starttls()
+        smtp.starttls(context=context)
         smtp.ehlo()
-        smtp.login(sender, password)
+        _login(smtp, sender, password)
         smtp.send_message(message)
 
 
-def _deliver(recipient: str, subject: str, body: str) -> dict[str, Any]:
+def _deliver(recipient: str, subject: str, body: str, from_account: str = "") -> dict[str, Any]:
     agent = _agent()
     sender = os.environ.get("GMAIL_ADDRESS", "").strip()
     payload = {"to": recipient, "subject": subject, "body": body, "from": sender}
@@ -308,36 +372,55 @@ def _deliver(recipient: str, subject: str, body: str) -> dict[str, Any]:
             to=recipient,
             subject=subject,
         )
-    setup = _configured()
+    try:
+        import google_connections as _gc
+
+        if not from_account and _gc._read("gmail"):   # a named app-password account skips the Google sign-in
+            _gc.gmail_send(recipient, subject, body, sender)
+            return _ok(f"Email successfully sent to {recipient}.", to=recipient, subject=subject, via="gmail sign-in")
+    except Exception as exc:  # fall back to the app password below, if there is one
+        if _configured(from_account) is None:
+            return _err(f"The email was not sent: {_safe(str(exc))}")
+    setup = _configured(from_account)
     if setup is None:
         return _err(
             "Gmail is not set up. Set GMAIL_ADDRESS and GMAIL_APP_PASSWORD in the environment."
         )
     account, password = setup
+    if not app_password_ok(password):
+        return _err(APP_PASSWORD_HINT)
     payload["from"] = account
     import smtplib
 
     last: BaseException | None = None
-    for _attempt in range(3):
+    import time as _time
+
+    for attempt, port in enumerate((587, 465, 465)):
+        if attempt:
+            _time.sleep(1.5 * attempt)
         try:
-            _smtp_send(account, password, recipient, subject, body)
+            _smtp_send(account, password, recipient, subject, body, port=port)
             last = None
             break
         except AssertionError:
             raise
         except smtplib.SMTPAuthenticationError as exc:
             return _err(f"The email was not sent. {_safe(str(exc))}")
+        except _SignInDrop:
+            return _err(f"The email was not sent. {SIGN_IN_DROP}")
         except Exception as exc:
             last = exc
             if _mail_drop(exc):
                 continue
             return _err(f"The email was not sent. {_safe(str(exc))}")
     if last is not None:
-        return _err(f"The email was not sent. {_safe(str(last))}")
+        return _err(f"The email was not sent. {_safe(str(last))} Gmail closed the connection on both port 587 "
+                    "and 465. Check the internet connection, or whether antivirus 'email scanning' blocks mail apps.")
     return _ok(
-        f"Email successfully sent to {recipient}.",
+        f"Email successfully sent to {recipient} from {account}.",
         to=recipient,
         subject=subject,
+        account=account,
     )
 
 
@@ -346,9 +429,13 @@ def gmail_send_message(
     subject: str = "",
     body: str = "",
     request: str = "",
+    from_account: str = "",
 ) -> dict[str, Any]:
     """Send one email. A name is looked up. An address is not."""
     try:
+        if from_account and not _configured(from_account):
+            return _clarify(f"No saved Gmail account matches '{_safe(from_account)}'. Ask which account to send from "
+                            f"({', '.join(a['address'] for a in _accounts()) or 'none saved yet'}).")
         interpreted = _interpret(to, subject, body, request)
         if interpreted.get("clarify"):
             return _clarify(str(interpreted["clarify"]), interpreted.get("matches"))
@@ -376,7 +463,7 @@ def gmail_send_message(
             subject_text = _auto_subject(body_text)
         if _has_secret(subject_text) or _has_secret(body_text) or _has_secret(recipient):
             return _err("The message contains a saved secret. Remove it before sending.")
-        return _deliver(recipient, subject_text, body_text)
+        return _deliver(recipient, subject_text, body_text, from_account)
     except AssertionError:
         raise
     except Exception as exc:

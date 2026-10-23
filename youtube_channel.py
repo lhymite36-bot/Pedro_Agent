@@ -38,11 +38,13 @@ CHUNK = 8 * 1024 * 1024
 MAX_BYTES = 8 * 1024 * 1024 * 1024
 
 SETUP = (
-    "YouTube is not connected. An API key cannot post a video. "
-    "In Google Cloud, enable YouTube Data API v3, create an OAuth desktop client, "
-    "and put YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET in .env. "
-    "Then call youtube_connect and sign in as Pedro's channel. "
-    "Start at https://console.cloud.google.com/apis/library/youtube.googleapis.com"
+    "Nothing was posted: YouTube isn't signed in yet. This is a one-time step you do yourself:\n"
+    "1. Open https://console.cloud.google.com/apis/library/youtube.googleapis.com and turn on "
+    "YouTube Data API v3.\n"
+    "2. Under Credentials, create an OAuth client of type 'Desktop app'.\n"
+    "3. Put its YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET in Settings (or .env).\n"
+    "4. Open Connectors > YouTube > Connect and sign in as your channel.\n"
+    "After that, uploads still ask you before they post."
 )
 
 # Tests replace this. (method, url, body, headers) -> (status, headers, body)
