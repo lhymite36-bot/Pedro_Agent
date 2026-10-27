@@ -104,3 +104,10 @@ Next steps when you add a paywall:
 3. On `customer.subscription.deleted`, set `subscription_status` back to `free`.
 4. Gate paid features by reading `profiles.subscription_status` in Ped (same
    JWT already sent as `Authorization: Bearer`).
+
+## Phone-only mode (1.5.12)
+
+Run `phone_sync.sql` once (SQL editor -> New query -> paste -> Run). It adds `pb_bots` and
+`pb_messages`, both with row-level security so each account only sees its own rows. The PC syncs
+with the service role for the account in `PEDBOT_OWNER_EMAIL` (or `ADMIN_EMAIL`). The phone signs in
+with the same account and reads/writes with its own JWT. Gemini keys are never stored in Supabase.

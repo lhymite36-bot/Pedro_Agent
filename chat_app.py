@@ -1950,6 +1950,12 @@ def serve(model: str, port: int = 8765) -> tuple[ThreadingHTTPServer, AppState]:
     _wire_task_board(state)
     server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(state))
     server.daemon_threads = True
+    if port:   # 1.5.12: bots + chats to Supabase for phone-only mode (no-op without Supabase)
+        try:
+            import cloud_sync
+            cloud_sync.start()
+        except Exception as exc:
+            print(f"[cloud-sync] not started: {exc}", flush=True)
     return server, state
 
 

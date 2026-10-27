@@ -25,7 +25,8 @@ public class MainActivity extends Activity {
     static final String PREFS = "pedro", CH = "pedro_replies";
     WebView web; LinearLayout errorView; TextView errText;
     SharedPreferences prefs; PermissionRequest pendingWebPerm; ValueCallback<Uri[]> fileCb;
-    SpeechRecognizer stt; boolean resumed, showingAuth, refreshedThisTry;
+    SpeechRecognizer stt; boolean resumed, showingAuth, refreshedThisTry, inPhone;
+    SecureStore secure;
 
     @Override protected void onCreate(Bundle b) {
         setTheme(android.R.style.Theme_Material_NoActionBar);
@@ -33,6 +34,7 @@ public class MainActivity extends Activity {
         getWindow().setStatusBarColor(Color.parseColor("#0e0f11"));
         getWindow().setNavigationBarColor(Color.parseColor("#0e0f11"));
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        secure = new SecureStore(prefs);
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationChannel c = new NotificationChannel(CH, "Agent replies", NotificationManager.IMPORTANCE_DEFAULT);
             getSystemService(NotificationManager.class).createNotificationChannel(c);
@@ -59,7 +61,7 @@ public class MainActivity extends Activity {
     }
 
     void showAuth() {
-        showingAuth = true;
+        showingAuth = true; inPhone = false;
         errorView.setVisibility(View.GONE);
         try {
             String html = readRaw(R.raw.auth_setup)
@@ -80,6 +82,7 @@ public class MainActivity extends Activity {
         TextView hint = text("Is Ped Bot running on your PC with Connect phone turned on?", 14, "#8b9096");
         hint.setGravity(Gravity.CENTER); l.addView(hint);
         Button retry = grokBtn("Try again", true); retry.setOnClickListener(v -> autoConnect()); l.addView(retry);
+        Button phone = grokBtn("Use phone mode", false); phone.setOnClickListener(v -> showPhoneMode("PC offline")); l.addView(phone);
         Button again = grokBtn("Sign in again", false); again.setOnClickListener(v -> { prefs.edit().remove("base").apply(); showAuth(); }); l.addView(again);
         l.setVisibility(View.GONE); return l;
     }
@@ -100,22 +103,23 @@ public class MainActivity extends Activity {
                     String host = u.getHost();
                     if (host != null && Config.SUPABASE_URL.contains(host)) return false;
                 }
+                if (inPhone) { try { startActivity(new Intent(Intent.ACTION_VIEW, u)); } catch (Exception ignored) {} return true; }
                 if (!base.isEmpty() && u.toString().startsWith(base)) return false;
                 try { startActivity(new Intent(Intent.ACTION_VIEW, u)); } catch (Exception ignored) {}
                 return true;
             }
             @Override public void onReceivedError(WebView v, WebResourceRequest r, WebResourceError e) {
-                if (r.isForMainFrame() && !showingAuth) failOrRefresh("Can't reach your PC (" + e.getDescription() + ").");
+                if (r.isForMainFrame() && !showingAuth && !inPhone) failOrRefresh("Can't reach your PC (" + e.getDescription() + ").");
             }
             @Override public void onReceivedHttpError(WebView v, WebResourceRequest r, WebResourceResponse resp) {
-                if (showingAuth || !r.isForMainFrame()) return;
+                if (showingAuth || inPhone || !r.isForMainFrame()) return;
                 if (resp.getStatusCode() == 530 || resp.getStatusCode() == 502 || (resp.getStatusCode() == 404 && r.getUrl().getHost() != null && r.getUrl().getHost().endsWith("trycloudflare.com")))
                     failOrRefresh("That link has expired (" + resp.getStatusCode() + "). Ped Bot will publish a new one when it is running.");
             }
             @Override public void onPageFinished(WebView v, String url) {
                 CookieManager.getInstance().flush();
                 refreshedThisTry = false;
-                if (!showingAuth) v.evaluateJavascript(INJECT, null);
+                if (!showingAuth && !inPhone) v.evaluateJavascript(INJECT, null);
             }
         });
         web.setWebChromeClient(new WebChromeClient() {
@@ -136,7 +140,7 @@ public class MainActivity extends Activity {
     void openServer() {
         String base = prefs.getString("base", "");
         if (base.isEmpty()) { showAuth(); return; }
-        showingAuth = false;
+        showingAuth = false; inPhone = false;
         errorView.setVisibility(View.GONE);
         String secret = prefs.getString("secret", "");
         if (!secret.isEmpty() && prefs.getString("ticket", "").isEmpty())
@@ -195,6 +199,7 @@ public class MainActivity extends Activity {
     void connectWithAccount() {
         showingAuth = false;
         errorView.setVisibility(View.GONE);
+        if (prefs.getBoolean("phone_only", false)) { showPhoneMode("Phone mode"); return; }
         toast("Finding your PC…");
         new Thread(() -> {
             try {
@@ -202,8 +207,9 @@ public class MainActivity extends Activity {
                 prefs.edit().putString("ticket", sess.toString()).apply();
                 String access = sess.getString("access_token");
                 String url = fetchPresence(access);
-                if (url.isEmpty()) {
-                    showError("Ped Bot isn't publishing a phone address yet. Open Ped Bot on your PC and turn on Connect phone in Settings.");
+                // 1.5.12: prefer the PC when it answers; otherwise run the bots on the phone.
+                if (url.isEmpty() || !pcOnline(url)) {
+                    runOnUiThread(() -> showPhoneMode("PC offline"));
                     return;
                 }
                 String cookie = loginWithJwt(url, access);
@@ -255,6 +261,72 @@ public class MainActivity extends Activity {
         return null;
     }
 
+    static boolean pcOnline(String base) {
+        try {
+            HttpURLConnection c = (HttpURLConnection) new URL(base + "/login").openConnection();
+            c.setConnectTimeout(5000); c.setReadTimeout(5000); c.setInstanceFollowRedirects(false);
+            int code = c.getResponseCode(); c.disconnect();
+            return code > 0 && code < 500;
+        } catch (Exception e) { return false; }
+    }
+
+    /** 1.5.12 phone-only mode: same bots and chats from Supabase, answered by Gemini with the user's own key. */
+    void showPhoneMode(String reason) {
+        runOnUiThread(() -> {
+            if (prefs.getString("ticket", "").isEmpty()) { showAuth(); return; }
+            showingAuth = false; inPhone = true;
+            errorView.setVisibility(View.GONE);
+            try {
+                String html = readRaw(R.raw.phone_mode)
+                    .replace("/*{{CORE}}*/", readRaw(R.raw.phone_core))
+                    .replace("{{URL}}", JSONObject.quote(Config.SUPABASE_URL))
+                    .replace("{{ANON}}", JSONObject.quote(Config.ANON_KEY))
+                    .replace("{{REASON}}", JSONObject.quote(reason == null ? "PC offline" : reason));
+                web.loadDataWithBaseURL("https://phone.pedbot.local/", html, "text/html", "UTF-8", null);
+            } catch (Exception e) { showError("Could not open phone mode."); }
+        });
+    }
+
+    static final java.util.regex.Pattern MODEL_OK = java.util.regex.Pattern.compile("^gemini-[a-z0-9.\\-]{1,40}$");
+
+    void gemini(String model, String body, String cb) {
+        new Thread(() -> {
+            int code = 0; String out;
+            try {
+                String key = secure.get();
+                if (key.isEmpty()) throw new Exception("Add your Gemini key first.");
+                if (!MODEL_OK.matcher(model).matches()) throw new Exception("Bad model name.");
+                HttpURLConnection c = (HttpURLConnection) new URL("https://generativelanguage.googleapis.com/v1beta/models/"
+                    + model + ":generateContent").openConnection();
+                c.setConnectTimeout(15000); c.setReadTimeout(90000); c.setRequestMethod("POST");
+                c.setRequestProperty("Content-Type", "application/json");
+                c.setRequestProperty("x-goog-api-key", key);
+                byte[] raw = body.getBytes("UTF-8"); c.setDoOutput(true); c.setFixedLengthStreamingMode(raw.length);
+                c.getOutputStream().write(raw);
+                code = c.getResponseCode();
+                out = readStream(code >= 400 ? c.getErrorStream() : c.getInputStream());
+            } catch (Exception e) {
+                JSONObject err = new JSONObject();
+                try { err.put("error", new JSONObject().put("message", String.valueOf(e.getMessage()))); } catch (Exception ignored) {}
+                out = err.toString();
+            }
+            final String js = "window.__pbGemini&&window.__pbGemini(" + JSONObject.quote(cb) + "," + code + "," + JSONObject.quote(out) + ")";
+            runOnUiThread(() -> web.evaluateJavascript(js, null));
+        }).start();
+    }
+
+    String session() {
+        try {
+            JSONObject sess = refreshIfNeeded(new JSONObject(prefs.getString("ticket", "{}")));
+            prefs.edit().putString("ticket", sess.toString()).apply();
+            JSONObject out = new JSONObject();
+            out.put("access_token", sess.optString("access_token"));
+            JSONObject user = sess.optJSONObject("user");
+            out.put("user_id", user != null ? user.optString("id") : "");
+            return out.toString();
+        } catch (Exception e) { return "{}"; }
+    }
+
     void failOrRefresh(String msg) {
         if (refreshedThisTry) { refreshedThisTry = false; showError(msg); return; }
         autoConnect();
@@ -287,6 +359,16 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void signOut() { runOnUiThread(() -> { prefs.edit().remove("ticket").remove("secret").remove("base").apply(); CookieManager.getInstance().removeAllCookies(null); showAuth(); }); }
         @JavascriptInterface public void newLink() { signOut(); }
         @JavascriptInterface public void notify(String title, String body) { if (!resumed) postNotification(title, body); }
+        @JavascriptInterface public String phoneSession() { return session(); }
+        @JavascriptInterface public boolean hasGeminiKey() { return secure.has(); }
+        @JavascriptInterface public boolean setGeminiKey(String k) {
+            k = k == null ? "" : k.trim(); if (k.length() < 20 || k.length() > 200) return false;
+            try { secure.put(k); return true; } catch (Exception e) { return false; } }
+        @JavascriptInterface public void clearGeminiKey() { secure.clear(); }
+        @JavascriptInterface public void gemini(String model, String body, String cb) { MainActivity.this.gemini(model, body, cb); }
+        @JavascriptInterface public boolean phoneOnly() { return prefs.getBoolean("phone_only", false); }
+        @JavascriptInterface public void setPhoneOnly(boolean on) { prefs.edit().putBoolean("phone_only", on).apply(); }
+        @JavascriptInterface public void tryPc() { runOnUiThread(() -> { prefs.edit().putBoolean("phone_only", false).apply(); connectWithAccount(); }); }
     }
 
     static final String NTFY = "https://ntfy.sh/";
@@ -412,7 +494,7 @@ public class MainActivity extends Activity {
 
     @Override public void onBackPressed() {
         if (errorView.getVisibility() == View.VISIBLE) { errorView.setVisibility(View.GONE); return; }
-        if (!showingAuth && web.canGoBack()) { web.goBack(); return; }
+        if (!showingAuth && !inPhone && web.canGoBack()) { web.goBack(); return; }
         new AlertDialog.Builder(this).setTitle("Ped Bot")
             .setItems(new String[]{"Sign out", "Reload", "Exit"}, (d, w) -> {
                 if (w == 0) { prefs.edit().remove("ticket").remove("secret").remove("base").apply(); CookieManager.getInstance().removeAllCookies(null); showAuth(); }
