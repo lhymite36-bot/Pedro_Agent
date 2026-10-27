@@ -57,6 +57,8 @@ Section "Install"
   ; keep the user's own settings on upgrade
   SetOutPath "$INSTDIR\python"
   File /r "..\python\*.*"
+  ; 1.5.10 fix: never ship an isolating ._pth (it removes site/pip/venv)
+  Delete "$INSTDIR\python\python*._pth"
   SetOutPath "$INSTDIR"
   DetailPrint "Setting up Python and packages in a visible window (this can take a few minutes)..."
   ; plain batch file in a visible window (no PowerShell, nothing hidden)

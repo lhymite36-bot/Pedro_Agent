@@ -247,3 +247,21 @@ class ProjectsUiTests(unittest.TestCase):
         self.assertTrue("24000" in src or "24_000" in src)
 
 
+
+
+class InstallerPythonTests(unittest.TestCase):
+    def test_setup_bat_handles_pth_and_missing_pip(self):
+        bat = Path("setup.bat").read_text(encoding="utf-8")
+        self.assertIn("._pth", bat)
+        self.assertIn("ensurepip", bat)
+        self.assertIn("get-pip.py", bat)
+        self.assertIn("--without-pip", bat)
+
+    def test_nsi_deletes_pth(self):
+        nsi = Path("installer/PedBot.nsi").read_text(encoding="utf-8")
+        self.assertIn('Delete "$INSTDIR\\python\\python*._pth"', nsi)
+
+    def test_fetch_script_uses_full_layout(self):
+        sh = Path("installer/fetch_python.sh").read_text(encoding="utf-8")
+        self.assertIn("nuget.org", sh)
+        self.assertIn("get-pip.py", sh)

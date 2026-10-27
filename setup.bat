@@ -28,7 +28,15 @@ if not defined PY (
   exit /b 1
 )
 echo Using %PY%
-if not exist ".venv\Scripts\python.exe" ( %PY% -m venv .venv || goto fail )
+rem 1.5.10 fix: an embeddable Python ships pythonXY._pth, which isolates it (no site, no pip, no venv).
+if exist "%~dp0python\python.exe" for %%F in ("%~dp0python\python*._pth") do ren "%%~fF" "%%~nxF.disabled"
+if not exist ".venv\Scripts\python.exe" (
+  %PY% -m venv .venv
+  if not exist ".venv\Scripts\python.exe" ( %PY% -m venv --without-pip .venv || goto fail )
+)
+".venv\Scripts\python.exe" -m pip --version >nul 2>&1 || ".venv\Scripts\python.exe" -m ensurepip --upgrade >nul 2>&1
+".venv\Scripts\python.exe" -m pip --version >nul 2>&1 || call :getpip
+".venv\Scripts\python.exe" -m pip --version >nul 2>&1 || goto fail
 ".venv\Scripts\python.exe" -m pip install --upgrade pip --disable-pip-version-check -q
 echo Installing packages (a few minutes the first time)...
 rem Core packages first, so one optional package that fails cannot leave the app unable to start.
@@ -50,6 +58,12 @@ echo.
 echo Done. Double-click "Start Ped Bot.cmd" in this folder to open the app.
 echo On first start it asks for your free Gemini API key.
 if not defined AUTO pause
+exit /b 0
+:getpip
+echo pip is missing, bootstrapping it with get-pip.py...
+set "GETPIP=%~dp0python\get-pip.py"
+if not exist "%GETPIP%" ( set "GETPIP=%TEMP%\pedbot-get-pip.py" & curl.exe -fsSL -o "%TEMP%\pedbot-get-pip.py" https://bootstrap.pypa.io/get-pip.py )
+".venv\Scripts\python.exe" "%GETPIP%" --disable-pip-version-check -q
 exit /b 0
 :fail
 echo Setup failed. Check your internet connection and run setup.bat again.
