@@ -57,9 +57,34 @@ def configured() -> bool:
     return not missing_env()
 
 
-def public_config() -> dict[str, Any]:
+def local_bypass_allowed() -> bool:
+    """1.5.10 H6: single-user PC may run without Supabase until keys are set.
+
+    On by default when nothing is configured (desktop setup). Set
+    PEDBOT_LOCAL_BYPASS=0 to force the setup screen. Remote phone always
+    needs a cookie or JWT and never uses this bypass.
+    """
+    raw = (os.environ.get("PEDBOT_LOCAL_BYPASS") or "").strip().lower()
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    # Auto: bypass only while Supabase is incomplete.
+    return not configured()
+
+
+def public_config(origin: str | None = None) -> dict[str, Any]:
     """Safe for the login page. Anon key is designed to be public."""
     miss = missing_env()
+    redirect = "http://127.0.0.1:8765/"
+    if origin and origin_allowed(origin):
+        redirect = origin.rstrip("/") + "/"
+    elif origin:
+        # Phone / tunnel HTTPS origin for OAuth return (M8).
+        host = urlparse(origin).hostname or ""
+        scheme = urlparse(origin).scheme or ""
+        if scheme == "https" and host.endswith(".trycloudflare.com"):
+            redirect = origin.rstrip("/") + "/"
     return {
         "configured": not miss,
         "url": _url() if not miss else "",
@@ -67,7 +92,8 @@ def public_config() -> dict[str, Any]:
         "oauthGoogle": _flag("SUPABASE_OAUTH_GOOGLE"),
         "oauthGithub": _flag("SUPABASE_OAUTH_GITHUB"),
         "missing": miss,
-        "redirect": "http://127.0.0.1:8765/",
+        "redirect": redirect,
+        "bypass": local_bypass_allowed() and bool(miss),
     }
 
 
@@ -296,8 +322,11 @@ def list_profiles() -> dict[str, Any]:
 
 
 def origin_allowed(origin: str | None) -> bool:
-    """OAuth redirect stays on this PC."""
+    """OAuth redirect stays on this PC or the current phone tunnel."""
     if not origin:
         return True
-    host = urlparse(origin).hostname or ""
-    return host in {"127.0.0.1", "localhost", "::1"}
+    host = (urlparse(origin).hostname or "").casefold()
+    if host in {"127.0.0.1", "localhost", "::1"}:
+        return True
+    # Phone quick tunnel (Cloudflare). Still HTTPS-only via callers.
+    return host.endswith(".trycloudflare.com")

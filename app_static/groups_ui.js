@@ -17,15 +17,24 @@
     row.body.parentNode.insertBefore(n, row.body.parentNode.firstChild);
   };
   async function load() {
-    const r = await (await fetch('/api/groups')).json(); groups = r.groups || []; root.pedroGroups = groups; if (r.main) main = r.main;
+    let r = {};
+    try { r = await (await fetch('/api/groups')).json(); } catch (e) { r = { groups: [], error: String(e) }; }
+    groups = r.groups || []; root.pedroGroups = groups; if (r.main) main = r.main;
     const box = $('#groups'); if (!box) return; box.innerHTML = '';
+    if (r.error && !groups.length) {
+      const err = document.createElement('div'); err.className = 'dim'; err.style.padding = '8px';
+      err.textContent = 'Could not load projects. Sign in and try again.'; box.appendChild(err);
+    }
     groups.forEach((g) => {
       const d = document.createElement('div'); d.className = 'sess botitem' + (current() && current().id === g.id ? ' active' : ''); d.dataset.id = g.id;
       const ic = groupFace(g);
       const sp = document.createElement('span'); sp.textContent = g.name; sp.title = g.purpose || '';
-      const ed = document.createElement('button'); ed.type = 'button'; ed.className = 'edit'; ed.title = 'Edit group'; ed.textContent = '✎';
+      const ed = document.createElement('button'); ed.type = 'button'; ed.className = 'edit'; ed.title = 'Edit project'; ed.textContent = '✎';
       ed.onclick = (e) => { e.stopPropagation(); openEditor(g); };
-      d.append(ic, sp, ed, root.trashBtn('Delete group', () => delGroup(g))); d.onclick = () => openSession('group-' + g.id).then(() => { load(); root.applyBotHeader && root.applyBotHeader(); }); box.appendChild(d);
+      d.append(ic, sp, ed, root.trashBtn('Delete project', () => delGroup(g))); d.onclick = () => {
+        const open = window.openSession || (typeof openSession === 'function' ? openSession : null);
+        if (open) open('group-' + g.id).then(() => { load(); root.applyBotHeader && root.applyBotHeader(); });
+      }; box.appendChild(d);
     });
     root.applyBotHeader && root.applyBotHeader(); root.updateMentionButton && root.updateMentionButton();
   }
@@ -50,7 +59,7 @@
   }
   let grpPrev = null;
   async function delGroup(g) {
-    if (!confirm('Delete the group "' + g.name + '" and its chat? The bots themselves stay.')) return false;
+    if (!confirm('Delete the project "' + g.name + '" and its chat? The bots themselves stay.')) return false;
     await post('/api/groups/delete', { id: g.id, confirm: true });
     if (session === 'group-' + g.id) $('#new').click();
     await load(); return true;
@@ -71,7 +80,7 @@
     s.value = Array.from(s.options).some((o) => o.value === keep) ? keep : 'pedro';
   }
   function openEditor(g) {
-    editing = g; $('#grped-title').textContent = g ? 'Edit group' : 'New group';
+    editing = g; $('#grped-title').textContent = g ? 'Edit project' : 'New project';
     picSrc = null; picData = g && g.picture ? g.picture : ''; $('#grp-color').value = (g && g.color) || '#5b9dff'; $('#grp-avatar').value = (g && g.avatar) || 'round';
     if (picData) { const im = new Image(); im.onload = () => { const c = $('#grp-crop'); c.getContext('2d').drawImage(im, 0, 0, 160, 160); }; im.src = picData; }
     showPic();
@@ -98,7 +107,9 @@
     $('#grp-save').onclick = async () => {
       const r = await post('/api/groups', { id: editing ? editing.id : '', name: $('#grp-name').value, picture: picData, color: $('#grp-color').value, avatar: $('#grp-avatar').value, purpose: $('#grp-purpose').value, members: chosen(), coordinator: $('#grp-coord').value });
       if (!r.ok) { $('#grpmsg').textContent = r.error || 'Could not save.'; return; }
-      closeEditor(); await load(); openSession(r.session).then(load);
+      closeEditor(); await load();
+      const open = window.openSession || (typeof openSession === 'function' ? openSession : null);
+      if (open && r.session) open(r.session).then(load);
     };
     $('#grp-delete').onclick = async () => { if (editing && await delGroup(editing)) closeEditor(); };
     setTimeout(load, 300);
@@ -153,4 +164,5 @@
   }
   picker();
   wire();
+  load();  // NEW2: populate Projects on startup (was never called)
 })(this);

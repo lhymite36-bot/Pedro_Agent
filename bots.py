@@ -747,7 +747,7 @@ def save_bot_skill(name: str, steps: str, bot: str = "") -> dict[str, Any]:
     if target is None:
         return {"ok": False, "error": "Say which bot should learn this."}
     title = " ".join(str(name or "").split())[:60]
-    body = str(steps or "").strip()[:4000]
+    body = str(steps or "").strip()[:24000]
     if not title or not body:
         return {"ok": False, "error": "A lesson needs a name and the steps."}
     if _looks_secret(title) or _looks_secret(body):
@@ -769,18 +769,24 @@ def add_taught_skill(bot_id: str, name: str, text: str, replay: str = "") -> dic
     if target is None:
         return {"ok": False, "error": "No such bot."}
     title = " ".join(str(name or "").split())[:60]
-    body = str(text or "").strip()[:4000]
+    raw = str(text or "").strip()
+    # 1.5.10: long lessons stay complete on disk; the bot notebook keeps a usable excerpt.
+    body = raw[:24000]
     if not title or not body:
         return {"ok": False, "error": "A lesson needs a name and the steps."}
     if _looks_secret(title) or _looks_secret(body):
         return {"ok": False, "error": "That lesson looks like it contains a secret, so it was not added."}
     skills = [s for s in (target.get("skills") or []) if _slug(str(s.get("name") or "")) != _slug(title)]
+    note = body
+    if len(raw) > len(body):
+        note = body.rstrip() + "\n\n…(lesson continues in the skill file on disk)…"
     skills.append({
         "id": uuid.uuid4().hex[:8],
         "name": title,
-        "text": body,
+        "text": note,
         "replay": (replay or title)[:60],
         "at": time.time(),
+        "chars": len(raw),
     })
     target["skills"] = skills[-20:]
     save_bot(target)

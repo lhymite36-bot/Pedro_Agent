@@ -69,9 +69,21 @@
   async function showShorts() {
     const st = await get('/api/shorts'); if (!q('#qbs-on')) return;
     q('#qbs-on').checked = !!st.enabled; q('#qbs-vts').value = st.vts_dir || '';
-    q('#qbs-line').textContent = (st.token_set ? 'Buffer token saved on this PC.' : 'No Buffer token yet.') + (st.missing && st.missing.length ? ' Still needed: ' + st.missing.join(', ') + '.' : ' Ready to post when switched on.');
+    if (q('#qbs-yt-channel')) q('#qbs-yt-channel').value = st.youtube_channel || '';
+    if (q('#qbs-tt-channel')) q('#qbs-tt-channel').value = st.tiktok_channel || '';
+    if (q('#qbs-ai')) q('#qbs-ai').checked = !!st.mark_ai_generated;
+    const last = (st.last_run && (st.last_run.error || st.last_run.message)) ? (' Last run: ' + (st.last_run.ok === false ? ('failed — ' + (st.last_run.error || 'error')) : 'ok') + '.') : '';
+    q('#qbs-line').textContent = (st.token_set ? 'Buffer token saved on this PC.' : 'No Buffer token yet.') + (st.missing && st.missing.length ? ' Still needed: ' + st.missing.join(', ') + '.' : ' Ready to post when switched on.') + last;
     q('#qbs-on').onchange = async () => { const r = await post('/api/shorts', { enabled: q('#qbs-on').checked }); q('#qbs-on').checked = !!r.enabled; };
     q('#qbs-vts').onchange = () => post('/api/shorts', { vts_dir: q('#qbs-vts').value.trim() });
+    const saveExtra = () => post('/api/shorts', {
+      youtube_channel: q('#qbs-yt-channel') ? q('#qbs-yt-channel').value.trim() : undefined,
+      tiktok_channel: q('#qbs-tt-channel') ? q('#qbs-tt-channel').value.trim() : undefined,
+      mark_ai_generated: q('#qbs-ai') ? !!q('#qbs-ai').checked : undefined,
+    });
+    if (q('#qbs-yt-channel')) q('#qbs-yt-channel').onchange = saveExtra;
+    if (q('#qbs-tt-channel')) q('#qbs-tt-channel').onchange = saveExtra;
+    if (q('#qbs-ai')) q('#qbs-ai').onchange = saveExtra;
     q('#qbs-save').onclick = async () => { const r = await post('/api/shorts/token', { token: q('#qbs-token').value }); q('#qbs-token').value = ''; q('#qbs-line').textContent = r.message || r.error; };
     q('#qbs-dry').onclick = async () => { q('#qbs-line').textContent = 'Planning (nothing is posted)…'; const r = await post('/api/shorts/dry_run'); q('#qbs-line').textContent = r.message || r.error; };
   }

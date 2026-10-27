@@ -15,7 +15,15 @@
     const r = await post('/api/phone/pair');
     if (!r.ok) { $('#phone-msg').textContent = r.error; clearTimeout(timer); timer = setTimeout(pair, 3000); return; }
     $('#phone-msg').textContent = 'Ready. Scan with the Ped Bot app.';
-    $('#phone-qr').innerHTML = r.qr_svg; $('#phone-code').textContent = r.code; show(r);
+    const box = $('#phone-qr'); box.textContent = '';
+      if (r.qr_svg) {
+        const img = document.createElement('img');
+        img.alt = 'Pairing QR';
+        img.width = 180; img.height = 180;
+        img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(r.qr_svg);
+        box.appendChild(img);
+      }
+      $('#phone-code').textContent = r.code; show(r);
   }
   async function refresh() { const st = await (await fetch('/api/phone')).json(); show(st); if (st.enabled) pair(); }
   $('#phone-on').onchange = async (e) => {
@@ -25,7 +33,7 @@
       if (r.needs_consent) { $('#phone-consent').hidden = false; e.target.checked = false; return; }
       if (!r.ok && r.error) { $('#phone-msg').textContent = r.error; }
       show(r); pair();
-    } else { if (!confirm('Turn off phone access? Your phone will disconnect until you turn it back on.')) { e.target.checked = true; return; } show(await post('/api/phone/disable')); $('#phone-qr').innerHTML = ''; }
+    } else { if (!confirm('Turn off phone access? Your phone will disconnect until you turn it back on.')) { e.target.checked = true; return; } show(await post('/api/phone/disable')); $('#phone-qr').textContent = ''; }
   };
   $('#phone-allow').onclick = async () => {
     $('#phone-consent').hidden = true; $('#phone-msg').textContent = 'Downloading cloudflared…'; $('#phone-body').hidden = false;

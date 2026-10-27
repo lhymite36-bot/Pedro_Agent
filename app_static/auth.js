@@ -1,4 +1,4 @@
-/* Ped Bot sign-in. Session ticket only in localStorage; profiles live in Supabase. */
+/* Ped Bot sign-in. Session ticket in sessionStorage (migrated off localStorage); profiles live in Supabase. */
 (function () {
   const TICKET = 'pedro.auth.ticket';
   const PKCE = 'pedro.auth.pkce';
@@ -38,20 +38,37 @@
     q.forEach((item) => { withAuth(item.u, item.o).then(item.resolve, item.reject); });
   }
 
+  function storeGet(key) {
+    try {
+      const s = sessionStorage.getItem(key);
+      if (s) return s;
+      const l = localStorage.getItem(key);
+      if (l) { try { sessionStorage.setItem(key, l); localStorage.removeItem(key); } catch (e) {} return l; }
+    } catch (e) { return null; }
+    return null;
+  }
+  function storeSet(key, val) {
+    try { sessionStorage.setItem(key, val); } catch (e) {}
+    try { localStorage.removeItem(key); } catch (e) {}
+  }
+  function storeDel(key) {
+    try { sessionStorage.removeItem(key); } catch (e) {}
+    try { localStorage.removeItem(key); } catch (e) {}
+  }
   function loadTicket() {
-    try { return JSON.parse(localStorage.getItem(TICKET) || 'null'); } catch (e) { return null; }
+    try { return JSON.parse(storeGet(TICKET) || 'null'); } catch (e) { return null; }
   }
   function saveTicket(sess) {
-    if (!sess || !sess.access_token) { localStorage.removeItem(TICKET); token = ''; return; }
+    if (!sess || !sess.access_token) { storeDel(TICKET); token = ''; return; }
     const row = {
       access_token: sess.access_token,
       refresh_token: sess.refresh_token || '',
       expires_at: sess.expires_at || (Math.floor(Date.now() / 1000) + Number(sess.expires_in || 3600))
     };
-    localStorage.setItem(TICKET, JSON.stringify(row));
+    storeSet(TICKET, JSON.stringify(row));
     token = row.access_token;
   }
-  function clearTicket() { localStorage.removeItem(TICKET); token = ''; }
+  function clearTicket() { storeDel(TICKET); token = ''; }
 
   function sbHeaders(extra) {
     const h = { apikey: cfg.anonKey, 'Content-Type': 'application/json' };

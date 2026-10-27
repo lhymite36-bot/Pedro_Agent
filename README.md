@@ -7,16 +7,16 @@
 Your own AI assistant for Windows. Chat or talk to it, let it work on your PC, make custom bots and put them in group chats, and reach it from your phone. You only need a free Gemini API key.
 
 <p align="center">
-  <a href="https://github.com/lhymite36-bot/Pedro_Agent/releases/download/v1.5.9-windows/PedBot-Setup-1.5.9.exe"><img alt="Download for Windows" src="https://img.shields.io/badge/Download%20for%20Windows-PedBot--Setup--1.5.9.exe-5b6cff?style=for-the-badge&logo=windows"></a>
+  <a href="https://github.com/lhymite36-bot/Pedro_Agent/releases/download/v1.5.10-windows/PedBot-Setup-1.5.10.exe"><img alt="Download for Windows" src="https://img.shields.io/badge/Download%20for%20Windows-PedBot--Setup--1.5.10.exe-5b6cff?style=for-the-badge&logo=windows"></a>
   &nbsp;
-  <a href="https://github.com/lhymite36-bot/Pedro_Agent/releases/download/android-v1.5.9/PedBot-1.5.9.apk"><img alt="Android app" src="https://img.shields.io/badge/Android%20app-APK%201.5.9-3ad29f?style=for-the-badge&logo=android"></a>
+  <a href="https://github.com/lhymite36-bot/Pedro_Agent/releases/download/android-v1.5.10/PedBot-1.5.10.apk"><img alt="Android app" src="https://img.shields.io/badge/Android%20app-APK%201.5.10-3ad29f?style=for-the-badge&logo=android"></a>
 </p>
 
 ![Group chat](docs/group-picture-chat.png)
 
 ## Set up in 3 steps
 
-1. **Download and run** `PedBot-Setup-1.5.9.exe` (button above). No admin rights needed. If Windows SmartScreen warns you, click *More info → Run anyway* (the installer is not code-signed).
+1. **Download and run** `PedBot-Setup-1.5.10.exe` (button above). No admin rights needed. If Windows SmartScreen warns you, click *More info → Run anyway* (the installer is not code-signed).
 2. **Wait for setup.** It installs Python 3.12 if you don't have it, then the packages (a few minutes, needs internet). It adds *Ped Bot* to your Desktop and Start menu.
 3. **Open Ped Bot and paste your free Gemini API key** (get one at https://aistudio.google.com/apikey). Telegram is optional. Keys are saved only in the `.env` file on your PC.
 
@@ -24,7 +24,7 @@ Your own AI assistant for Windows. Chat or talk to it, let it work on your PC, m
 
 1. On your PC open **Ped Bot › Settings › Connect phone** and switch it **on**. The first time it asks to download Cloudflare's free `cloudflared` tool. Click *Allow download*.
 2. Create an account in the Ped Bot window (email and password). That is the same sign-in the phone uses.
-3. **Had the old phone app? Uninstall it once first** — this APK is signed with a new key, so Android won't install it over the old one. Then install the [Android app (APK)](https://github.com/lhymite36-bot/Pedro_Agent/releases/download/android-v1.5.9/PedBot-1.5.9.apk) on your phone. Allow "install unknown apps" for your browser when Android asks.
+3. **Had the old phone app? Uninstall it once first** — this APK is signed with a new key, so Android won't install it over the old one. Then install the [Android app (APK)](https://github.com/lhymite36-bot/Pedro_Agent/releases/download/android-v1.5.10/PedBot-1.5.10.apk) on your phone. Allow "install unknown apps" for your browser when Android asks.
 4. Open the app and sign in with the **same email and password**. It finds your PC. You do not paste a Cloudflare link. **Use a PC link instead** is only a backup.
 
 The phone UI is the same Grok-styled chat as the Windows window. Keep Ped Bot running on the PC.
@@ -34,7 +34,7 @@ The phone UI is the same Grok-styled chat as the Windows window. Keep Ped Bot ru
 ## What you get
 
 - **Undo** the last file the agent wrote. Settings → Undo, or say "undo that". It puts the previous copy back, or removes a file it just created. If you changed that file afterwards, it leaves it alone. Secret files are never copied into the undo history.
-- **1.5.9 — Grok UI + accounts:** the Windows window and the phone app share the same Grok-styled chat. Sign in with email and password (Supabase). The phone finds this PC from that account, so you skip pasting a Cloudflare link.
+- **1.5.10 — Grok UI + accounts:** the Windows window and the phone app share the same Grok-styled chat. Sign in with email and password (Supabase). The phone finds this PC from that account, so you skip pasting a Cloudflare link.
 - **1.4.14 — Ped Bot:** new name and icon. Phone mirrors the PC live (same chats, steps, cards, reactions; reconnects and catches up). Pause all / Safe mode on PC and phone. Taught tasks have no length limit (200+ steps) and replay every step with progress. Bots look before acting: they read app controls by name (UI Automation) or page text, act only on what they see, check each click and typed value landed, and report what changed. Fewer made-up “done” claims, no doubled or raw protocol text, one approval per action, and routines ask first. Blender expert mode with the official Manual and Python API (downloaded on first use for your Blender version). Update check with SHA-256 verification, local crash reports, and one-time Google sign-ins (YouTube, Gmail, Drive) in Settings › Connections & updates. Larger Live PC window. Gmail falls back to port 465 when 587 drops.
 - **1.4.13:** several bots can work at once, each with a small named pointer. Connectors, message times, reply-to a chosen chat, a larger Live PC on the phone, camera recording, avatar conversation, and extra free model keys (OpenRouter, Cerebras, NVIDIA) when Gemini is out. Bots run only while Ped Bot is open.
 - Chat and voice assistant that can work on your PC. Risky actions (delete, pay, send, shut down…) ask you first.

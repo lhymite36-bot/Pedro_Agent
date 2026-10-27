@@ -37,10 +37,13 @@ from pathlib import Path
 from typing import Any, Callable
 
 ORG_ID = "6ab28e988594de36fbfdb2c5"
-YOUTUBE_CHANNEL = "6abdd883ea19ca0bde3dc021"
-TIKTOK_CHANNEL = "6abddc23ea19ca0bde3dfad1"
+YOUTUBE_CHANNEL_DEFAULT = "6abdd883ea19ca0bde3dc021"
+TIKTOK_CHANNEL_DEFAULT = "6abddc23ea19ca0bde3dfad1"
 HOST_REPO = "lhymite36-bot/quiet-brain-shorts"
 API = "https://api.buffer.com"
+# Back-compat aliases (overridden by settings / env).
+YOUTUBE_CHANNEL = YOUTUBE_CHANNEL_DEFAULT
+TIKTOK_CHANNEL = TIKTOK_CHANNEL_DEFAULT
 FREE_PLAN_LIMIT = 10
 SLOTS = ["14:30", "16:00", "19:00", "20:30", "21:30", "22:30"]   # 1.5.8: Pedro's times (IST)
 OVERFLOW_SLOTS = ["15:30", "16:00", "16:30", "19:30", "20:30", "21:30", "22:00", "22:30"]
@@ -62,15 +65,70 @@ def _storage() -> Path:
     return d
 
 
+def _channel(data: dict[str, Any], key: str, env: str, default: str) -> str:
+    raw = str(data.get(key) or os.environ.get(env, "") or default).strip()
+    return raw or default
+
+
+def youtube_channel_id() -> str:
+    return settings()["youtube_channel"]
+
+
+def tiktok_channel_id() -> str:
+    return settings()["tiktok_channel"]
+
+
+
+def _log(msg: str) -> None:
+    """Surface Shorts/remote-relevant failures instead of swallowing them."""
+    line = f"[quiet-brain] {msg}"
+    print(line, flush=True)
+    try:
+        import agent_log
+        agent_log.event("quiet_brain", note=str(msg)[:240])
+    except Exception:
+        pass
+
+
+def _last_run_info() -> dict[str, Any]:
+    stamp = _storage() / "last_run.json"
+    try:
+        data = json.loads(stamp.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {
+        "day": data.get("day"),
+        "ok": data.get("ok"),
+        "error": data.get("error"),
+        "message": data.get("message"),
+        "at": data.get("at"),
+        "filler": data.get("filler"),
+    }
+
+
+def _ai_flag() -> bool:
+    """Pedro decides via Settings. Default stays false (legacy); warn in UI when off."""
+    try:
+        return bool(settings().get("mark_ai_generated"))
+    except Exception:
+        return False
+
 def settings() -> dict[str, Any]:
     try:
         data = json.loads((_storage() / "settings.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         data = {}
+    yt = _channel(data, "youtube_channel", "BUFFER_YOUTUBE_CHANNEL", YOUTUBE_CHANNEL_DEFAULT)
+    tt = _channel(data, "tiktok_channel", "BUFFER_TIKTOK_CHANNEL", TIKTOK_CHANNEL_DEFAULT)
+    global YOUTUBE_CHANNEL, TIKTOK_CHANNEL
+    YOUTUBE_CHANNEL, TIKTOK_CHANNEL = yt, tt
     return {"enabled": bool(data.get("enabled", False)), "per_day": int(data.get("per_day", 6)),
             "start_time": _hm(data.get("start_time") or "12:30"),
             "vts_dir": data.get("vts_dir") or os.environ.get("VTS_DIR", ""),
-            "token_set": bool(_token()), **readiness()}
+            "youtube_channel": yt, "tiktok_channel": tt,
+            "mark_ai_generated": bool(data.get("mark_ai_generated", False)),
+            "token_set": bool(_token()), **readiness(),
+            "last_run": _last_run_info()}
 
 
 def _hm(v: Any) -> str:
@@ -122,10 +180,23 @@ def settings_raw() -> dict[str, Any]:
 
 def save_settings(**changes: Any) -> dict[str, Any]:
     cur = settings()
-    for k in ("enabled", "per_day", "vts_dir", "start_time"):
-        if k in changes:
-            cur[k] = changes[k]
-    (_storage() / "settings.json").write_text(json.dumps({k: cur[k] for k in ("enabled", "per_day", "vts_dir", "start_time")}),
+    for k in ("enabled", "per_day", "vts_dir", "start_time", "youtube_channel", "tiktok_channel", "mark_ai_generated"):
+        if k not in changes:
+            continue
+        val = changes[k]
+        if k in {"enabled", "mark_ai_generated"}:
+            val = bool(val) if not isinstance(val, str) else val.strip().lower() in {"1", "true", "yes", "on"}
+        elif k == "per_day":
+            try:
+                val = max(1, min(6, int(val)))
+            except (TypeError, ValueError):
+                val = cur["per_day"]
+        elif k in {"youtube_channel", "tiktok_channel", "vts_dir", "start_time"}:
+            val = str(val or "").strip()
+            if k == "start_time":
+                val = _hm(val)
+        cur[k] = val
+    (_storage() / "settings.json").write_text(json.dumps({k: cur[k] for k in ("enabled", "per_day", "vts_dir", "start_time", "youtube_channel", "tiktok_channel", "mark_ai_generated")}),
                                               encoding="utf-8")
     return settings()
 
@@ -406,11 +477,11 @@ def youtube_input(item: dict[str, Any], due: str, url: str) -> dict[str, Any]:
     title = re.sub(r"\s*#shorts\b", "", item["title"], flags=re.I).strip()[:90] + " #shorts"
     tags = " ".join(dict.fromkeys(["#shorts", "#psychology", "#quietbrain"] + [t for t in item.get("yt_tags", [])
                                                                             if t.lower() != "#shorts"]))
-    return {"channelId": YOUTUBE_CHANNEL, "schedulingType": "automatic", "mode": "customScheduled", "dueAt": due,
+    return {"channelId": youtube_channel_id(), "schedulingType": "automatic", "mode": "customScheduled", "dueAt": due,
             "text": f"{item.get('description') or item['title']}\n\n— Quiet Brain 🧠\n{tags}",
             "assets": [{"video": {"url": url}}],
             "metadata": {"youtube": {"title": title, "categoryId": "27", "privacy": "public", "notifySubscribers": False,
-                                     "madeForKids": False, "embeddable": True, "isAiGenerated": False}}}
+                                     "madeForKids": False, "embeddable": True, "isAiGenerated": _ai_flag()}}}
 
 
 def tiktok_input(item: dict[str, Any], due: str, url: str) -> dict[str, Any]:
@@ -418,8 +489,8 @@ def tiktok_input(item: dict[str, Any], due: str, url: str) -> dict[str, Any]:
     for tag in ("#fyp", "#quietbrain"):
         if tag not in cap.lower():
             cap += " " + tag
-    return {"channelId": TIKTOK_CHANNEL, "schedulingType": "automatic", "mode": "customScheduled", "dueAt": due,
-            "text": cap, "assets": [{"video": {"url": url}}], "metadata": {"tiktok": {"isAiGenerated": False}}}
+    return {"channelId": tiktok_channel_id(), "schedulingType": "automatic", "mode": "customScheduled", "dueAt": due,
+            "text": cap, "assets": [{"video": {"url": url}}], "metadata": {"tiktok": {"isAiGenerated": _ai_flag()}}}
 
 
 def free_slots(scheduled_count: int) -> int:
@@ -451,7 +522,7 @@ def schedule_day(day: str, items: list[dict[str, Any]], scheduled: list[dict[str
         due = times.pop(0) if times else None
         entry = {"date": day, "n": it["n"], "file": f"qb-short{it['n']}.mp4", "title": it["title"], "topic": it["idea"],
                  "format": it["format"], "platform": "youtube+tiktok", "video_url": it["video_url"],
-                 "yt_isAiGenerated": False, "tiktok_isAiGenerated": False, "tiktok_caption": tiktok_input(it, "", "")["text"],
+                 "yt_isAiGenerated": _ai_flag(), "tiktok_isAiGenerated": _ai_flag(), "tiktok_caption": tiktok_input(it, "", "")["text"],
                  "anim": "2d smooth", "duration_s": it.get("duration_s")}
         if due is None or free <= 0:
             entry.update(status="pending-overflow", tiktok_status="pending-overflow")
@@ -506,9 +577,9 @@ def fill_overflow(dry_run: bool = False, now: dt.datetime | None = None) -> dict
         due = want if want and dt.datetime.fromisoformat(want) > now + dt.timedelta(minutes=10) else None
         if due is None or due in taken:
             due = next(t for t in slot_times(now.date().isoformat(), now, OVERFLOW_SLOTS) if t not in taken)
-        req = {"channelId": TIKTOK_CHANNEL, "schedulingType": "automatic", "mode": "customScheduled", "dueAt": due,
+        req = {"channelId": tiktok_channel_id(), "schedulingType": "automatic", "mode": "customScheduled", "dueAt": due,
                "text": e.get("tiktok_caption") or (e.get("title", "") + " #fyp #quietbrain"),
-               "assets": [{"video": {"url": e["video_url"]}}], "metadata": {"tiktok": {"isAiGenerated": False}}}
+               "assets": [{"video": {"url": e["video_url"]}}], "metadata": {"tiktok": {"isAiGenerated": _ai_flag()}}}
         taken.add(due)
         free -= 1
         if dry_run:
@@ -588,16 +659,17 @@ def _pkg(day_dir: Path, n: int) -> dict[str, Any]:
 
 # ---------- built-in routine ----------
 def routine_tick(now: dt.datetime | None = None) -> dict[str, Any] | None:
-    """Called by the scheduler: daily run at 11:00 IST and the overflow filler every 30 min. Off by default."""
+    """Called by the scheduler: daily run at start_time IST and the overflow filler every 30 min. Off by default."""
     if not settings()["enabled"]:
         return None
     try:
         import safe_mode
 
         if safe_mode.paused():
-            return None
-    except Exception:
-        pass
+            _log("Daily Shorts tick skipped: safe mode is paused.")
+            return {"ok": False, "error": "Safe mode is paused, so Daily Shorts did not run.", "skipped": "safe_mode"}
+    except Exception as exc:
+        _log(f"safe_mode check failed: {exc}")
     now = now or dt.datetime.now(IST)
     stamp = _storage() / "last_run.json"
     try:
@@ -606,13 +678,44 @@ def routine_tick(now: dt.datetime | None = None) -> dict[str, Any] | None:
         last = {}
     out = None
     sh, sm = map(int, settings()["start_time"].split(":"))
-    if (now.hour, now.minute) >= (sh, sm) and last.get("day") != now.date().isoformat():
-        stamp.write_text(json.dumps({**last, "day": now.date().isoformat()}), encoding="utf-8")
-        out = run_day(now.date().isoformat(), dry_run=False, render_videos=True)
+    day = now.date().isoformat()
+    # C1: only stamp the day after a successful run. Failed days can retry.
+    if (now.hour, now.minute) >= (sh, sm) and last.get("day") != day:
+        try:
+            out = run_day(day, dry_run=False, render_videos=True)
+        except Exception as exc:
+            out = {"ok": False, "error": str(exc), "day": day}
+            _log(f"run_day crashed: {exc}")
+        ok = bool(out and out.get("ok"))
+        record = {
+            **last,
+            "day": day if ok else last.get("day"),
+            "attempt_day": day,
+            "ok": ok,
+            "error": None if ok else str((out or {}).get("error") or "run failed"),
+            "message": (out or {}).get("message"),
+            "at": time.time(),
+        }
+        try:
+            stamp.write_text(json.dumps(record), encoding="utf-8")
+        except OSError as exc:
+            _log(f"could not write last_run.json: {exc}")
+        if not ok:
+            _log(f"Daily Shorts failed for {day}: {record['error']}")
     if time.time() - float(last.get("filler", 0)) >= 1800:
-        last = json.loads(stamp.read_text(encoding="utf-8")) if stamp.is_file() else {}
-        stamp.write_text(json.dumps({**last, "filler": time.time()}), encoding="utf-8")
-        out = out or fill_overflow()
+        try:
+            last = json.loads(stamp.read_text(encoding="utf-8")) if stamp.is_file() else {}
+        except (OSError, ValueError):
+            last = {}
+        try:
+            stamp.write_text(json.dumps({**last, "filler": time.time()}), encoding="utf-8")
+        except OSError:
+            pass
+        try:
+            out = out or fill_overflow()
+        except Exception as exc:
+            _log(f"fill_overflow failed: {exc}")
+            out = out or {"ok": False, "error": str(exc)}
     return out
 
 
@@ -625,10 +728,15 @@ def start_routine(every: float = 300.0) -> None:
                     import background
 
                     background.notify("Quiet Brain Shorts", r.get("message") or r["error"])
-                    if r.get("day"):
-                        _post_report(r)
+                    _post_report(r)
             except Exception as exc:
-                print(f"[quiet-brain] {exc}", flush=True)
+                _log(f"routine loop error: {exc}")
+                try:
+                    import background
+                    background.notify("Quiet Brain Shorts", f"Daily Shorts error: {exc}")
+                    _post_report({"ok": False, "error": str(exc)})
+                except Exception:
+                    pass
             time.sleep(every)
 
     threading.Thread(target=loop, daemon=True, name="quiet-brain-shorts").start()
@@ -710,17 +818,35 @@ def shorts_status() -> dict[str, Any]:
     tok = check_token()
     try:
         queued = len(buffer_posts(["scheduled"])) if tok["valid"] else None
-    except Exception:
+    except Exception as exc:
+        _log(f"Buffer queue check failed: {exc}")
         queued = None
+    last = st.get("last_run") or {}
+    last_line = ""
+    if last.get("at"):
+        when = dt.datetime.fromtimestamp(float(last["at"]), IST).strftime("%Y-%m-%d %I:%M %p IST")
+        if last.get("ok"):
+            last_line = f"Last successful run: {when} ({last.get('day')})."
+        else:
+            last_line = f"Last attempt failed at {when}: {last.get('error') or 'unknown'}."
+    elif last.get("day"):
+        last_line = f"Last stamped day: {last.get('day')}."
     lines = [tok["message"],
              ("Daily Shorts switch (Settings > Quiet Brain Shorts) is ON." if st["enabled"] else
               "Daily Shorts switch (Settings > Quiet Brain Shorts) is OFF, so nothing posts automatically. "
               "This is not the Routines list. Manual runs still work."),
              ("Setup ready." if st["ready"] else "Still missing: " + ", ".join(st["missing"]) + "."),
-             (f"Buffer queue: {queued}/{FREE_PLAN_LIMIT} scheduled." if queued is not None else "")]
+             (f"Buffer queue: {queued}/{FREE_PLAN_LIMIT} scheduled." if queued is not None else ""),
+             f"YouTube channel id: {st['youtube_channel'][:8]}…",
+             f"TikTok channel id: {st['tiktok_channel'][:8]}…",
+             ("Videos are marked AI-generated on Buffer." if st.get("mark_ai_generated") else
+              "Videos are NOT marked AI-generated (legacy default). Turn on the AI label in Settings if your platforms require it."),
+             last_line]
     return {"ok": True, "token_saved": tok["saved"], "token_valid": tok["valid"], "daily_switch_on": st["enabled"],
-            "ready": st["ready"], "missing": st["missing"], "queued": queued,
-            "message": " ".join(x for x in lines if x)}
+            "ready": st["ready"], "missing": st.get("missing") or [], "queued": queued, "limit": FREE_PLAN_LIMIT,
+            "youtube_channel": st["youtube_channel"], "tiktok_channel": st["tiktok_channel"],
+            "mark_ai_generated": bool(st.get("mark_ai_generated")), "last_run": last,
+            "message": " ".join(x for x in lines if x), "lines": [x for x in lines if x]}
 
 
 def _history_file() -> Path:

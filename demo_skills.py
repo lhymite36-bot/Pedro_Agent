@@ -398,25 +398,61 @@ def _pick_frames(frames: list[tuple[float, bytes]], count: int) -> list[bytes]:
 
 
 def summarise(name: str, events: list[dict[str, Any]], frames: list[tuple[float, bytes]]) -> str:
+    """Build SKILL.md. Long lessons are summarised in chunks then merged (1.5.10)."""
     log = _summary_log(events)
-    prompt = (
+    max_frames = max(4, int(settings().get("max_frames") or 16))
+    chunk_size = 60
+    base = (
         "These screenshots and this input log show a person doing a task on Windows. "
         "Write a reusable skill file in Markdown for an AI agent with: a '# <title>' line, "
         "'## When to use', '## Steps' (numbered, one line per real step, never merged or cut short "
         "however long the task is, naming the buttons/fields seen in the "
         "screenshots), and '## Notes' (what could differ next time). Do not invent typed "
         "text that is hidden in the log. Each '[N characters typed]' item is one input "
-        "that changes every time. Call those Input 1, Input 2, in order, in the steps.\n\n"
-        f"SKILL NAME: {name}\nSTEPS IN LOG: {len(log)} (list every one, however many)\nINPUT LOG (t = seconds):\n{json.dumps(log)[:400000]}"
+        "that changes every time. Call those Input 1, Input 2, in order, in the steps."
     )
-    try:
-        body = llm.strip_fence(llm.text(prompt, _pick_frames(frames, int(settings()["max_frames"]))))
-    except Exception as exc:
-        body = f"# {name}\n\n(No vision summary: {exc})\n\n## Steps\n" + "\n".join(
-            f"{i + 1}. {json.dumps(step)}" for i, step in enumerate(log))
+
+    def one_chunk(chunk: list[dict[str, Any]], chunk_frames: list[bytes], part: str) -> str:
+        prompt = (
+            f"{base}\n\nSKILL NAME: {name}{part}\nSTEPS IN LOG: {len(chunk)}\n"
+            f"INPUT LOG (t = seconds):\n{json.dumps(chunk)[:120000]}"
+        )
+        try:
+            return llm.strip_fence(llm.text(prompt, chunk_frames))
+        except Exception as exc:
+            return f"# {name}\n\n(No vision summary: {exc})\n\n## Steps\n" + "\n".join(
+                f"{i + 1}. {json.dumps(step)}" for i, step in enumerate(chunk)
+            )
+
+    if len(log) <= chunk_size:
+        body = one_chunk(log, _pick_frames(frames, max_frames), "")
+    else:
+        parts: list[str] = []
+        total = (len(log) + chunk_size - 1) // chunk_size
+        for i in range(total):
+            chunk = log[i * chunk_size:(i + 1) * chunk_size]
+            # Spread frames across chunks so each slice gets nearby screenshots.
+            if frames:
+                start_f = int(i * (len(frames) / total))
+                end_f = int((i + 1) * (len(frames) / total)) or (start_f + 1)
+                slice_frames = frames[start_f:max(end_f, start_f + 1)]
+            else:
+                slice_frames = []
+            parts.append(one_chunk(chunk, _pick_frames(slice_frames, min(6, max_frames)),
+                                   f" (part {i + 1}/{total})"))
+        merge_prompt = (
+            f"Merge these {total} partial skill drafts for '{name}' into ONE skill Markdown file. "
+            "Keep every real step in order, renumber Steps continuously, keep Inputs, drop duplicates. "
+            "Start with '# <title>'.\n\n" + "\n\n-----\n\n".join(parts)[:350000]
+        )
+        try:
+            body = llm.strip_fence(llm.text(merge_prompt, _pick_frames(frames, min(8, max_frames))))
+        except Exception as exc:
+            body = f"# {name}\n\n(Merge failed: {exc})\n\n" + "\n\n".join(parts)
     if not body.lstrip().startswith("#"):
         body = f"# {name}\n\n{body}"
     return body.rstrip() + f"\n\nReplay: say \"replay skill {name}\" (Esc stops the replay).\n"
+
 
 
 def save_skill(recorder: Recorder) -> dict[str, Any]:

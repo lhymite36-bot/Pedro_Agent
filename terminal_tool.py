@@ -123,10 +123,12 @@ def prewarm() -> None:
         else:
             ready = False
             try:
+                flags = int(getattr(subprocess, "CREATE_NO_WINDOW", 0) or 0) if os.name == "nt" else 0
                 _warm["proc"] = subprocess.Popen(
                     ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "-"], cwd=str(Path.home()),
                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                    env=dict(os.environ, PYTHONIOENCODING="utf-8"), bufsize=1, text=True, encoding="utf-8", errors="replace")
+                    env=dict(os.environ, PYTHONIOENCODING="utf-8"), bufsize=1, text=True, encoding="utf-8", errors="replace",
+                    creationflags=flags)
             except OSError:
                 _warm["proc"] = None
                 return
@@ -212,9 +214,10 @@ def run_terminal_command(command: str, shell: str = "powershell", cwd: str = "",
             return _finish(command, shell, out, code, timed_out, started, warm=True)
     env = dict(os.environ, PYTHONIOENCODING="utf-8")
     try:
+        flags = int(getattr(subprocess, "CREATE_NO_WINDOW", 0) or 0) if os.name == "nt" else 0
         proc = subprocess.Popen(argv, cwd=str(folder), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 stdin=subprocess.DEVNULL, env=env, bufsize=1, text=True,
-                                encoding="utf-8", errors="replace")
+                                encoding="utf-8", errors="replace", creationflags=flags)
     except OSError as exc:
         return {"ok": False, "error": f"Could not start {shell}: {exc}"}
     stop_token.track(proc)   # 1.4.15: Stop kills the whole process tree at once

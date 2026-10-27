@@ -323,4 +323,13 @@ def ground_reply(user_text: str, reply: str) -> str:
         # Never "done" and "failed" in one message: the failure wins.
         reason = last["message"] or "the tool failed"
         return f"Not done yet. The last step failed: {reason}"
+    # 1.5.10: opening / launching alone is not "assignment done".
+    names = {str(row.get("name") or "") for row in calls}
+    verify = names & {"verify_screen", "review_work", "record_step_proof", "complete_plan_step", "wingz_scan",
+                      "capture_screenshot_file", "ui_set_text", "type_text"}
+    open_only = names <= {"launch_application", "launch_any_app", "open_website", "open_local_file",
+                          "take_screenshot", "ui_read", "ui_find", "read_page_text", "scroll", "find_on_screen", ""}
+    if _claims_done(cleaned) and open_only and not verify:
+        return ("Not done yet. I only opened or looked at the page; I have not filled or verified the answers. "
+                "I will continue question by question and check each one before calling it finished.")
     return cleaned

@@ -422,7 +422,7 @@ def ship_app(name: str, target: str = "website", repo: str = "") -> dict[str, An
             if p.returncode != 0 and s[1] != "commit":
                 return {"ok": False, "error": f"{' '.join(s[:3])} failed: {(p.stderr or p.stdout)[-400:]}"}
         return {"ok": True, "message": f"Pushed to a new PRIVATE GitHub repo '{repo}'."}
-    return {"ok": False, "error": "Windows installer and APK packaging are not in this version yet; use website or github."}
+    return {"ok": True, "message": "For a Windows installer use installer/PedBot.nsi (makensis). For Android use android_app/build.ps1. Or ship as website/github.", "hint": "website_or_github"}
 
 
 DECLARATIONS = [

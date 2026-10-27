@@ -485,7 +485,7 @@ async function clearAllChats() {
   });
 }
 if ($('#clear-chats')) $('#clear-chats').onclick = clearAllChats;
-async function openSession(s) {
+async function openSession(s) { window.openSession = openSession;
   if (!keepReply) clearReply();
   session = s; localStorage.session = s; $('#log').innerHTML = '';
   let rows = await api('/api/history?session=' + encodeURIComponent(s));
@@ -1328,7 +1328,20 @@ if ($('#pause-all')) $('#pause-all').onclick = async () => {
   if (upVid) upVid.onclick = () => { hide(plus); ($('#att-file-vid') || $('#att-file-any') || $('#att-file')).click(); };
   if (recVid) recVid.onclick = () => { hide(plus); send('Record 10 seconds with the PC camera.'); };
   if (shot) shot.onclick = () => { hide(plus); send('Take a screenshot and tell me what is open.'); };
-  const proj = $('#acct-projects'); if (proj) proj.onclick = () => { hide(menu); const g = $('#groups'); if (g) g.scrollIntoView({ block: 'nearest' }); const ng = $('#newgroup'); if (ng) ng.click(); };
+  const proj = $('#acct-projects'); if (proj) proj.onclick = () => {
+    hide(menu);
+    document.body.classList.add('side-open');
+    const side = $('#side'); if (side) side.classList.add('show');
+    if (window.loadGroups) window.loadGroups();
+    const g = $('#groups'); if (g) g.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    const label = document.querySelector('.side-label.row-label');
+    if (label) label.scrollIntoView({ block: 'nearest' });
+    // Only open the new-project editor when there are no projects yet.
+    const items = document.querySelectorAll('#groups .botitem');
+    if (!items.length) {
+      const ng = $('#newgroup'); if (ng) ng.click();
+    }
+  };
   const upd = $('#acct-updates'); if (upd) upd.onclick = () => { hide(menu); const t = document.querySelector('.tab[data-pane="p-more"]'); openSettings(); if (t) t.click(); const el = $('#upd-check'); if (el) el.scrollIntoView({ block: 'nearest' }); };
   const helpBtn = $('#acct-help'), helpClose = $('#help-close');
   if (helpBtn) helpBtn.onclick = () => { hide(menu); show(helpOv); };
@@ -1364,6 +1377,7 @@ if ($('#pause-all')) $('#pause-all').onclick = async () => {
         const d = await fetch('/api/search?q=' + encodeURIComponent(q)).then((r) => r.json());
         const bits = [];
         (d.bots || []).forEach((b) => bits.push({ label: 'Bot · ' + b.name, go: () => { hide(searchOv); const el = document.querySelector('#bots .botitem[data-id="' + b.id + '"]'); if (el) el.click(); } }));
+        (d.projects || []).forEach((g) => bits.push({ label: 'Project · ' + g.name, go: () => { hide(searchOv); document.body.classList.add('side-open'); const el = document.querySelector('#groups .botitem[data-id="' + g.id + '"]'); if (el) el.click(); else if (window.openSession) openSession(g.session); } }));
         (d.chats || []).forEach((c) => bits.push({ label: 'Chat · ' + c.title, go: () => { hide(searchOv); if (window.openSession) openSession(c.session); } }));
         (d.messages || []).forEach((m) => bits.push({ label: (m.role || 'msg') + ' · ' + m.preview, go: () => { hide(searchOv); if (window.openSession) openSession(m.session); } }));
         if (searchOut) {

@@ -567,6 +567,7 @@ How to work (reasoning and checking):
 - Finish with a short report: what was done (with evidence), what is left, what needs the user.
 Multi-step tasks (read a task, work in apps, make a document, send it):
 - Call start_task first. If it refuses (graded test, exam, quiz), stop and offer to help the user study instead.
+- Assignments (Wingz, portals, homework): read the whole task first, create_task_plan, do each question, verify_screen after each answer (fields filled / progress saved). Never say "done" after only opening the page. On graded assessments, stop before the final Submit and ask Pedro.
 - If it suggests a routine, call get_task_routine and follow it. Then create_task_plan with the steps and keep it updated with complete_plan_step / revise_task_plan.
 - Act with the normal tools (launch_any_app also opens Store apps, open_website, click/type tools). After every important step call verify_screen with what should now be visible; on NO, look (take_screenshot), fix and retry up to 3 times, then report the blocker honestly.
 - Documents: capture_screenshot_file after each finished part (crop out notifications), then make_document. Never fake or reuse screenshots.
@@ -7348,7 +7349,13 @@ def _attempt(fn: Callable[[threading.Event], Any], cancel_event: Any, *, streami
 
 
 EVIDENCE_TOOLS = frozenset({"take_screenshot", "scroll", "capture_screenshot_file", "find_on_screen", "read_page_text",
-                            "ui_read", "ui_find", "ui_click", "ui_set_text"})
+                            "ui_read", "ui_find", "ui_click", "ui_set_text", "verify_screen", "review_work",
+                            "record_step_proof", "complete_plan_step", "wingz_scan"})
+LOOK_ONLY_TOOLS = frozenset({"take_screenshot", "scroll", "find_on_screen", "read_page_text", "ui_read", "ui_find",
+                             "launch_application", "launch_any_app", "open_website", "open_local_file"})
+VERIFY_DONE_TOOLS = frozenset({"verify_screen", "review_work", "record_step_proof", "complete_plan_step", "wingz_scan",
+                               "capture_screenshot_file"})
+FILL_TOOLS = frozenset({"ui_set_text", "type_text", "perform_actions", "ui_click", "click_element", "click_screen_target"})
 EMPTY_REPLY_NOTE = "The model is busy and sent an empty answer. Please ask again in a moment."
 
 
@@ -7376,21 +7383,35 @@ TEXT_CALL_NUDGE = (
 )
 
 EVIDENCE_NUDGE = (
-    "[self-check] You are about to report this task as done/complete, but in this turn you have not "
-    "looked at the screen (take_screenshot or scroll) to confirm it. Check the real result now, "
-    "fix anything that is not done, then report only what you saw."
+    "[self-check] You claimed the task is done, but you have not verified the real result. "
+    "For assignments (Wingz etc.): read the whole task, plan steps, act on each question, then "
+    "call verify_screen (or review_work / record_step_proof) showing answers are filled in. "
+    "Opening the page is not done. If anything is incomplete, say exactly what is left and where "
+    "you got stuck. For graded tests / final Submit: STOP and ask Pedro before submitting."
 )
 RESUME_TEXT = (
     "[resume] The model service failed in the middle of the task. Look at the screen and your plan, "
     "then continue from the first unfinished step. Do not redo finished steps. Same rules as before."
 )
 _SCAN_EVIDENCE = {"wingz_scan"}
-_TASK_WORDS = re.compile(r"\b(wingz|assignment|syllabus|upload|fill|save answer|portal|task|document|pdf)\b", re.I)
-_DONE_CLAIM = re.compile(
-    r"FINAL:|\ball\b[^.\n]{0,60}\b(complete|completed|done|checked)\b|\bnone left\b|"
-    r"\bno (unfinished|incomplete|pending)\b|\b(saved|uploaded|submitted) (it|them|all|the)\b",
+_TASK_WORDS = re.compile(
+    r"\b(wingz|assignment|syllabus|upload|fill|save answer|portal|task|document|pdf|homework|"
+    r"complete (the|my)|do (the|my) (assignment|homework)|assessment)\b",
     re.I,
 )
+_ASSIGNMENT_WORDS = re.compile(
+    r"\b(wingz|assignment|syllabus|homework|portal|assessment|self[- ]?learn|fill (in|out)|"
+    r"complete (the|my)|do (the|my) (assignment|homework|task))\b",
+    re.I,
+)
+_DONE_CLAIM = re.compile(
+    r"FINAL:|\ball\b[^.\n]{0,60}\b(complete|completed|done|checked)\b|\bnone left\b|"
+    r"\bno (unfinished|incomplete|pending)\b|\b(saved|uploaded|submitted) (it|them|all|the)\b|"
+    r"\b(i (?:have |'ve )?(?:finished|completed|done)|(?:assignment|task|homework) (?:is |are )?(?:done|complete|finished)|"
+    r"all questions (?:are )?answered|answers? (?:are )?filled)\b",
+    re.I,
+)
+_SUBMIT_CLAIM = re.compile(r"\b(submit(?:ted|ting)?|hand(?:ed)? in|final submit|placed? the? (?:order|submission))\b", re.I)
 AUTO_RESUMES = 2
 RESUME_WAIT_SECONDS = 3   # 1.4.15: was 60 s; failover is immediate now
 ATTEMPT_TIMEOUT_MS = 8000   # 1.4.15: time to the first streamed chunk; a slow model fails over instead of hanging
@@ -7509,9 +7530,9 @@ def _fast_reply(user_text: str, history: list[Any], model: str, *, on_text: Any,
             try:
                 stop_token.checkpoint(cancel_event)
                 started = time.monotonic()
-                resp = _attempt(lambda first: _request_voice_model(
-                    client, name, contents, cfg, on_sentence=gate if on_text else None,
-                    cancel_event=cancel_event, spoke=spoke, first=first), cancel_event, streaming=True)
+                resp = _attempt(lambda first, _client=client, _name=name, _cfg=cfg, _spoke=spoke: _request_voice_model(
+                    _client, _name, contents, _cfg, on_sentence=gate if on_text else None,
+                    cancel_event=cancel_event, spoke=_spoke, first=first), cancel_event, streaming=True)
                 text = str(getattr(resp, "spoken_text", "") or "").strip()
                 _note_usage(name, True)
                 agent_log.event("fast_reply", model=name, ms=int((time.monotonic() - started) * 1000))
@@ -7628,24 +7649,51 @@ def _note_usage(model: str, ok: bool, error: str = "") -> None:
 
 def could_not_verify(user_text: str, used_tools: set[str]) -> str:
     missing = []
-    if "scroll" not in used_tools and "read_page_text" not in used_tools:
+    if not used_tools & VERIFY_DONE_TOOLS:
+        missing.append("I never verified the finished state (verify_screen / review_work / step proof)")
+    if not used_tools & FILL_TOOLS and _ASSIGNMENT_WORDS.search(user_text or ""):
+        missing.append("I did not fill answers (only opened or looked)")
+    if "scroll" not in used_tools and "read_page_text" not in used_tools and "ui_read" not in used_tools:
         missing.append("I never scrolled or read the page list, so I did not see every item")
     if not used_tools & EVIDENCE_TOOLS:
         missing.append("I took no screenshot of the result")
     missing = missing or ["I could not confirm the result on screen"]
     return ("Could not verify. I am not reporting this as done because: " + "; ".join(missing) +
-            ". Nothing is claimed as finished. Ask me to continue and I will check each item on screen.")
+            ". Say what is incomplete and where it is stuck. Ask me to continue and I will check each item on screen. "
+            "I will not press the final Submit on a graded assessment without your yes.")
+
 
 
 def needs_evidence(user_text: str, reply: str, used_tools: set[str]) -> bool:
-    """True when a task reply claims completion but no screen check ran this turn."""
-    if (_wingz_on() or re.search(r"\bwingz|syllabus\b", user_text or "", re.I)) and _DONE_CLAIM.search(reply or "") \
-            and not used_tools & {"scroll", "read_page_text", "wingz_scan"}:
-        return True  # a syllabus can only be judged after scrolling it in this turn
-    if used_tools & EVIDENCE_TOOLS:
+    """True when a task reply claims completion without real verification evidence."""
+    reply = reply or ""
+    user_text = user_text or ""
+    if not _DONE_CLAIM.search(reply) and not _SUBMIT_CLAIM.search(reply):
         return False
-    tasky = bool(_TASK_WORDS.search(user_text or "")) or bool(used_tools & {"start_task", "create_task_plan"})
-    return tasky and bool(_DONE_CLAIM.search(reply or ""))
+    assignment = bool(_ASSIGNMENT_WORDS.search(user_text) or _wingz_on()
+                      or re.search(r"\bwingz|syllabus\b", user_text, re.I))
+    if assignment:
+        if not used_tools & VERIFY_DONE_TOOLS:
+            return True
+        if not used_tools & FILL_TOOLS and not used_tools & {"wingz_scan", "review_work"}:
+            return True
+        return False
+    if (_wingz_on() or re.search(r"\bwingz|syllabus\b", user_text, re.I)) and not used_tools & {
+        "scroll", "read_page_text", "wingz_scan", "verify_screen"
+    }:
+        return True
+    if used_tools & VERIFY_DONE_TOOLS:
+        return False
+    acted = used_tools - LOOK_ONLY_TOOLS - {""}
+    if not acted and (_TASK_WORDS.search(user_text) or used_tools & {
+        "start_task", "create_task_plan", "launch_application", "launch_any_app", "open_website"
+    }):
+        return True
+    if used_tools & EVIDENCE_TOOLS and acted:
+        return False
+    tasky = bool(_TASK_WORDS.search(user_text)) or bool(used_tools & {"start_task", "create_task_plan"})
+    return tasky
+
 
 
 def _busy_error(exc: BaseException) -> bool:
@@ -8009,14 +8057,14 @@ def _run_agent_core(
                 spoke = {"yes": False}
                 try:
                     if stream_text:
-                        response = _attempt(lambda first: _request_voice_model(
-                            client,
-                            active_model,
+                        response = _attempt(lambda first, _client=client, _model=active_model, _cfg=active_config, _spoke=spoke: _request_voice_model(
+                            _client,
+                            _model,
                             history,
-                            active_config,
+                            _cfg,
                             on_sentence=on_text,
                             cancel_event=cancel_event,
-                            spoke=spoke,
+                            spoke=_spoke,
                             first=first,
                         ), cancel_event, streaming=True)
                     elif voice:
@@ -8030,10 +8078,10 @@ def _run_agent_core(
                             spoke=spoke,
                         )
                     else:
-                        response = _attempt(lambda first: client.models.generate_content(
-                            model=active_model,
+                        response = _attempt(lambda first, _client=client, _model=active_model, _cfg=active_config: _client.models.generate_content(
+                            model=_model,
                             contents=history,
-                            config=active_config,
+                            config=_cfg,
                         ), cancel_event, streaming=False)
                     _note_usage(active_model, True)
                     break

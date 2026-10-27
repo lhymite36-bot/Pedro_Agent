@@ -134,7 +134,6 @@ def level_payload() -> dict[str, Any]:
 
 
 def status_payload(state: "AppState") -> dict[str, Any]:
-    agent = _agent()
     try:
         import remote_bridge
 
@@ -1104,19 +1103,42 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             return False
 
         def _auth_ok(self, admin: bool = False) -> bool:
-            """Supabase JWT on the local window and on the phone remote."""
+            """Supabase JWT on the local window and on the phone remote.
+
+            1.5.10: remote cookie sessions (token/PIN login) stay valid even when
+            Supabase is configured. Local PC can use a single-user bypass until
+            Supabase is fully set up (H6).
+            """
             import supabase_auth
 
             if not supabase_auth.configured():
                 if self.remote:
                     return True
+                # H6: allow the local desktop while auth is still being set up.
+                if supabase_auth.local_bypass_allowed():
+                    self.auth_user = {"id": "local", "email": "", "role": "admin", "is_admin": True, "bypass": True}
+                    return True
                 self._json({
                     "ok": False,
                     "code": "auth_not_configured",
-                    "error": "Sign-in is not set up yet. Add SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY to .env, then restart Ped Bot.",
+                    "error": "Sign-in is not set up yet. Add SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY to .env, then restart Ped Bot. Or set PEDBOT_LOCAL_BYPASS=1 for single-user mode on this PC.",
                     "missing": supabase_auth.missing_env(),
                 }, 503)
                 return False
+            # C2: phone already passed RemoteHandler._gate with a valid cookie.
+            if self.remote:
+                try:
+                    import remote_access
+                    if remote_access.session_valid(self.headers.get("Cookie", "")):
+                        if not getattr(self, "auth_user", None):
+                            self.auth_user = {"id": "remote-cookie", "email": "", "role": "user", "is_admin": False, "cookie": True}
+                        if admin and not supabase_auth.is_admin(getattr(self, "auth_user", None)):
+                            # Cookie sessions are never admin.
+                            self._json({"ok": False, "error": "Admin only.", "code": "admin_required"}, 403)
+                            return False
+                        return True
+                except Exception as exc:
+                    print(f"[auth] remote cookie check failed: {exc}", flush=True)
             user = supabase_auth.user_from_request(self)
             if not user:
                 # 403 on the phone so an older APK does not treat this as "reconnect".
@@ -1185,7 +1207,15 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 self._send(200, (STATIC / name).read_bytes(), STATIC_FILES[name])
             elif url.path == "/api/auth/config":
                 import supabase_auth
-                self._json(supabase_auth.public_config())
+                origin = self.headers.get("Origin") or self.headers.get("Referer")
+                if origin and "://" in origin:
+                    # Keep scheme://host[:port] only.
+                    from urllib.parse import urlparse as _up
+                    parts = _up(origin)
+                    origin = f"{parts.scheme}://{parts.netloc}" if parts.scheme and parts.netloc else None
+                else:
+                    origin = None
+                self._json(supabase_auth.public_config(origin))
             elif url.path == "/api/auth/me":
                 import supabase_auth
                 user = getattr(self, "auth_user", None) or supabase_auth.user_from_request(self)
@@ -1536,7 +1566,7 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     except Exception as exc:
                         self._json({"ok": False, "error": str(exc)})
                 else:
-                    keys = {"enabled", "per_day", "vts_dir", "start_time"}
+                    keys = {"enabled", "per_day", "vts_dir", "start_time", "youtube_channel", "tiktok_channel", "mark_ai_generated"}
                     self._json(qbs.save_settings(**{k: v for k, v in data.items() if k in keys}))
             elif url.path == "/api/background":
                 import background
@@ -2066,7 +2096,6 @@ def run(model: str, port: int = 8765) -> int:
         except Exception as exc:
             print(f"Telegram bridge did not start: {exc}", flush=True)
         try:
-            import webview  # type: ignore  # pywebview, optional  # noqa: F401
             import win_chrome
 
             win_chrome.open_window(url)  # frameless dark window, our icon; returns when closed

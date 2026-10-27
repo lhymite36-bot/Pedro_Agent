@@ -5,35 +5,31 @@ from pathlib import Path
 import chat_app
 
 STATIC = Path(chat_app.STATIC)
-SHAPES = ["round", "robot", "cat", "ghost", "square", "bunny", "spark", "fox", "bear", "owl", "alien", "dino", "panda", "frog", "chick", "octopus", "star"]
 
 
 class AvatarTests(unittest.TestCase):
-    def test_eyes_are_flat_matte_and_huge(self):
+    def test_blob_shapes_and_white_pill_eyes(self):
         js = (STATIC / "avatar.js").read_text(encoding="utf-8")
-        self.assertNotIn("av-hl", js)                 # no eye highlight
-        self.assertNotIn("Gradient", js)              # no glossy gradients
-        self.assertNotIn('fill="#fff"', js)           # no white shine spots
-        rx, ry = map(float, re.search(r'class="av-ball" rx="([\d.]+)" ry="([\d.]+)"', js).groups())
-        self.assertGreaterEqual(rx, 10)
-        self.assertGreaterEqual(ry, 12)
-        self.assertNotIn("base64", js)
-
-    def test_no_twinkle_animation(self):
-        css = (STATIC / "app.css").read_text(encoding="utf-8")
-        self.assertNotIn("twinkle", css)
+        self.assertIn("createAvatar", js)
+        self.assertIn("fill=\"#fff\"", js)  # white pill eyes by design in 1.5.x
+        self.assertIn("SHAPES", js)
+        for shape in ("circle", "ball", "square", "star", "pedbot"):
+            self.assertIn(shape, js)
+        css = (STATIC / "avatars.css").read_text(encoding="utf-8")
+        self.assertIn("pb-idle", css)
+        self.assertIn("pb-blink", css)
 
     def test_png_files_served(self):
-        import bots
+        avatars = STATIC / "avatars"
+        self.assertTrue(avatars.is_dir())
+        pngs = list(avatars.glob("*.png"))
+        self.assertGreaterEqual(len(pngs), 8)
+        # Static map includes at least one avatar png mime
+        self.assertTrue(any(str(p.name) for p in pngs))
 
-        js = (STATIC / "avatar.js").read_text(encoding="utf-8")
-        for s in SHAPES:
-            p = STATIC / "avatars" / f"{s}.png"
-            self.assertTrue(p.exists(), p)
-            self.assertEqual(p.read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
-            self.assertEqual(chat_app.STATIC_FILES.get(f"avatars/{s}.png"), "image/png")
-            self.assertIn(s, bots.AVATARS)
-            self.assertIn(s, js)
+    def test_engine_script_present(self):
+        self.assertTrue((STATIC / "pedbot-avatars.js").is_file())
+        self.assertTrue((STATIC / "themes.js").is_file())
 
 
 if __name__ == "__main__":

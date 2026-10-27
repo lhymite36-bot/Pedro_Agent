@@ -780,3 +780,23 @@ body.grok-skin #settings .field textarea{
 body.grok-skin #settings #providers-save,
 body.grok-skin #settings #backup-save{background:#1d9bf0;border:0;color:#fff;border-radius:999px;padding:8px 16px;cursor:pointer;font-weight:650}
 body.grok-skin #settings #setup-check{background:transparent;border:1px solid #26292e;color:var(--text);border-radius:999px;padding:8px 16px}
+
+
+/* 1.5.10 mobile cleanup: one path for phone WebView + auth gate */
+@media (max-width:760px) {
+  body.grok-skin #composer, body.glass.grok-skin #composer {
+    padding: 8px 10px calc(12px + env(safe-area-inset-bottom));
+  }
+  body.grok-skin .box, body.glass.grok-skin .box {
+    max-width: 100%; width: 100%; box-sizing: border-box;
+  }
+  body.grok-skin #side, body.glass.grok-skin #side {
+    width: min(86vw, 340px) !important; max-width: 340px;
+  }
+  body.grok-skin .side-scroll { -webkit-overflow-scrolling: touch; }
+  body.grok-skin #grped, body.grok-skin #boted, body.grok-skin #settings {
+    width: 100vw; max-width: 100vw;
+  }
+  #auth-gate, .auth-card { width: min(420px, 92vw); box-sizing: border-box; }
+  body.grok-skin header .who b { max-width: 42vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}

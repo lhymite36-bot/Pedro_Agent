@@ -88,7 +88,7 @@ def history_page(session: str, before: int | None, limit: int) -> list[dict[str,
 def search(query: str) -> dict[str, Any]:
     q = " ".join(str(query or "").split())[:80]
     if len(q) < 2:
-        return {"ok": True, "q": q, "bots": [], "chats": [], "messages": []}
+        return {"ok": True, "q": q, "bots": [], "projects": [], "chats": [], "messages": []}
     like = f"%{q.replace('%', '').replace('_', '')}%"
     import bots
     import chat_store
@@ -99,6 +99,18 @@ def search(query: str) -> dict[str, Any]:
         blob = f"{bot.get('name','')} {bot.get('role','')} {bot.get('id','')}".casefold()
         if folded in blob:
             bot_hits.append({"id": bot["id"], "name": bot["name"], "session": bots.session_for(bot), "color": bot.get("color")})
+    project_hits = []
+    try:
+        import groups
+        for g in groups.list_groups():
+            blob = f"{g.get('name','')} {g.get('purpose','')} {g.get('id','')}".casefold()
+            if folded in blob:
+                project_hits.append({
+                    "id": g["id"], "name": g["name"], "session": groups.SESSION_PREFIX + g["id"],
+                    "color": g.get("color"), "purpose": g.get("purpose") or "",
+                })
+    except Exception:
+        project_hits = []
     con = _db()
     try:
         titles = {str(r["session"]): str(r["title"]) for r in con.execute("SELECT session, title FROM titles")}
@@ -125,7 +137,7 @@ def search(query: str) -> dict[str, Any]:
             })
     finally:
         con.close()
-    return {"ok": True, "q": q, "bots": bot_hits[:20], "chats": chat_hits[:20], "messages": msg_hits}
+    return {"ok": True, "q": q, "bots": bot_hits[:20], "projects": project_hits[:20], "chats": chat_hits[:20], "messages": msg_hits}
 
 
 def delete_message(msg_id: int, confirm: bool) -> dict[str, Any]:

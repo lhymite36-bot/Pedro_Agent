@@ -50,6 +50,11 @@ _CATALOG: tuple[dict[str, str], ...] = (
      "blurb": "Issues in a Linear workspace."},
     {"id": "youtube", "name": "YouTube", "kind": "youtube",
      "blurb": "The YouTube channel already set up for posting."},
+    {"id": "whatsapp", "name": "WhatsApp", "kind": "whatsapp_web",
+     "blurb": "Send files through WhatsApp Web already logged in on this PC.",
+     "detail": "Uses WhatsApp Web in your browser (whatsapp_prepare / whatsapp_send_now). "
+               "No unofficial account linking. Open web.whatsapp.com and scan the QR once. "
+               "Every send still asks you before it goes out."},
 )
 _ALIASES = {
     "gmail": "gmail", "googlemail": "gmail",
@@ -63,6 +68,7 @@ _ALIASES = {
     "slack": "slack",
     "linear": "linear",
     "youtube": "youtube",
+    "whatsapp": "whatsapp", "wa": "whatsapp",
 }
 _TOKEN_IDS = {"notion", "slack", "linear"}
 
@@ -309,8 +315,12 @@ def _http(method: str, url: str, headers: dict[str, str], body: dict[str, Any] |
 def _run(args: list[str]) -> tuple[int, str]:
     if command_override is not None:
         return command_override(args)
+    flags = 0
+    if os.name == "nt":
+        flags = int(getattr(subprocess, "CREATE_NO_WINDOW", 0) or 0)
     try:
-        proc = subprocess.run(args, capture_output=True, text=True, timeout=20, check=False)
+        proc = subprocess.run(args, capture_output=True, text=True, timeout=20, check=False,
+                              creationflags=flags)
     except FileNotFoundError:
         return 127, ""
     except subprocess.TimeoutExpired:
@@ -431,6 +441,11 @@ def _public(spec: dict[str, str]) -> dict[str, Any]:
         detail = "Signed in with the GitHub CLI." if connected else "Install GitHub CLI and run gh auth login once."
     elif kind == "youtube":
         connected, detail = _youtube_state()
+    elif kind == "whatsapp_web":
+        # Always "ready" as a description of the built-in tools; no secret to store.
+        connected = True
+        detail = (spec.get("detail") or
+                  "Uses WhatsApp Web on this PC. Ask Ped Bot to prepare a send; it always asks before Send.")
     row = {
         "id": name,
         "name": spec["name"],
@@ -531,6 +546,13 @@ def connect(name: str, fields: dict[str, Any] | None = None) -> dict[str, Any]:
 
             result = youtube_channel.youtube_connect()
             return result if isinstance(result, dict) else _err("YouTube did not connect.")
+        if kind == "whatsapp_web":
+            return _ok(
+                "WhatsApp Web tools are ready. Open https://web.whatsapp.com and stay logged in. "
+                "Ask Ped Bot to send a file; it checks the contact name and asks before Send.",
+                id="whatsapp", connected=True,
+                detail="whatsapp_prepare / whatsapp_send_now (browser, no unofficial linking)",
+            )
         row = _public(spec)
         if not row["connected"]:
             return _err(str(row.get("detail") or f"{spec['name']} is not available on this PC."))

@@ -30,7 +30,7 @@ import time
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import urlparse
 
 import rules
 
@@ -128,7 +128,7 @@ def rotate_token() -> str:
 
 # ---- one-time pairing codes (QR) ----
 PAIR_TTL = 600
-APK_URL = "https://github.com/lhymite36-bot/Pedro_Agent/releases/download/android-v1.5.9/PedBot-1.5.9.apk"
+APK_URL = "https://github.com/lhymite36-bot/Pedro_Agent/releases/download/android-v1.5.10/PedBot-1.5.10.apk"
 _pair_codes: dict[str, float] = {}
 _PAIR_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 
@@ -453,7 +453,11 @@ def make_remote_handler(state: Any) -> type:
         remote = True
 
         def _secure(self) -> bool:
-            return self.headers.get("X-Forwarded-Proto", "").casefold() == "https"
+            if self.headers.get("X-Forwarded-Proto", "").casefold() == "https":
+                return True
+            # M5: Cloudflare may omit the header; still mark Secure on https tunnels.
+            url = (public_url or "").strip().casefold()
+            return url.startswith("https://")
 
         def _gate(self) -> bool:
             path = urlparse(self.path).path
@@ -622,6 +626,7 @@ def start(state: Any) -> dict[str, Any]:
     info = {"ok": True, "local_url": local, "token_file": str(token_path())}
     if str(cfg["tunnel"]).casefold() == "cloudflared":
         threading.Thread(target=start_tunnel, args=(_server.server_address[1],), daemon=True).start()
+        threading.Thread(target=_tunnel_watchdog, daemon=True, name="tunnel-watchdog").start()
     elif cfg["public_url"]:
         _announce(str(cfg["public_url"]), token)
     info["message"] = f"Remote access on {local} (token in {token_path()})."
@@ -753,6 +758,34 @@ def _remember_tunnel(proc: Any) -> None:
         pass
 
 
+
+def _tunnel_watchdog() -> None:
+    """1.5.10 C3: if cloudflared exits while phone access is on, start it again."""
+    while True:
+        time.sleep(20)
+        try:
+            cfg = settings()
+            if not cfg.get("enabled"):
+                continue
+            if str(cfg.get("tunnel") or "").casefold() != "cloudflared":
+                continue
+            proc = _tunnel
+            if proc is not None and proc.poll() is None:
+                continue
+            if not _server:
+                continue
+            port = _server.server_address[1]
+            print("Remote: watchdog restarting the phone tunnel.", flush=True)
+            try:
+                import agent_log
+                agent_log.event("tunnel_watchdog_restart")
+            except Exception:
+                pass
+            threading.Thread(target=start_tunnel, args=(port,), daemon=True, name="tunnel-restart").start()
+        except Exception as exc:
+            print(f"Remote: watchdog error: {exc}", flush=True)
+
+
 def start_tunnel(port: int) -> str:
     """Cloudflare quick tunnel (free, no account). Returns the https URL."""
     global _tunnel, public_url
@@ -793,10 +826,15 @@ def start_tunnel(port: int) -> str:
             quick_fails = 0
         else:
             quick_fails += 1
-        if quick_fails >= 4:
-            print("Remote: the phone link stopped. Turn Connect phone off and on in Settings.", flush=True)
-            break
-        time.sleep(min(2 * quick_fails, 8))
+        # C3: keep retrying while phone access is enabled. Back off, never stop forever.
+        wait = min(2 ** min(quick_fails, 6), 60)
+        print(f"Remote: tunnel dropped; retrying in {wait}s (attempt {quick_fails}).", flush=True)
+        try:
+            import agent_log
+            agent_log.event("tunnel_retry", attempt=quick_fails, wait=wait)
+        except Exception:
+            pass
+        time.sleep(wait)
     return public_url
 
 
@@ -874,6 +912,7 @@ def _republish_loop(url: str, token: str) -> None:
 
 
 def _announce(url: str, token: str) -> None:
+    """Publish the phone URL (ntfy + Supabase). Errors are logged (M6)."""
     global public_url
     public_url = url
     threading.Thread(target=_republish_loop, args=(url, token), daemon=True).start()
