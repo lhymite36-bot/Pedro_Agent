@@ -26,7 +26,7 @@ import speech_level
 
 DEFAULTS = {
     "enabled": False,
-    "models": ["gemini-2.5-flash-native-audio-preview-12-2025", "gemini-live-2.5-flash-preview"],
+    "models": ["gemini-3.8-live", "gemini-2.5-flash-native-audio-preview-12-2025"],
     "voice_name": "Puck",
     "send_screen": True,
     "screen_every_seconds": 1.0,

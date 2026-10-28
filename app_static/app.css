@@ -792,6 +792,7 @@ body.grok-skin #settings #setup-check{background:transparent;border:1px solid #2
   }
   body.grok-skin #side, body.glass.grok-skin #side {
     width: min(86vw, 340px) !important; max-width: 340px;
+    position: fixed !important;   /* 1.5.13: the skin's position:relative kept the hidden drawer's width, squeezing chat to a strip on phones */
   }
   body.grok-skin .side-scroll { -webkit-overflow-scrolling: touch; }
   body.grok-skin #grped, body.grok-skin #boted, body.grok-skin #settings {

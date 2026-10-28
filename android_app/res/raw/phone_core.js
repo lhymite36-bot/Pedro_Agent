@@ -1,7 +1,31 @@
-// Ped Bot phone-only mode core (1.5.12). Pure functions, no DOM; tested by tests/test_phone_core.js.
+// Ped Bot phone-only mode core (1.5.13). Pure functions, no DOM; tested by tests/test_phone_core.js.
 (function (root) {
   'use strict';
-  var DEFAULT_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash'];
+  // 1.5.13: gemini-2.0-flash is shut down and 2.5 is closed to new keys (ai.google.dev/gemini-api/docs/models, Oct 2026).
+  // These are only the fallback; the app asks Google which models the key can use (pickModels).
+  var DEFAULT_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-3.1-flash-lite', 'gemini-flash-lite-latest', 'gemini-flash-latest'];
+  var PREFERRED = 'gemini-3.5-flash-lite';   // generous free tier; 3.8-flash free tier is only ~20 requests a day
+
+  function versionOf(id) { var m = /^gemini-(\d+(?:\.\d+)?)-/.exec(id); return m ? parseFloat(m[1]) : 0; }
+  // From a GET /v1beta/models response, the text flash models that support generateContent, best first.
+  function pickModels(listBody) {
+    var d; try { d = typeof listBody === 'string' ? JSON.parse(listBody) : (listBody || {}); } catch (e) { d = {}; }
+    var ids = (d.models || []).filter(function (m) {
+      return (m.supportedGenerationMethods || []).indexOf('generateContent') >= 0;
+    }).map(function (m) { return String(m.name || '').replace(/^models\//, ''); }).filter(function (id) {
+      return /^gemini-[a-z0-9.\-]+$/.test(id) && /flash/.test(id) &&
+        !/(tts|live|audio|image|transcribe|translate|embedding|robotics|exp|preview|thinking|\d{3,})/.test(id);
+    });
+    var latest = ids.filter(function (id) { return /latest$/.test(id); });
+    var fixed = ids.filter(function (id) { return !/latest$/.test(id); });
+    var full = fixed.filter(function (id) { return !/lite/.test(id); }).sort(function (a, b) { return versionOf(b) - versionOf(a); });
+    var lite = fixed.filter(function (id) { return /lite/.test(id); }).sort(function (a, b) { return versionOf(b) - versionOf(a); });
+    var out = [];
+    if (ids.indexOf(PREFERRED) >= 0) out.push(PREFERRED);
+    // newest full flash next (best quality), then lites, then the moving aliases
+    full.concat(lite, latest).forEach(function (id) { if (out.indexOf(id) < 0) out.push(id); });
+    return out.slice(0, 6);
+  }
   var MAIN = { id: 'pedro', name: 'Ped Bot', color: '#1d9bf0', role: '' };
 
   // Requests that need the PC (tools the phone cannot run). The phone never pretends to do these.
@@ -61,10 +85,12 @@
              generationConfig: { maxOutputTokens: 2048, temperature: 0.7 } };
   }
 
-  function modelsFor(bot) {
+  var DEAD = /^gemini-(1\.|2\.0)/;   // shut down; never try them even if a synced bot still names one
+  function modelsFor(bot, available) {
     var m = String((bot && bot.model) || '').trim();
-    var list = /^gemini-[a-z0-9.\-]{1,40}$/.test(m) ? [m] : [];
-    DEFAULT_MODELS.forEach(function (x) { if (list.indexOf(x) < 0) list.push(x); });
+    var list = /^gemini-[a-z0-9.\-]{1,40}$/.test(m) && !DEAD.test(m) ? [m] : [];
+    var base = available && available.length ? available : DEFAULT_MODELS;
+    base.forEach(function (x) { if (list.indexOf(x) < 0) list.push(x); });
     return list;
   }
 
@@ -80,7 +106,8 @@
     var msg = (d.error && d.error.message) || ('HTTP ' + status);
     if (status === 400 && /api key/i.test(msg)) return { ok: false, retry: false, badKey: true, error: 'Your Gemini key was rejected. Check it in Phone settings.' };
     if (status === 429) return { ok: false, retry: true, error: 'Free Gemini limit reached for now. Try again in a minute.' };
-    if (status === 404 || status >= 500 || status === 0) return { ok: false, retry: true, error: msg };
+    if (status === 404) return { ok: false, retry: true, gone: true, error: 'That Gemini model is no longer available (' + msg + '). Trying the next one.' };
+    if (status >= 500 || status === 0) return { ok: false, retry: true, error: msg };
     return { ok: false, retry: false, error: msg };
   }
 
@@ -101,7 +128,7 @@
   }
 
   var api = { MAIN: MAIN, PC_ONLY: PC_ONLY, pcOnlyNote: pcOnlyNote, systemPrompt: systemPrompt, geminiBody: geminiBody,
-              modelsFor: modelsFor, replyText: replyText, sessionFor: sessionFor, newSessionId: newSessionId,
+              modelsFor: modelsFor, pickModels: pickModels, DEFAULT_MODELS: DEFAULT_MODELS, replyText: replyText, sessionFor: sessionFor, newSessionId: newSessionId,
               clientId: clientId, sessionsFrom: sessionsFrom, stripSpeaker: stripSpeaker };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.PhoneCore = api;
 })(this);

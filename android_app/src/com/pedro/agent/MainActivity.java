@@ -103,10 +103,16 @@ public class MainActivity extends Activity {
                     String host = u.getHost();
                     if (host != null && Config.SUPABASE_URL.contains(host)) return false;
                 }
+                if (inPhone && "phone.pedbot.local".equals(u.getHost())) return false;
                 if (inPhone) { try { startActivity(new Intent(Intent.ACTION_VIEW, u)); } catch (Exception ignored) {} return true; }
                 if (!base.isEmpty() && u.toString().startsWith(base)) return false;
                 try { startActivity(new Intent(Intent.ACTION_VIEW, u)); } catch (Exception ignored) {}
                 return true;
+            }
+            @Override public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) {
+                Uri u = r.getUrl();
+                if (inPhone && "phone.pedbot.local".equals(u.getHost())) return phoneAsset(u);
+                return null;
             }
             @Override public void onReceivedError(WebView v, WebResourceRequest r, WebResourceError e) {
                 if (r.isForMainFrame() && !showingAuth && !inPhone) failOrRefresh("Can't reach your PC (" + e.getDescription() + ").");
@@ -119,7 +125,7 @@ public class MainActivity extends Activity {
             @Override public void onPageFinished(WebView v, String url) {
                 CookieManager.getInstance().flush();
                 refreshedThisTry = false;
-                if (!showingAuth && !inPhone) v.evaluateJavascript(INJECT, null);
+                if (!showingAuth) v.evaluateJavascript(INJECT, null);
             }
         });
         web.setWebChromeClient(new WebChromeClient() {
@@ -270,21 +276,64 @@ public class MainActivity extends Activity {
         } catch (Exception e) { return false; }
     }
 
-    /** 1.5.12 phone-only mode: same bots and chats from Supabase, answered by Gemini with the user's own key. */
+    /** 1.5.13 phone-only mode: the PC's own web UI, bundled in the APK (assets/web), with /api answered on the phone. */
+    static final String PHONE_ORIGIN = "https://phone.pedbot.local";
+    String phoneReason = "PC offline";
     void showPhoneMode(String reason) {
         runOnUiThread(() -> {
             if (prefs.getString("ticket", "").isEmpty()) { showAuth(); return; }
-            showingAuth = false; inPhone = true;
+            showingAuth = false; inPhone = true; phoneReason = reason == null ? "PC offline" : reason;
             errorView.setVisibility(View.GONE);
-            try {
-                String html = readRaw(R.raw.phone_mode)
-                    .replace("/*{{CORE}}*/", readRaw(R.raw.phone_core))
-                    .replace("{{URL}}", JSONObject.quote(Config.SUPABASE_URL))
-                    .replace("{{ANON}}", JSONObject.quote(Config.ANON_KEY))
-                    .replace("{{REASON}}", JSONObject.quote(reason == null ? "PC offline" : reason));
-                web.loadDataWithBaseURL("https://phone.pedbot.local/", html, "text/html", "UTF-8", null);
-            } catch (Exception e) { showError("Could not open phone mode."); }
+            web.loadUrl(PHONE_ORIGIN + "/?ui=grokskin");
         });
+    }
+
+    static String mimeOf(String path) {
+        String p = path.toLowerCase();
+        if (p.endsWith(".html")) return "text/html"; if (p.endsWith(".js")) return "application/javascript";
+        if (p.endsWith(".css")) return "text/css"; if (p.endsWith(".png")) return "image/png"; if (p.endsWith(".svg")) return "image/svg+xml";
+        if (p.endsWith(".ico")) return "image/x-icon"; if (p.endsWith(".webp")) return "image/webp"; if (p.endsWith(".json") || p.endsWith(".webmanifest")) return "application/json";
+        if (p.endsWith(".woff2")) return "font/woff2"; if (p.endsWith(".mp3")) return "audio/mpeg";
+        return "application/octet-stream";
+    }
+
+    /** Serves the bundled UI for https://phone.pedbot.local/... ; /api/* is answered by phone_shim.js before it gets here. */
+    WebResourceResponse phoneAsset(Uri u) {
+        String path = u.getPath() == null || u.getPath().equals("/") ? "/index.html" : u.getPath();
+        if (path.contains("..")) return null;
+        try {
+            if (path.equals("/index.html")) {
+                JSONObject cfg = new JSONObject();
+                cfg.put("url", Config.SUPABASE_URL); cfg.put("anon", Config.ANON_KEY); cfg.put("reason", phoneReason);
+                String head = "<script>window.__PB_PHONE=" + cfg.toString() + ";</script>"
+                    + "<script src=\"/phone_core.js\"></script><script src=\"/phone_shim.js\"></script>";
+                String html = readStream(getAssets().open("web/index.html"));
+                int i = html.indexOf("<script");
+                html = i < 0 ? head + html : html.substring(0, i) + head + html.substring(i);
+                return new WebResourceResponse("text/html", "UTF-8", new java.io.ByteArrayInputStream(html.getBytes("UTF-8")));
+            }
+            return new WebResourceResponse(mimeOf(path), "UTF-8", getAssets().open("web" + path));
+        } catch (Exception e) {
+            WebResourceResponse r = new WebResourceResponse("text/plain", "UTF-8", new java.io.ByteArrayInputStream(new byte[0]));
+            r.setStatusCodeAndReasonPhrase(404, "Not found"); return r;
+        }
+    }
+
+    void geminiModels(String cb) {
+        new Thread(() -> {
+            int code = 0; String out;
+            try {
+                String key = secure.get();
+                if (key.isEmpty()) throw new Exception("Add your Gemini key first.");
+                HttpURLConnection c = (HttpURLConnection) new URL("https://generativelanguage.googleapis.com/v1beta/models?pageSize=200").openConnection();
+                c.setConnectTimeout(15000); c.setReadTimeout(30000);
+                c.setRequestProperty("x-goog-api-key", key);
+                code = c.getResponseCode();
+                out = readStream(code >= 400 ? c.getErrorStream() : c.getInputStream());
+            } catch (Exception e) { out = "{}"; }
+            final String js = "window.__pbGemini&&window.__pbGemini(" + JSONObject.quote(cb) + "," + code + "," + JSONObject.quote(out) + ")";
+            runOnUiThread(() -> web.evaluateJavascript(js, null));
+        }).start();
     }
 
     static final java.util.regex.Pattern MODEL_OK = java.util.regex.Pattern.compile("^gemini-[a-z0-9.\\-]{1,40}$");
@@ -366,6 +415,7 @@ public class MainActivity extends Activity {
             try { secure.put(k); return true; } catch (Exception e) { return false; } }
         @JavascriptInterface public void clearGeminiKey() { secure.clear(); }
         @JavascriptInterface public void gemini(String model, String body, String cb) { MainActivity.this.gemini(model, body, cb); }
+        @JavascriptInterface public void geminiModels(String cb) { MainActivity.this.geminiModels(cb); }
         @JavascriptInterface public boolean phoneOnly() { return prefs.getBoolean("phone_only", false); }
         @JavascriptInterface public void setPhoneOnly(boolean on) { prefs.edit().putBoolean("phone_only", on).apply(); }
         @JavascriptInterface public void tryPc() { runOnUiThread(() -> { prefs.edit().putBoolean("phone_only", false).apply(); connectWithAccount(); }); }

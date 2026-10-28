@@ -16,11 +16,14 @@ if ($LASTEXITCODE -ne 0) { throw "generate_config.py failed" }
 
 $build = Join-Path $PSScriptRoot "build"
 if (Test-Path $build) { Remove-Item $build -Recurse -Force }
-New-Item -ItemType Directory -Path "$build\gen","$build\obj","$build\res","$build\dex" | Out-Null
+New-Item -ItemType Directory -Path "$build\gen","$build\obj","$build\res","$build\dex","$build\assets\web" | Out-Null
+# 1.5.13: phone-only mode runs the same web UI as the PC, bundled from app_static
+Copy-Item "$PSScriptRoot\..\app_static\*" "$build\assets\web" -Recurse -Force
+Copy-Item "$PSScriptRoot\res\raw\phone_core.js","$PSScriptRoot\phone_web\phone_shim.js" "$build\assets\web" -Force
 
 & "$bt\aapt2.exe" compile --dir "$PSScriptRoot\res" -o "$build\res\res.zip"
 if ($LASTEXITCODE -ne 0) { throw "aapt2 compile failed" }
-& "$bt\aapt2.exe" link -I $jar --manifest "$PSScriptRoot\AndroidManifest.xml" -o "$build\unsigned.apk" --java "$build\gen" "$build\res\res.zip" --min-sdk-version 24 --target-sdk-version 35 --version-code 7 --version-name "1.5.12"
+& "$bt\aapt2.exe" link -I $jar --manifest "$PSScriptRoot\AndroidManifest.xml" -A "$build\assets" -o "$build\unsigned.apk" --java "$build\gen" "$build\res\res.zip" --min-sdk-version 24 --target-sdk-version 35 --version-code 8 --version-name "1.5.13"
 if ($LASTEXITCODE -ne 0) { throw "aapt2 link failed" }
 
 $sources = Get-ChildItem "$PSScriptRoot\src","$build\gen" -Recurse -Filter "*.java" | ForEach-Object { $_.FullName }

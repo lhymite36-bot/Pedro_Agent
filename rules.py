@@ -125,7 +125,7 @@ DEFAULT_RULES: dict[str, Any] = {
         "vision_max_width": 1024,
         "vision_jpeg_quality": 60,
         # Fastest free model for finding things on screen.
-        "vision_model": "gemini-2.5-flash-lite",
+        "vision_model": "gemini-3.5-flash-lite",
         # Look up controls by name with Windows UI Automation before vision.
         "use_ui_automation": True,
         "ui_automation_timeout_seconds": 1.5,

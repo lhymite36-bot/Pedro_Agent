@@ -65,7 +65,7 @@ speed:                         # screen control timing (lower = faster, less for
   retries: 1                   # extra attempts when something isn't found
   vision_max_width: 1024       # screenshots are shrunk to this width for vision
   vision_jpeg_quality: 60
-  vision_model: gemini-2.5-flash-lite   # fastest free model for finding things
+  vision_model: gemini-3.5-flash-lite   # fastest free model for finding things
   use_ui_automation: true      # find buttons by name first (instant), vision second
   ui_automation_timeout_seconds: 1.5
   window_cache_seconds: 30
@@ -133,8 +133,8 @@ code:                          # code_engineer: write -> test -> fix loop
 live:                          # Gemini Live realtime voice (python main.py --live)
   enabled: false               # true = --voice uses Live first, falls back to normal voice
   models:                      # tried in order
+    - gemini-3.8-live
     - gemini-2.5-flash-native-audio-preview-12-2025
-    - gemini-live-2.5-flash-preview
   voice_name: Puck
   send_screen: true            # share a screen frame with Live
   screen_every_seconds: 1.0

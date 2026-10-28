@@ -21,8 +21,15 @@ assert.strictEqual(body.contents[0].parts[0].text, 'a\n\nb');
 assert.strictEqual(body.contents[1].parts[0].text, 'reply');
 assert.ok(body.systemInstruction.parts[0].text.includes('Coach'));
 
-assert.deepStrictEqual(C.modelsFor(bot), ['gemini-2.5-flash', 'gemini-2.0-flash']);
-assert.deepStrictEqual(C.modelsFor({ model: 'groq:llama' }), ['gemini-2.5-flash', 'gemini-2.0-flash']);
+assert.deepStrictEqual(C.modelsFor(bot), ['gemini-2.5-flash'].concat(C.DEFAULT_MODELS));
+assert.deepStrictEqual(C.modelsFor({ model: 'groq:llama' }), C.DEFAULT_MODELS);
+assert.deepStrictEqual(C.modelsFor({ model: 'gemini-2.0-flash' }), C.DEFAULT_MODELS);   // shut down, skipped
+assert.ok(C.DEFAULT_MODELS.every((m) => !/^gemini-(1\.|2\.)/.test(m)));
+const listed = { models: ['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-3.8-flash-tts', 'gemini-3.1-flash-lite', 'gemini-3.8-live', 'gemini-flash-latest', 'gemini-embedding-001']
+  .map((n) => ({ name: 'models/' + n, supportedGenerationMethods: /embedding/.test(n) ? ['embedContent'] : ['generateContent'] })) };
+assert.deepStrictEqual(C.pickModels(JSON.stringify(listed)), ['gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest']);
+assert.deepStrictEqual(C.modelsFor({}, C.pickModels(listed))[0], 'gemini-3.5-flash-lite');
+assert.ok(C.replyText(404, '{"error":{"message":"not found"}}').retry);
 
 const ok = C.replyText(200, JSON.stringify({ candidates: [{ content: { parts: [{ text: 'Hello' }] } }] }));
 assert.ok(ok.ok && ok.text === 'Hello');
@@ -36,12 +43,13 @@ assert.ok(C.clientId().startsWith('phone:'));
 const ss = C.sessionsFrom([{ session: 'a', text: 'x', ts: 1 }, { session: 'b', text: 'y', ts: 5 }, { session: 'bot-coach', text: 'z', ts: 9 }]);
 assert.deepStrictEqual(ss.map((s) => s.session), ['b', 'a']);
 
-// The HTML must embed the core, show the badge and never mention storing the key in Supabase.
+// 1.5.13: phone mode runs the PC web UI with a shim that answers /api on the phone.
 const fs = require('fs');
-const html = fs.readFileSync(__dirname + '/../android_app/res/raw/phone_mode.html', 'utf8');
-assert.ok(html.includes('/*{{CORE}}*/') && html.includes('Phone mode, PC offline'));
-assert.ok(html.includes('PC-only tools are off'));
+const shim = fs.readFileSync(__dirname + '/../android_app/phone_web/phone_shim.js', 'utf8');
+assert.ok(shim.includes("'/api/chat'") && shim.includes("'/api/bots'") && shim.includes('geminiModels') && shim.includes('Phone mode, PC offline'));
+assert.ok(!/AIza[0-9A-Za-z_-]{20,}/.test(shim));
+assert.ok(fs.readFileSync(__dirname + '/../android_app/build.sh', 'utf8').includes('app_static'));
 const java = fs.readFileSync(__dirname + '/../android_app/src/com/pedro/agent/MainActivity.java', 'utf8');
-assert.ok(java.includes('pcOnline(url)') && java.includes('showPhoneMode'));
+assert.ok(java.includes('pcOnline(url)') && java.includes('showPhoneMode') && java.includes('phoneAsset'));
 assert.ok(fs.readFileSync(__dirname + '/../android_app/src/com/pedro/agent/SecureStore.java', 'utf8').includes('AndroidKeyStore'));
 console.log('phone core ok');
