@@ -214,7 +214,8 @@ class VersionTests(unittest.TestCase):
     def test_version_is_1510(self):
         import updater
 
-        self.assertEqual(updater.VERSION, "1.5.10")
+        import crash_reports
+        self.assertEqual(updater.VERSION, crash_reports.VERSION)   # 1.6.1: versions move together
 
 
 if __name__ == "__main__":

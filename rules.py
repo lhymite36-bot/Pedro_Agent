@@ -503,6 +503,12 @@ def needs_confirmation(name: str, arguments: dict[str, Any]) -> bool:
         return False
     if name in {str(t) for t in confirm.get("extra_tools") or []}:
         return True
+    if name.startswith("whatsapp_"):   # 1.6.1: 'Ask before sending' in Settings > Connections > WhatsApp
+        try:
+            import whatsapp_link
+            return whatsapp_link.needs_confirm(name, arguments)
+        except Exception:
+            return name in {"whatsapp_send_message", "whatsapp_send_file", "whatsapp_react", "whatsapp_create_group"}
     if name == "create_routine" and confirm.get("ask_before_routines", True):
         return True   # a bot never adds a scheduled job without an Approve
     category = category_for(name, arguments)

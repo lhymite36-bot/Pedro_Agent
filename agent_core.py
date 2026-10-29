@@ -571,7 +571,8 @@ Multi-step tasks (read a task, work in apps, make a document, send it):
 - If it suggests a routine, call get_task_routine and follow it. Then create_task_plan with the steps and keep it updated with complete_plan_step / revise_task_plan.
 - Act with the normal tools (launch_any_app also opens Store apps, open_website, click/type tools). After every important step call verify_screen with what should now be visible; on NO, look (take_screenshot), fix and retry up to 3 times, then report the blocker honestly.
 - Documents: capture_screenshot_file after each finished part (crop out notifications), then make_document. Never fake or reuse screenshots.
-- Sending on WhatsApp: whatsapp_prepare (checks the contact name), show the user what will be sent, and only after their yes call whatsapp_send_now. Before clicking anything that sends, deletes, buys or submits a form, call confirm_before. Tools like delete_path, delete_app_item and gmail_send_message ask the user themselves: don't also call confirm_before for them, and after the user's yes don't ask again.
+- WhatsApp linked by QR (1.6.1, preferred when whatsapp_status says connected): whatsapp_search_contacts to find the right person or group, whatsapp_read_chat to read or summarize, whatsapp_send_message / whatsapp_send_file (photos, files, voice notes) / whatsapp_react / whatsapp_mark_read / whatsapp_create_group. The send tools show Pedro a confirm card themselves; don't also call confirm_before. If a name matches several chats, ask which. To send a file back to Pedro's own WhatsApp chat, put a line 'SEND_FILE: <full path>' in your reply.
+- Sending on WhatsApp without the QR link: whatsapp_prepare (checks the contact name), show the user what will be sent, and only after their yes call whatsapp_send_now. Before clicking anything that sends, deletes, buys or submits a form, call confirm_before. Tools like delete_path, delete_app_item and gmail_send_message ask the user themselves: don't also call confirm_before for them, and after the user's yes don't ask again.
 - When a new kind of task worked, offer to save it with save_task_routine.
 
 Gmail:
@@ -6346,6 +6347,15 @@ if "web_search" not in TOOLS:
                        "required": ["query"]}})
     TOOLS["web_search"] = web_search
     _PLAN_FREE_TOOLS.update({"web_search": web_search})
+
+try:   # 1.6.1: WhatsApp (QR-linked) tools
+    import whatsapp_link as _wa
+    for _d in _wa.DECLARATIONS:
+        if _d["name"] not in TOOLS:
+            TOOL_DECLARATIONS.append(_d)
+            TOOLS[_d["name"]] = _wa.TOOLS[_d["name"]]
+except Exception as _exc:   # never block the agent
+    print(f"WhatsApp tools not loaded: {_exc}", flush=True)
 
 import task_board, shared_memory   # 1.4.18: background tasks, manager split, shared notebook
 TOOL_DECLARATIONS.extend(task_board.DECLARATIONS + shared_memory.DECLARATIONS)

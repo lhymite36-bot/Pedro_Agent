@@ -92,6 +92,7 @@ class SmartTurnTests(unittest.TestCase):
              mock.patch.object(agent_core, "_gemini_client", lambda genai, key: Client(key)), \
              mock.patch.object(agent_core, "_past_chat_note", lambda *a: ""), \
              mock.patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}):
+            import model_pool; model_pool.reset(); agent_core._COOLING.clear()
             brain.reset_cache(); brain._available = list(brain.CHAIN)
             out = agent_core.run_agent("build me a simple budget tracker app with charts and explain the plan", [], agent_core.DEFAULT_MODEL)
             brain.reset_cache()

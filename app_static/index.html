@@ -50,6 +50,7 @@
   <div id="status-card" hidden>
     <div><span><i class="dot" id="st-agent"></i>Agent</span><span id="st-agent-t">ready</span></div>
     <div><span><i class="dot" id="st-tg"></i>Telegram</span><span id="st-tg-t">off</span></div>
+    <div><span><i class="dot" id="st-wa"></i>WhatsApp</span><span id="st-wa-t">off</span></div>
     <div><span><i class="dot" id="st-voice"></i>Voice</span><span id="st-voice-t">off</span></div>
     <div><span>Model</span><span id="st-model">-</span></div>
   </div>
@@ -226,6 +227,12 @@
     <div class="field"><div>Start with Windows<small>Starts hidden in the tray when you sign in. Off unless you turn it on.</small></div><label class="switch"><input type="checkbox" id="bg-start"><span></span></label></div>
     <div class="field"><div>Windows notifications<small>Progress and results of long tasks.</small></div><label class="switch"><input type="checkbox" id="bg-notes"><span></span></label></div>
     <div class="field"><div>Updates<small id="upd-line">Checking GitHub for a newer Ped Bot…</small></div><span><button class="btn" id="upd-check" type="button">Check</button> <button class="btn" id="upd-get" type="button" hidden>Download</button> <button class="btn" id="upd-install" type="button" hidden>Install</button></span></div>
+    <div class="field col" id="wa-box"><div>WhatsApp <i class="dot" id="wa-dot"></i> <span id="wa-state">off</span><small>Link like WhatsApp Web: scan the QR from your phone (WhatsApp &gt; Linked devices &gt; Link a device). Ped Bot only takes commands from your "Message yourself" chat or numbers you allow, and never answers other people by itself.</small></div>
+      <div id="wa-qr" hidden></div>
+      <div class="row"><button type="button" class="btn" id="wa-connect">Connect WhatsApp</button><button type="button" class="btn" id="wa-disconnect" hidden>Disconnect</button><button type="button" class="btn" id="wa-logout" hidden>Log out &amp; unlink</button></div>
+      <label class="row"><input type="checkbox" id="wa-ask" checked> Ask before sending to anyone else</label>
+      <label class="col"><small>Also take commands from these numbers (country code, comma separated):</small><input id="wa-allow" placeholder="e.g. 919876543210"></label>
+      <small class="err-text" id="wa-notice"></small><small class="err-text" id="wa-err"></small></div>
     <div class="field col"><div>Connections<small>Sign in once to YouTube, Gmail and Google Drive. You sign in yourself on Google's page; the permission stays only on this PC.</small></div><div id="conn-list"></div><small id="conn-setup" class="err-text"></small></div>
     <div class="field col"><div>Crash reports<small>Saved on this PC only. Nothing is sent anywhere; copy one if you want to share it.</small></div><div id="crash-list"></div><span><button class="btn" id="crash-open" type="button">Open folder</button></span></div>
   </div>
@@ -367,7 +374,7 @@
 <details><summary>Telegram (optional)</summary><input id="fr-tg" type="password" placeholder="Telegram bot token" autocomplete="off"><input id="fr-chat" placeholder="Your Telegram chat ID"></details>
 <p id="fr-err" class="fr-err"></p><button type="submit">Save and start</button></form></div>
 <script>/* 1.4.18: secondary screens load after the first paint (right away on PC, when idle in Lite mode) */
-(function () { var late = ["/newbot_ui.js", "/live_ui.js", "/routines_ui.js", "/tasks_ui.js", "/connectors_ui.js", "/avatar_mode.js", "/maintenance_ui.js", "/navtabs.js"];
+(function () { var late = ["/newbot_ui.js", "/live_ui.js", "/routines_ui.js", "/tasks_ui.js", "/connectors_ui.js", "/avatar_mode.js", "/maintenance_ui.js", "/whatsapp_ui.js", "/navtabs.js"];
   function go() { late.forEach(function (n) { var s = document.createElement('script'); s.src = n; s.async = false; document.body.appendChild(s); }); }
   if (window.LITE && window.LITE.on) (window.requestIdleCallback || function (f) { setTimeout(f, 300); })(go, { timeout: 1200 }); else go();
 })();</script>

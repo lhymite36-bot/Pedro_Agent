@@ -168,6 +168,9 @@ def label_for(name: str, arguments: dict[str, Any]) -> str:
         shell = str(arguments.get("shell") or "powershell")
         where = f" in {arguments.get('cwd')}" if arguments.get("cwd") else ""
         return f"run this {shell} command{where}: {' '.join(str(arguments.get('command') or '').split())[:300]}"
+    if name.startswith("whatsapp_"):   # 1.6.1: card shows recipient + text
+        import whatsapp_link
+        return whatsapp_link.label(name, arguments)
     if name == "delete_path":
         return f"delete {arguments.get('path') or 'that path'}"
     if name == "gmail_send_message":   # 1.4.16: the card names the sending account

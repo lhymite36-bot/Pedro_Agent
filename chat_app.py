@@ -1385,6 +1385,9 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     self._send(404, b"{}")
                 else:
                     self._send(200, found.read_bytes(), "audio/mpeg")
+            elif url.path == "/api/whatsapp/status":   # 1.6.1
+                import whatsapp_link
+                self._json(whatsapp_link.status() if not self.remote else {"state": "hidden"})
             elif url.path == "/api/connectors":
                 import connectors
                 self._json({"connectors": connectors.catalog()})
@@ -1441,6 +1444,24 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 self._json(attachments.save_upload(unquote(self.headers.get("X-File-Name") or "file"), blob))
                 return
             data = self._body()
+            if url.path.startswith("/api/whatsapp/"):   # 1.6.1
+                import whatsapp_link
+                if self.remote:
+                    self._json({"ok": False, "error": "WhatsApp linking is only available on the PC."}, 403)
+                    return
+                act = url.path.rsplit("/", 1)[-1]
+                if act == "connect":
+                    self._json(whatsapp_link.connect())
+                elif act == "disconnect":
+                    self._json(whatsapp_link.disconnect(logout=False))
+                elif act == "logout" and data.get("confirm"):
+                    self._json(whatsapp_link.disconnect(logout=True))
+                elif act == "settings":
+                    vals = {k: data[k] for k in ("ask_before_sending", "allowlist") if k in data}
+                    self._json({"ok": True, **whatsapp_link.save_settings(**vals)})
+                else:
+                    self._json({"ok": False, "error": "Unknown or unconfirmed action."}, 400)
+                return
             if url.path.startswith("/api/phone/"):
                 import remote_access
                 if self.remote:
@@ -1847,6 +1868,25 @@ def attach_telegram(state: AppState) -> bool:
     return remote_bridge.bridge_running()
 
 
+WHATSAPP_SESSION = "whatsapp"
+
+
+def attach_whatsapp(state: AppState) -> None:
+    """1.6.1: Pedro's self-chat / allowlist messages are answered by the app agent and saved in the 'whatsapp' chat."""
+    import whatsapp_link
+
+    def turn(text: str) -> str:
+        events: list[dict[str, Any]] = []
+        reply = stream_turn(state, WHATSAPP_SESSION, text, events.append, speak=False)
+        if not reply:
+            errors = [e.get("text", "") for e in events if e.get("event") == "error"]
+            reply = errors[-1] if errors else "Done."
+        return reply
+
+    whatsapp_link.answer_handler = turn
+    whatsapp_link.autostart()
+
+
 def detach_telegram() -> None:
     import remote_bridge
 
@@ -2043,7 +2083,12 @@ def shutdown(server: Any) -> None:
         remote_access.stop()
     except Exception:
         pass
-    for step in (server.shutdown, server.server_close, detach_telegram, chat_store.close):
+    def _wa_stop() -> None:
+        import whatsapp_link
+        b = whatsapp_link._bridge
+        if b is not None:
+            whatsapp_link._stop.set(); b.stop()
+    for step in (server.shutdown, server.server_close, detach_telegram, _wa_stop, chat_store.close):
         try:
             step()
         except Exception:
@@ -2096,6 +2141,10 @@ def run(model: str, port: int = 8765) -> int:
     except Exception as exc:
         print(f"Autopilot did not start: {exc}", flush=True)
     try:
+        try:
+            attach_whatsapp(state)
+        except Exception as exc:
+            print(f"WhatsApp did not start: {exc}", flush=True)
         try:
             if attach_telegram(state):
                 print("Telegram: messages to your bot are answered here and saved in the 'telegram' chat.", flush=True)
