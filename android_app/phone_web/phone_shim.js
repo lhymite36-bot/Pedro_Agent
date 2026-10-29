@@ -46,9 +46,17 @@
       return list.length ? list : C.DEFAULT_MODELS;
     });
   }
-  function ask(bot, history, list, notes) {
-    return native('gen', list[0], JSON.stringify(C.geminiBody(bot, history))).then(function (r) {
+  // 1.6.0: count the smartest model's free requests per (Pacific) day so hard turns can use it.
+  function topDay() { return new Date(Date.now() - 8 * 36e5).toISOString().slice(0, 10); }
+  function topLeft() { try { var u = JSON.parse(localStorage.pbTop || '{}'); return C.TOP_BUDGET - (u.day === topDay() ? u.n : 0); } catch (e) { return C.TOP_BUDGET; } }
+  function noteTop() { var n = C.TOP_BUDGET - topLeft() + 1; localStorage.pbTop = JSON.stringify({ day: topDay(), n: n }); }
+  function ask(bot, history, list, notes, plain) {
+    var text = (history[history.length - 1] || {}).text || '';
+    var level = plain ? '' : C.thinkingLevel(list[0], text);
+    return native('gen', list[0], JSON.stringify(C.geminiBody(bot, history, 80, level))).then(function (r) {
       var out = C.replyText(r.status, r.body); out.model = list[0];
+      if (out.ok && list[0] === C.TOP) noteTop();
+      if (!out.ok && out.noThinking && !plain) return ask(bot, history, list, notes, true);
       if (!out.ok && out.gone) { notes.push(list[0] + ' is no longer available'); localStorage.removeItem('pbModels'); models = null; }
       if (!out.ok && out.retry && list.length > 1) return ask(bot, history, list.slice(1), notes);
       return out;
@@ -69,7 +77,7 @@
           rest('POST', 'pb_messages', row).catch(function (e) { ev({ event: 'error', text: 'Not synced: ' + e.message }); });
           hist.push(row);
           var note = C.pcOnlyNote(text); if (note) ev({ event: 'token', raw: true, text: '_' + note + '_\n\n' });
-          return availableModels().then(function (list) { var notes = []; return ask(bot, hist, C.modelsFor(bot, list), notes).then(function (r) { r.notes = notes; return r; }); });
+          return availableModels().then(function (list) { var notes = []; return ask(bot, hist, C.orderFor(C.modelsFor(bot, list), text, topLeft()), notes).then(function (r) { r.notes = notes; return r; }); });
         })
         .then(function (r) {
           if (r.notes && r.notes.length && r.ok) ev({ event: 'model_switch', model: r.model });

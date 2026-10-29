@@ -64,11 +64,12 @@ DEFAULT_RULES: dict[str, Any] = {
     "agent": {
         # Gemini models tried in order when one runs out of free quota.
         "models": [
+            "gemini-3.6-flash",
             "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
-            "gemini-2.5-flash",
-            "gemini-2.5-flash-lite",
         ],
+        "smart_mode": True,
+        "top_model_daily_budget": 18,
         "max_tool_rounds": 30,
         "tool_timeout_seconds": 300,
     },

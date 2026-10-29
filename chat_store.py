@@ -326,3 +326,44 @@ def restore_sessions(backup: Path, sessions: list[str], path: Path | None = None
         finally:
             con.execute("DETACH DATABASE bk")
     return len(sessions)
+
+
+_STOP = set("the a an and or but to of in on for with is are was were be it this that you me my i we our your can could would should please what how why when where who do does did have has had just about from at by as so if not no yes ok okay hey hi hello".split())
+
+
+def search_past(query: str, limit: int = 6, skip_texts: set[str] | None = None, path: Path | None = None) -> list[dict[str, Any]]:
+    """1.6.0: past messages (any chat) that share the most keywords with the query. No secrets-looking lines."""
+    import re as _re
+    words = [w for w in _re.findall(r"[a-zA-Z0-9]{3,}", str(query or "").casefold()) if w not in _STOP][:8]
+    if not words:
+        return []
+    like = " OR ".join("lower(text) LIKE ?" for _ in words)
+    with _lock, _session(path) as con:
+        rows = con.execute(
+            f"SELECT session, role, text, ts FROM messages WHERE ({like}) ORDER BY id DESC LIMIT 400",
+            [f"%{w}%" for w in words]).fetchall()
+    skip = {(" ".join(t.split()))[:200] for t in (skip_texts or set())}
+    scored = []
+    for r in rows:
+        text = str(r["text"] or "")
+        flat = " ".join(text.split())
+        if flat[:200] in skip or len(flat) < 12:
+            continue
+        if _re.search(r"(api[_ -]?key|password|passcode|token|AIza|sk-|card number|\b\d{12,19}\b)", flat, _re.I):
+            continue
+        low = flat.casefold()
+        score = sum(1 for w in words if w in low)
+        if score >= max(1, min(2, len(words))):
+            scored.append((score, r["ts"], dict(r), flat))
+    scored.sort(key=lambda x: (-x[0], -x[1]))
+    out, seen = [], set()
+    for score, ts, r, flat in scored:
+        key = flat[:120]
+        if key in seen:
+            continue
+        seen.add(key)
+        r["text"] = flat[:400]
+        out.append(r)
+        if len(out) >= limit:
+            break
+    return out

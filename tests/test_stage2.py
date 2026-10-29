@@ -509,26 +509,26 @@ class BotTests(_Tmp):
         import chat_app
 
         session = "bot-memory"
-        for i in range(90):
+        for i in range(150):
             text = "password: hunter2" if i == 1 else f"line {i} about the inbox"
             role = "user" if i % 2 == 0 else "assistant"
             self.store.add(session, role, text)
         contents = chat_app._rebuild_history(session)
-        self.assertEqual(len(contents), 81)
+        self.assertEqual(len(contents), 141)   # 1.6.0: 140 recent turns + one note
         first = contents[0].parts[0].text
         self.assertTrue(first.startswith("Earlier turns you still remember"))
         self.assertIn("line 0", first)
         self.assertNotIn("hunter2", first)
         self.assertIn("[hidden]", first)
-        self.assertIn("line 89", contents[-1].parts[0].text)
+        self.assertIn("line 149", contents[-1].parts[0].text)
         plain = "notes"
-        for i in range(50):
+        for i in range(130):
             self.store.add(plain, "user", f"plain {i}")
         plain_contents = chat_app._rebuild_history(plain)
-        self.assertEqual(len(plain_contents), 40)
+        self.assertEqual(len(plain_contents), 120)
         self.assertNotIn("Earlier turns", plain_contents[0].parts[0].text)
         self.assertIn("plain 10", plain_contents[0].parts[0].text)
-        self.assertIn("plain 49", plain_contents[-1].parts[0].text)
+        self.assertIn("plain 129", plain_contents[-1].parts[0].text)
 
 
 class CodeLoopTests(_Tmp):

@@ -21,7 +21,9 @@ def _models() -> list[str]:
 
     models = [str(m) for m in (rules.agent_setting("models", []) or []) if str(m).strip()]
     env = os.environ.get("GEMINI_MODEL", "").strip()
-    return ([env] if env else []) + [m for m in models if m != env] or ["gemini-3.5-flash-lite"]
+    import brain
+    out = [m for m in ([env] if env else []) + [m for m in models if m != env] if brain.usable(m)]
+    return out or ["gemini-3.6-flash", "gemini-3.5-flash-lite"]
 
 
 def text(prompt: str, images: list[bytes] | None = None, *, model: str | None = None) -> str:

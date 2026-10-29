@@ -95,6 +95,9 @@ class GeminiKeyTests(unittest.TestCase):
 
 class DroppedConnectionTests(unittest.TestCase):
     def test_a_working_model_stays_ahead_of_one_that_failed(self):
+        import model_pool
+        model_pool.reset()   # 1.6.0: other tests may leave per-minute counts behind
+        agent_core._COOLING.clear()
         order = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-2.5-flash"]
         self.assertEqual(
             agent_core._turn_models(order, "gemini-3.1-flash-lite", {"gemini-3.5-flash-lite"}),

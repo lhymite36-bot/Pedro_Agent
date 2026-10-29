@@ -42,12 +42,14 @@ confirm:
   extra_tools: []              # any other tool names that should ask first
 
 agent:
-  # Free Gemini models, tried in order when one hits its quota.
+  # Free Gemini models, tried in order when one hits its quota (1.6.0 smart chain).
+  # Smart mode puts gemini-3.8-flash first for hard requests while its ~20/day free quota lasts.
   models:
+    - gemini-3.6-flash
     - gemini-3.5-flash-lite
     - gemini-3.1-flash-lite
-    - gemini-2.5-flash
-    - gemini-2.5-flash-lite
+  smart_mode: true             # think, plan, verify; best free model per request
+  top_model_daily_budget: 18   # gemini-3.8-flash requests per day
   max_tool_rounds: 500         # steps per request before it stops and reports
   tool_timeout_seconds: 300    # a stuck tool is abandoned after this
 

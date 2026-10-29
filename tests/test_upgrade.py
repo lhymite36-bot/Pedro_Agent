@@ -247,7 +247,7 @@ class ReliabilityTests(_RulesCase):
             del agent_core.TOOLS["_slow_test_tool"]
 
     def test_model_candidates_use_rules_order(self) -> None:
-        self.write_rules({"agent": {"models": ["m-two", "m-three"]}})
+        self.write_rules({"agent": {"models": ["m-two", "m-three"], "smart_mode": False}})
         order = agent_core.model_candidates("m-one")
         self.assertEqual(order[:3], ["m-one", "m-two", "m-three"])
         self.assertEqual(len(order), len(set(order)))

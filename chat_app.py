@@ -542,11 +542,11 @@ def _rebuild_history(session: str) -> list[Any]:
     except ImportError:
         return []
     bot_chat = str(session or "").startswith("bot-")
-    rows = chat_store.history(session, limit=110 if bot_chat else 40)
+    rows = chat_store.history(session, limit=200 if bot_chat else 120)   # 1.6.0: longer memory
     earlier: list[dict[str, Any]] = []
     recent = rows
-    if bot_chat and len(rows) > 80:
-        earlier, recent = rows[:-80][-30:], rows[-80:]
+    if bot_chat and len(rows) > 140:
+        earlier, recent = rows[:-140][-60:], rows[-140:]
     out: list[Any] = []
     if earlier:
         lines = []

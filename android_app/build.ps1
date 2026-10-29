@@ -23,7 +23,7 @@ Copy-Item "$PSScriptRoot\res\raw\phone_core.js","$PSScriptRoot\phone_web\phone_s
 
 & "$bt\aapt2.exe" compile --dir "$PSScriptRoot\res" -o "$build\res\res.zip"
 if ($LASTEXITCODE -ne 0) { throw "aapt2 compile failed" }
-& "$bt\aapt2.exe" link -I $jar --manifest "$PSScriptRoot\AndroidManifest.xml" -A "$build\assets" -o "$build\unsigned.apk" --java "$build\gen" "$build\res\res.zip" --min-sdk-version 24 --target-sdk-version 35 --version-code 8 --version-name "1.5.13"
+& "$bt\aapt2.exe" link -I $jar --manifest "$PSScriptRoot\AndroidManifest.xml" -A "$build\assets" -o "$build\unsigned.apk" --java "$build\gen" "$build\res\res.zip" --min-sdk-version 24 --target-sdk-version 35 --version-code 9 --version-name "1.6.0"
 if ($LASTEXITCODE -ne 0) { throw "aapt2 link failed" }
 
 $sources = Get-ChildItem "$PSScriptRoot\src","$build\gen" -Recurse -Filter "*.java" | ForEach-Object { $_.FullName }

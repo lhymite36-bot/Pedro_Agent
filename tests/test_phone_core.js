@@ -21,14 +21,14 @@ assert.strictEqual(body.contents[0].parts[0].text, 'a\n\nb');
 assert.strictEqual(body.contents[1].parts[0].text, 'reply');
 assert.ok(body.systemInstruction.parts[0].text.includes('Coach'));
 
-assert.deepStrictEqual(C.modelsFor(bot), ['gemini-2.5-flash'].concat(C.DEFAULT_MODELS));
+assert.deepStrictEqual(C.modelsFor(bot), C.DEFAULT_MODELS);   // 1.6.0: 2.5 is closed to new keys, skipped
 assert.deepStrictEqual(C.modelsFor({ model: 'groq:llama' }), C.DEFAULT_MODELS);
 assert.deepStrictEqual(C.modelsFor({ model: 'gemini-2.0-flash' }), C.DEFAULT_MODELS);   // shut down, skipped
 assert.ok(C.DEFAULT_MODELS.every((m) => !/^gemini-(1\.|2\.)/.test(m)));
 const listed = { models: ['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-3.8-flash-tts', 'gemini-3.1-flash-lite', 'gemini-3.8-live', 'gemini-flash-latest', 'gemini-embedding-001']
   .map((n) => ({ name: 'models/' + n, supportedGenerationMethods: /embedding/.test(n) ? ['embedContent'] : ['generateContent'] })) };
-assert.deepStrictEqual(C.pickModels(JSON.stringify(listed)), ['gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest']);
-assert.deepStrictEqual(C.modelsFor({}, C.pickModels(listed))[0], 'gemini-3.5-flash-lite');
+assert.deepStrictEqual(C.pickModels(JSON.stringify(listed)), ['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-flash-latest']);
+assert.deepStrictEqual(C.orderFor(C.modelsFor({}, C.pickModels(listed)), 'hi', 5)[0], 'gemini-3.5-flash-lite');
 assert.ok(C.replyText(404, '{"error":{"message":"not found"}}').retry);
 
 const ok = C.replyText(200, JSON.stringify({ candidates: [{ content: { parts: [{ text: 'Hello' }] } }] }));
@@ -53,3 +53,15 @@ const java = fs.readFileSync(__dirname + '/../android_app/src/com/pedro/agent/Ma
 assert.ok(java.includes('pcOnline(url)') && java.includes('showPhoneMode') && java.includes('phoneAsset'));
 assert.ok(fs.readFileSync(__dirname + '/../android_app/src/com/pedro/agent/SecureStore.java', 'utf8').includes('AndroidKeyStore'));
 console.log('phone core ok');
+
+// 1.6.0 smart mode
+assert.strictEqual(C.DEFAULT_MODELS[0], 'gemini-3.6-flash');
+assert.ok(C.isHard('build me a study planner app with reminders') && !C.isHard('hi'));
+assert.strictEqual(C.orderFor(C.DEFAULT_MODELS, 'plan my week of exam study step by step', 5)[0], 'gemini-3.8-flash');
+assert.strictEqual(C.orderFor(C.DEFAULT_MODELS, 'hi', 5)[0], 'gemini-3.6-flash');
+assert.ok(C.orderFor(C.DEFAULT_MODELS, 'plan my week of exam study step by step', 0).indexOf('gemini-3.8-flash') < 0);
+const tb = C.geminiBody(bot, [{ role: 'user', text: 'x' }], 80, 'high');
+assert.strictEqual(tb.generationConfig.thinkingConfig.thinkingLevel, 'high');
+assert.ok(!C.geminiBody(bot, [{ role: 'user', text: 'x' }]).generationConfig.thinkingConfig);
+assert.ok(C.replyText(400, JSON.stringify({ error: { message: 'Thinking level is not supported for this model.' } })).noThinking);
+console.log('phone smart ok');

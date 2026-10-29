@@ -118,11 +118,11 @@ import screen_vision
 
 APP_DIR = agent_config.APP_DIR
 WORKSPACE = APP_DIR / "workspace"
-DEFAULT_MODEL = "gemini-3.5-flash-lite"
+DEFAULT_MODEL = "gemini-3.6-flash"   # 1.6.0: smart default (brain.py picks 3.8-flash for hard turns)
 AGENT_NAME = "Ped Bot"
 # Used only after the selected model hits the free daily request cap.
 # Each model has its own quota. gemini-3.8-flash free tier is 20 requests a day.
-FALLBACK_MODELS = ("gemini-3.5-flash-lite", "gemini-3.1-flash-lite")
+FALLBACK_MODELS = ("gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemma-4-31b-it")
 MIN_EXE_BYTES = 1_000_000
 MAX_DOWNLOAD_BYTES = 4 * 1024**3
 MAX_ZIP_FILES = 20_000
@@ -3266,20 +3266,22 @@ def recall_memory(query: str = "") -> dict[str, Any]:
 def memory_prompt_block() -> str:
     """Short fact list inserted into the Gemini system prompt."""
     _seed_memory()
-    matches = _search_memories("", limit=20)
+    matches = _search_memories("", limit=40)
     if not matches:
         return ""
     lines = ["Known facts saved on this computer:"]
     for item in matches:
         lines.append(f"- [{item['topic']}] {item['fact']}")
     block = "\n".join(lines)
-    if len(block) > 2000:
-        block = block[:2000].rsplit("\n", 1)[0]
+    if len(block) > 3500:
+        block = block[:3500].rsplit("\n", 1)[0]
     return block
 
 
 def system_prompt() -> str:
     parts = [SYSTEM_PROMPT]
+    if _smart_on():
+        parts.append(SMART_GUIDE)
     notes = rules.instructions()
     if notes:
         parts.append("Standing rules from Settings (follow these):")
@@ -7111,12 +7113,57 @@ def _turn_models(order: list[str], current: str, skipped: set[str]) -> list[str]
 
 def model_candidates(first: str | None = None) -> list[str]:
     """First choice, then rules.yaml agent.models, then the built-in fallbacks."""
+    import brain
     order: list[str] = []
     for name in [first, *(rules.agent_setting("models", []) or []), *FALLBACK_MODELS]:
         name = str(name or "").strip()
-        if name and name not in order:
+        if name and name not in order and brain.usable(name):   # 1.6.0: retired 2.0/2.5 ids never tried
             order.append(name)
-    return order
+    if _smart_on():
+        keys = gemini_api_keys()
+        order = brain.chain(order, brain.discover(keys[0] if keys else None)) or order
+        if first and first in order and not brain.is_hard(getattr(_turn_text, "value", "")):
+            order.remove(first); order.insert(0, first)
+    return order or [DEFAULT_MODEL]
+
+
+_turn_text = threading.local()
+
+
+def _smart_on() -> bool:
+    try:
+        return bool(rules.agent_setting("smart_mode", True)) and genai_client_override is None
+    except Exception:
+        return True
+
+
+def _past_chat_note(user_text: str, history: list[Any]) -> str:
+    """1.6.0: memory of past chats. Related lines from other chats, so bots remember what was said before."""
+    if len(str(user_text or "")) < 12 or str(user_text).startswith("["):
+        return ""
+    try:
+        import chat_store
+        seen = {" ".join(str(getattr(p, "text", "") or "") for p in (getattr(c, "parts", None) or []))
+                for c in history[-60:]}
+        rows = chat_store.search_past(user_text, limit=5, skip_texts=seen)
+    except Exception:
+        return ""
+    if not rows:
+        return ""
+    lines = ["[From your past chats - use only if relevant, do not repeat them back:]"]
+    for r in rows:
+        when = time.strftime("%d %b", time.localtime(float(r.get("ts") or 0)))
+        who = "Pedro" if r.get("role") == "user" else "You"
+        lines.append(f"- {when}, {who}: {r['text']}")
+    return "\n".join(lines)
+
+
+def _missing_model(exc: BaseException) -> bool:
+    """1.6.0: a model the key can't use (404, retired, unsupported tools) -> try the next one."""
+    t = str(exc).casefold()
+    return ("404" in t or "not_found" in t or "is not found" in t or "not supported" in t
+            or "no longer available" in t or "deprecated" in t or "function calling is not enabled" in t
+            or "developer instruction is not enabled" in t)
 
 
 def models_for_turn(order: list[str], spent: set[str] | None = None) -> tuple[list[str], bool]:
@@ -7221,7 +7268,7 @@ def _model_configs(voice: bool) -> tuple[Any, Any | None]:
     instruction = system_prompt()
     if voice:
         instruction += VOICE_REPLY_GUIDE
-    cache_key = (voice, instruction, id(TOOL_DECLARATIONS), len(TOOL_DECLARATIONS))
+    cache_key = (voice, instruction, id(TOOL_DECLARATIONS), len(TOOL_DECLARATIONS), getattr(_turn_text, "level", ""), _smart_on())
     hit = _CONFIG_CACHE.get(cache_key)
     if hit is not None:   # 1.4.15: same prompt + tools -> same objects (and a stable prefix for Gemini's implicit cache)
         return hit
@@ -7242,6 +7289,11 @@ def _build_model_configs(voice: bool, instruction: str) -> tuple[Any, Any | None
         "temperature": 0.2,
     }
     if not voice:
+        if _smart_on():   # 1.6.0: let Gemini 3 think before acting; plain config is the fallback
+            level = getattr(_turn_text, "level", "medium").upper()
+            thinking = types.GenerateContentConfig(**{**shared, "temperature": 0.4}, thinking_config=types.ThinkingConfig(
+                thinking_level=getattr(types.ThinkingLevel, level, types.ThinkingLevel.MEDIUM)))
+            return thinking, types.GenerateContentConfig(**shared)
         return types.GenerateContentConfig(**shared), None
     shared["max_output_tokens"] = VOICE_MAX_OUTPUT_TOKENS
     plain = types.GenerateContentConfig(**shared)
@@ -7419,6 +7471,23 @@ HTTP_DEADLINE_MS = 60000    # Gemini rejects a server deadline under 10 s, so th
 NONSTREAM_TIMEOUT_S = 20.0
 _CLIENTS: dict[str, Any] = {}
 _CONFIG_CACHE: dict[tuple[Any, ...], tuple[Any, Any]] = {}
+
+# 1.6.0 smart mode: how to think and work (added to the system prompt).
+SMART_GUIDE = """
+How you work (smart mode):
+1. Understand: restate the real goal to yourself. If one key detail is missing and guessing could waste work or cause harm, ask ONE short question; otherwise pick the sensible default and say which.
+2. Plan: for anything with more than one step, make a short numbered plan first (in your head or as 'Plan:' for long tasks) and follow it. Re-plan when a step fails instead of repeating it.
+3. Use tools, don't guess: look things up (web_search, read_page_text, read_file, recall_memory, take_screenshot) before you state facts about the PC, files, the web, prices, dates or news. Today's date comes from the PC clock.
+4. Verify every step: after an action, check its effect (screenshot, file exists, page text, command output). Only say done/finished/sent/saved when a tool result proves it. If you could not verify, say exactly where you are stuck, what you tried, and what you need from Pedro.
+5. Think deeper on hard problems: consider two approaches, pick the better one, and check your answer (math, code, logic) before replying. For code, run or test it when you can.
+6. Remember: use the saved facts and the 'From your past chats' notes. Save new lasting facts or preferences with remember_fact. Never save passwords, keys or card numbers.
+7. Reply like a smart friend: lead with the answer, short and plain, no filler, no repeating yourself, no fake claims.
+"""
+SMART_GUIDE_SHORT = (
+    "\nThink before answering: get the facts right, lead with the answer, keep it short and natural. "
+    "If the question needs live facts, the PC, files or the web, reply with exactly [[NEEDS_TOOLS]]."
+)
+
 FAST_SYSTEM = (
     "You are Ped Bot, Pedro's friendly assistant on his Windows PC. Reply briefly, warmly and in plain words. "
     "You have no tools in this reply. If the message asks you to do, open, check, find or change anything "
@@ -7476,11 +7545,12 @@ def _fast_reply(user_text: str, history: list[Any], model: str, *, on_text: Any,
         return None
     block = memory_prompt_block()
     config = types.GenerateContentConfig(
-        system_instruction=FAST_SYSTEM + ("\n" + block if block else ""), temperature=0.4, max_output_tokens=600,
-        thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL))
+        system_instruction=FAST_SYSTEM + ("\n" + block if block else "") + (SMART_GUIDE_SHORT if _smart_on() else ""),
+        temperature=0.4, max_output_tokens=1500 if _smart_on() else 600,
+        thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.LOW if _smart_on() else types.ThinkingLevel.MINIMAL))
     plain = types.GenerateContentConfig(system_instruction=config.system_instruction, temperature=0.4,
                                         max_output_tokens=600)
-    recent = [c for c in history[-8:] if getattr(c, "role", "") in ("user", "model")
+    recent = [c for c in history[-(24 if _smart_on() else 8):] if getattr(c, "role", "") in ("user", "model")
               and all(getattr(p, "text", None) for p in (getattr(c, "parts", None) or []))]
     contents = [*recent, types.Content(role="user", parts=[types.Part.from_text(text=user_text)])]
     held = {"buf": "", "open": False}
@@ -7497,7 +7567,9 @@ def _fast_reply(user_text: str, history: list[Any], model: str, *, on_text: Any,
         on_text(held["buf"])
 
     gate.raw_tokens = bool(getattr(on_text, "raw_tokens", False))  # type: ignore[attr-defined]
-    try:   # Groq first: a tiny request answers in about a second while Gemini is often slow or busy
+    try:   # Groq first (1.6.0: only when smart mode is off; Gemini 3.6 Flash answers better)
+        if _smart_on():
+            raise LookupError("smart mode")
         import cloud_fallback
         if cloud_fallback.providers_for("busy"):
             started = time.monotonic()
@@ -7524,6 +7596,9 @@ def _fast_reply(user_text: str, history: list[Any], model: str, *, on_text: Any,
         pass
     client = _gemini_client(genai, keys[0])
     lites = [m for m in model_candidates(model) if "lite" in m] or [model]
+    if _smart_on():   # 1.6.0: chat answers come from the full Flash model first, lites only as backup
+        import brain
+        lites = [m for m in model_candidates(model) if "gemma" not in m and m != brain.TOP] or lites
     for name in _turn_models(lites, lites[0], set()):
         for cfg in (config, plain):
             spoke = {"yes": False}
@@ -7973,14 +8048,21 @@ def _run_agent_core(
         fast = _fast_reply(user_text, history, model, on_text=on_text, cancel_event=cancel_event, on_event=on_event)
         if fast is not None:
             return fast
-    if not voice and _fast_planner_turn(user_text):
+    if not voice and not _smart_on() and _fast_planner_turn(user_text):
         planned = _plan_with_backup(user_text, history, types, on_event, cancel_event)
         if planned is not None:
             return planned
     client = _gemini_client(genai, keys[0])
+    import brain
+    _turn_text.value = user_text
+    _turn_text.level = brain.thinking_level(model or DEFAULT_MODEL, user_text, voice)
     config, voice_plain = _model_configs(voice)
     active_config = config
     history.append(types.Content(role="user", parts=_user_parts(types, user_text)))
+    if _smart_on() and not voice:
+        note = _past_chat_note(user_text, history)
+        if note:
+            history[-1].parts.append(types.Part.from_text(text=note))
     model_order = model_candidates(model)
     voice_lines: list[str] = []
     stream_text = on_text is not None and not voice
@@ -8032,6 +8114,9 @@ def _run_agent_core(
         quota_error: BaseException | None = None
         reason = ""
         order = _turn_models(model_order, chosen, skipped)
+        if _smart_on() and order:
+            import brain
+            order = brain.order_for_turn(order, user_text, _round)
         if not order:
             switched = _switch_providers(user_text, history, types, on_event, "quota" if saw_quota else "busy")
             if switched is not None:
@@ -8084,6 +8169,11 @@ def _run_agent_core(
                             config=_cfg,
                         ), cancel_event, streaming=False)
                     _note_usage(active_model, True)
+                    try:
+                        import brain
+                        brain.note_call(active_model)
+                    except Exception:
+                        pass
                     break
                 except stop_token.Stopped:
                     return "\n".join(voice_lines)
@@ -8099,6 +8189,20 @@ def _run_agent_core(
                         active_config = voice_plain
                         voice_plain = None
                         continue
+                    if (not voice and voice_plain is not None and active_config is not voice_plain
+                            and not spoke["yes"] and _thinking_rejected(exc)):
+                        active_config = voice_plain   # 1.6.0: model can't think: same request without thinking
+                        voice_plain = None
+                        continue
+                    if _missing_model(exc) and not spoke["yes"] and not _is_daily_quota(exc):
+                        print(f"[model] {active_model} isn't available for this key. Trying the next model.", flush=True)
+                        agent_log.event("model_missing", model=active_model)
+                        skipped.add(active_model)
+                        reason = "net"
+                        response = None
+                        if index < len(order) - 1:
+                            break
+                        raise RuntimeError("No Gemini model on this key answered. Check the key in Settings.") from exc
                     if _is_daily_quota(exc):
                         if spoke["yes"]:
                             raise RuntimeError(_quota_message(exc)) from exc
