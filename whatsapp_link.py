@@ -135,9 +135,20 @@ class NodeBridge:
         if os.name == "nt":
             flags["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         self.proc = subprocess.Popen([node, str(script), "--auth", str(_dir() / "session"), "--media", str(_dir() / "media")],
-                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                      text=True, encoding="utf-8", errors="replace", bufsize=1, cwd=str(script.parent), **flags)
+        self.errors: list[str] = []
         threading.Thread(target=self._read, daemon=True, name="wa-read").start()
+        threading.Thread(target=self._read_err, daemon=True, name="wa-err").start()
+
+    def _read_err(self) -> None:
+        """1.6.2: keep the bridge's error output so Settings can show why it stopped."""
+        proc = self.proc
+        for line in proc.stderr:   # type: ignore[union-attr]
+            line = line.rstrip()
+            if line:
+                self.errors.append(line[:400])
+                del self.errors[:-40]
 
     def alive(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
@@ -155,7 +166,13 @@ class NodeBridge:
                 ev.set()
             elif "event" in msg:
                 self.on_event(msg)
-        self.on_event({"event": "status", "state": "stopped"})
+        try:
+            proc.wait(timeout=3)   # type: ignore[union-attr]
+        except Exception:
+            pass
+        time.sleep(0.2)   # let the stderr reader catch up
+        self.on_event({"event": "status", "state": "stopped", "code": getattr(proc, "returncode", None),
+                       "stderr": "\n".join(getattr(self, "errors", [])[-12:])})
 
     def request(self, cmd: str, args: dict[str, Any] | None = None, timeout: float = 60) -> dict[str, Any]:
         if not self.alive():
@@ -215,11 +232,82 @@ def _on_event(ev: dict[str, Any]) -> None:
         _status.update(state="qr", qr=str(ev.get("qr") or ""), error="")
     elif kind == "status":
         st = str(ev.get("state") or "")
-        _status.update(state=st, error=str(ev.get("error") or ""))
+        err = str(ev.get("error") or "")
+        if st == "stopped" and _bridge is not None and getattr(_bridge, "proc", 1) is not None:
+            # 1.6.2: the bridge crashed (not a Disconnect): show why, and repair missing packages once
+            tail = str(ev.get("stderr") or "")
+            err = explain_crash(tail, ev.get("code"))
+            st = "error"
+            if broken_modules(tail):
+                threading.Thread(target=repair_and_restart, daemon=True, name="wa-repair").start()
+                err += " Repairing the WhatsApp packages now (npm ci)…"
+        _status.update(state=st, error=err)
         if st == "connected":
             _status.update(qr="", me=ev.get("me"))
     elif kind == "message":
         threading.Thread(target=handle_incoming, args=(ev,), daemon=True, name="wa-msg").start()
+
+
+def broken_modules(stderr: str) -> bool:
+    return bool(re.search(r"ERR_MODULE_NOT_FOUND|Cannot find (module|package)|MODULE_NOT_FOUND", stderr or ""))
+
+
+def explain_crash(stderr: str, code: Any = None) -> str:
+    lines = [l for l in (stderr or "").splitlines() if l.strip()]
+    key = next((l for l in lines if re.search(r"^\s*\w*Error\b|Cannot find", l)), "") or \
+        next((l for l in lines if re.search(r"Error|error:|ERR_", l)), lines[-1] if lines else "")
+    head = "The WhatsApp bridge stopped" + (f" (exit code {code})" if code not in (None, 0) else "") + "."
+    return f"{head} {key.strip()[:300]}" if key else head + " No error text was printed."
+
+
+_repairing = threading.Lock()
+_repaired_once = {"done": False}
+
+
+def npm_cmd() -> list[str]:
+    """Bundled npm (node/node_modules/npm) or the system one."""
+    node = _node()
+    if node:
+        cli = Path(node).parent / "node_modules" / "npm" / "bin" / "npm-cli.js"
+        if cli.is_file():
+            return [node, str(cli)]
+    npm = shutil.which("npm") or shutil.which("npm.cmd")
+    return [npm] if npm else []
+
+
+def repair_modules(runner: Callable[..., Any] = subprocess.run) -> tuple[bool, str]:
+    cmd = npm_cmd()
+    if not cmd:
+        return False, "npm was not found, so the WhatsApp packages can't be repaired. Reinstall Ped Bot."
+    flags: dict[str, Any] = {}
+    if os.name == "nt":
+        flags["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        r = runner([*cmd, "ci", "--omit=dev", "--no-audit", "--no-fund"], cwd=str(_script().parent),
+                   capture_output=True, text=True, timeout=600, **flags)
+    except Exception as exc:
+        return False, f"npm ci failed: {exc}"
+    if getattr(r, "returncode", 1) != 0:
+        tail = (str(getattr(r, "stderr", "")) or str(getattr(r, "stdout", ""))).strip().splitlines()[-3:]
+        return False, "npm ci failed: " + " ".join(tail)[:300]
+    return True, "WhatsApp packages repaired."
+
+
+def repair_and_restart() -> None:
+    if _repaired_once["done"] or not _repairing.acquire(blocking=False):
+        return
+    try:
+        _repaired_once["done"] = True
+        _status.update(state="repairing", error="Repairing the WhatsApp packages (npm ci)… this needs internet and can take a minute.")
+        ok, msg = repair_modules()
+        if not ok:
+            _status.update(state="error", error=msg)
+            return
+        global _bridge
+        _bridge = None
+        connect()
+    finally:
+        _repairing.release()
 
 
 def connect() -> dict[str, Any]:
@@ -236,6 +324,10 @@ def connect() -> dict[str, Any]:
             _status.update(state="error", error=str(exc))
             return {"ok": False, "error": str(exc), **status()}
         _status.update(state="starting", error="")
+        for _ in range(0 if bridge_factory else 15):   # 1.6.2: an instant crash is reported by this click, not silently
+            time.sleep(0.1)
+            if _status.get("state") != "starting":
+                break
     if _watch is None or not _watch.is_alive():
         _stop.clear()
         _watch = threading.Thread(target=_watchdog, daemon=True, name="wa-watchdog")
@@ -249,6 +341,8 @@ def _watchdog() -> None:
     while not _stop.wait(wait):
         if not settings()["enabled"]:
             return
+        if _status.get("state") == "repairing":
+            continue
         if _bridge is None or not _bridge.alive():
             print("WhatsApp: bridge stopped, starting it again.", flush=True)
             connect()

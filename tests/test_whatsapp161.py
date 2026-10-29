@@ -132,3 +132,44 @@ class NodeBridgeProcessTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CrashFeedbackTests(unittest.TestCase):
+    def test_module_not_found_is_explained_and_repaired(self):
+        err = ("node:internal/modules/esm/resolve:275\n    throw new ERR_MODULE_NOT_FOUND(\n"
+               "Error [ERR_MODULE_NOT_FOUND]: Cannot find module 'C:\\\\x\\\\node_modules\\\\lru-cache\\\\dist\\\\esm\\\\node\\\\index.min.js'")
+        self.assertTrue(wa.broken_modules(err))
+        self.assertIn("lru-cache", wa.explain_crash(err, 1))
+        self.assertIn("exit code 1", wa.explain_crash(err, 1))
+        seen = {}
+        def runner(cmd, **kw):
+            seen["cmd"] = cmd; seen["cwd"] = kw.get("cwd")
+            return mock.Mock(returncode=0, stdout="", stderr="")
+        with mock.patch.object(wa, "npm_cmd", lambda: ["npm"]):
+            ok, msg = wa.repair_modules(runner)
+        self.assertTrue(ok); self.assertEqual(seen["cmd"][:3], ["npm", "ci", "--omit=dev"])
+        self.assertTrue(seen["cwd"].endswith("whatsapp_bridge"))
+
+    def test_crash_event_sets_error_and_starts_repair(self):
+        wa._bridge = mock.Mock(proc=object())
+        with mock.patch.object(wa, "repair_and_restart") as rep, mock.patch("threading.Thread") as th:
+            wa._on_event({"event": "status", "state": "stopped", "code": 1, "stderr": "Error [ERR_MODULE_NOT_FOUND]: Cannot find module 'x'"})
+            th.assert_called()
+        self.assertEqual(wa._status["state"], "error")
+        self.assertIn("ERR_MODULE_NOT_FOUND", wa._status["error"])
+        wa._bridge = None
+
+    def test_real_node_crash_reaches_status(self):
+        import shutil
+        if not shutil.which("node"):
+            self.skipTest("no node")
+        tmp = Path(tempfile.mkdtemp()); bad = tmp / "app" / "whatsapp_bridge"; bad.mkdir(parents=True)
+        (bad / "bridge.mjs").write_text("import x from 'missing-package-xyz';\n")
+        events = []
+        with mock.patch.object(wa, "_script", lambda: bad / "bridge.mjs"), mock.patch.object(wa, "_dir", lambda: tmp):
+            b = wa.NodeBridge(events.append); b.start()
+            for _ in range(50):
+                if events: break
+                time.sleep(0.1)
+        self.assertTrue(events and events[-1]["state"] == "stopped")
+        self.assertTrue(wa.broken_modules(events[-1]["stderr"]), events[-1])

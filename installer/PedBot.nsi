@@ -3,7 +3,7 @@
 Unicode true
 !define APP "Ped Bot"
 !define OLDAPP "Pedro Agent"
-!define VER "1.6.1"
+!define VER "1.6.2"
 !include "MUI2.nsh"
 Name "${APP}"
 BrandingText "${APP} ${VER} - open source, github.com/lhymite36-bot/Pedro_Agent"
@@ -53,7 +53,15 @@ FunctionEnd
 
 Section "Install"
   SetOutPath "$INSTDIR"
-  File /r /x .git /x .github /x dist /x tests /x android_app /x "*.pyc" /x __pycache__ /x rules.yaml /x .env /x storage /x workspace /x docs /x python "..\*.*"
+  File /r /x .git /x .github /x dist /x tests /x android_app /x "*.pyc" /x __pycache__ /x rules.yaml /x .env /x storage /x workspace /x docs /x python /x whatsapp_bridge /x node "..\*.*"
+  ; 1.6.2 fix: /x dist above matches every folder named dist, which stripped node_modules/*/dist.
+  ; The WhatsApp bridge and Node ship separately with no excludes.
+  RMDir /r "$INSTDIR\whatsapp_bridge\node_modules"
+  SetOutPath "$INSTDIR\whatsapp_bridge"
+  File /r /x wa_session /x wa_media "..\whatsapp_bridge\*.*"
+  SetOutPath "$INSTDIR\node"
+  File /r "..\node\*.*"
+  SetOutPath "$INSTDIR"
   ; keep the user's own settings on upgrade
   SetOutPath "$INSTDIR\python"
   File /r "..\python\*.*"
