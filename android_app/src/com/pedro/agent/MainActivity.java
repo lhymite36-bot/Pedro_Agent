@@ -89,6 +89,11 @@ public class MainActivity extends Activity {
 
     void configureWeb() {
         WebSettings s = web.getSettings();
+        // 1.6.3: locked app shell - no pinch/zoom-out, no overscroll glow/bounce, font scaling can't widen the page
+        s.setSupportZoom(false); s.setBuiltInZoomControls(false); s.setDisplayZoomControls(false);
+        s.setUseWideViewPort(true); s.setLoadWithOverviewMode(false); s.setTextZoom(100);
+        web.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);
+        web.setHorizontalScrollBarEnabled(false);
         s.setJavaScriptEnabled(true); s.setDomStorageEnabled(true); s.setDatabaseEnabled(true);
         s.setMediaPlaybackRequiresUserGesture(false); s.setAllowFileAccess(false);
         s.setUserAgentString(s.getUserAgentString() + " PedroAgentApp/1.1");
