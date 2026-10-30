@@ -13,7 +13,7 @@
   function openAvatar(cmd) {
     if ($('#av3d')) return;
     const f = el('iframe'); f.id = 'av3d'; f.title = 'Avatar'; f.allow = 'microphone; autoplay';
-    f.src = '/avatar3d/index.html' + (cmd ? '?do=' + encodeURIComponent(cmd) : '');
+    f.src = '/avatar3d/human.html' + (cmd ? '?do=' + encodeURIComponent(cmd) : '');
     document.body.appendChild(f); document.body.classList.add('b180-open');
   }
   window.pbCloseAvatar = () => { const f = $('#av3d'); if (f) f.remove(); document.body.classList.remove('b180-open'); };

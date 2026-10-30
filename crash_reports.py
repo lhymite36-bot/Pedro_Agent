@@ -16,7 +16,7 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-VERSION = "1.8.0"
+VERSION = "1.8.1"
 KEEP = 30
 _SECRET = re.compile(
     r"(AIza[0-9A-Za-z_\-]{20,}|gsk_[0-9A-Za-z]{20,}|sk-[0-9A-Za-z_\-]{20,}|ghp_[0-9A-Za-z]{20,}|github_pat_[0-9A-Za-z_]{20,}"

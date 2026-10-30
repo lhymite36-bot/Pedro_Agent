@@ -1272,6 +1272,9 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             elif url.path.lstrip("/") in STATIC_FILES:
                 name = url.path.lstrip("/")
                 self._send(200, (STATIC / name).read_bytes(), STATIC_FILES[name])
+            elif url.path.startswith("/avatar3d/") and _avatar_file(url.path):   # 1.8.1 avatar engine + models
+                f, mime = _avatar_file(url.path)
+                self._send(200, f.read_bytes(), mime)
             elif url.path == "/api/auth/config":
                 import supabase_auth
                 origin = self.headers.get("Origin") or self.headers.get("Referer")
@@ -2202,6 +2205,22 @@ def start_routines(state: "AppState") -> None:
     except Exception:
         pass
 
+
+
+_AV_MIME = {".js": "application/javascript; charset=utf-8", ".mjs": "application/javascript; charset=utf-8",
+            ".html": "text/html; charset=utf-8", ".glb": "model/gltf-binary", ".fbx": "application/octet-stream"}
+
+
+def _avatar_file(path: str):
+    """1.8.1: serve files under app_static/avatar3d only (no ../ escapes)."""
+    try:
+        base = (STATIC / "avatar3d").resolve()
+        f = (STATIC / path.lstrip("/")).resolve()
+        if base not in f.parents or not f.is_file() or f.suffix not in _AV_MIME:
+            return None
+        return f, _AV_MIME[f.suffix]
+    except (OSError, ValueError):
+        return None
 
 def serve(model: str, port: int = 8765) -> tuple[ThreadingHTTPServer, AppState]:
     try:   # 1.8.0: restore offline mode (local Ollama) without slowing start-up

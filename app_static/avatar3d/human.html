@@ -1,0 +1,34 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>Ped Bot avatar</title>
+<style>
+html,body{margin:0;height:100%;background:#050506;color:#f7f9f9;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden}
+#c{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+.top{position:fixed;top:0;left:0;right:0;display:flex;align-items:center;gap:12px;padding:14px 16px;z-index:2}
+.x{width:46px;height:46px;border-radius:50%;border:1px solid #2a2b2e;background:#000a;color:#fff;display:grid;place-items:center;cursor:pointer}
+.ttl{flex:1;font-size:20px;font-weight:700}
+.pill{border:1px solid #2a2b2e;border-radius:999px;background:#000a;display:flex;padding:3px}
+.pill button{border:0;background:none;color:#cfd3d6;font:inherit;font-size:14px;padding:8px 14px;border-radius:999px;cursor:pointer}
+.pill button.on{background:#fff;color:#000}
+.chips{position:fixed;left:0;right:0;bottom:84px;display:flex;gap:8px;overflow-x:auto;padding:0 16px;scrollbar-width:none;z-index:2}
+.chips::-webkit-scrollbar{display:none}
+.chips button{flex:0 0 auto;border:0;border-radius:999px;background:#1c1d1fdd;color:#f1f1f1;font:inherit;font-size:14px;padding:9px 15px;cursor:pointer}
+.bar{position:fixed;left:16px;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));height:54px;display:flex;align-items:center;gap:8px;padding:0 6px 0 18px;border-radius:999px;background:#1c1d1f;border:1px solid #2f3033;box-shadow:0 10px 30px #000a;z-index:2}
+.bar input{flex:1;background:none;border:0;outline:0;color:#fff;font:inherit;font-size:16px;min-width:0}
+.bar input::placeholder{color:#7a7e83}
+.ib{width:42px;height:42px;border-radius:50%;border:0;background:#2a2b2e;color:#fff;display:grid;place-items:center;cursor:pointer}
+.ib.go{background:#fff;color:#000}.ib.on{background:#f4212e}
+#status{position:fixed;top:72px;left:0;right:0;text-align:center;font-size:14px;color:#c7ccd1;z-index:2;pointer-events:none;text-shadow:0 1px 6px #000}
+#say{position:fixed;top:100px;left:50%;transform:translateX(-50%);max-width:80%;background:#ffffffee;color:#0f1419;padding:10px 14px;border-radius:18px;font-size:15px;z-index:2;display:none}
+#load{position:fixed;inset:0;display:grid;place-items:center;color:#8b8f94;z-index:1}
+</style></head><body>
+<div id="stage" style="position:fixed;inset:0"></div><div id="load">Loading the avatar…</div>
+<div class="top"><button class="x" id="close" aria-label="Close" title="Close"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+<span class="ttl">Avatar</span><div class="pill" role="group" aria-label="Avatar"><button id="g-male" type="button">Male</button><button id="g-female" type="button">Female</button><button id="g-robot" type="button">Robot</button></div></div>
+<div id="status">Tap the floor to send me there, or tell me what to do.</div><div id="say"></div>
+<div class="chips" id="chips"></div>
+<form class="bar" id="bar"><input id="cmd" placeholder="Tell the avatar: wave, dance, act sad then cheer up…" autocomplete="off" aria-label="Avatar command">
+<button class="ib" id="mic" type="button" aria-label="Speak a command"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+<button class="ib go" id="go" type="submit" aria-label="Do it"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></form>
+<script type="importmap">{"imports":{"three":"./th/three.module.js","three/addons/":"./th/addons/"}}</script>
+<script type="module" src="./human.js?v=181"></script>
+</body></html>
