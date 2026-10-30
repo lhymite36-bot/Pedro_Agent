@@ -128,7 +128,7 @@ def rotate_token() -> str:
 
 # ---- one-time pairing codes (QR) ----
 PAIR_TTL = 600
-APK_URL = "https://github.com/lhymite36-bot/Pedro_Agent/releases/download/v1.8.1-test/PedBot-1.8.1-test.apk"
+APK_URL = "https://github.com/lhymite36-bot/Pedro_Agent/releases/download/v1.8.2-test/PedBot-1.8.2-test.apk"
 _pair_codes: dict[str, float] = {}
 _PAIR_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 

@@ -12,7 +12,7 @@ class UiGuardTests(unittest.TestCase):
         links = re.findall(r'<link rel="stylesheet" href="/([a-z_]+\.css)\?v=(\w+)"', html)
         self.assertTrue(links); self.assertIn("ui_guard.css", [l[0] for l in links])
         for name, v in links:
-            self.assertEqual(v, "180", name); self.assertIn(name, chat_app.STATIC_FILES, name)
+            self.assertEqual(v, "182", name); self.assertIn(name, chat_app.STATIC_FILES, name)
         self.assertNotIn("grokskin16", html)
         self.assertIn("stylesheet failed to load", html)
         self.assertNotIn("Connections &amp; updates", html)

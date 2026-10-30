@@ -44,6 +44,8 @@ STATIC_FILES = {
     "settings_page.js": "application/javascript; charset=utf-8",
     "batch180.js": "application/javascript; charset=utf-8",
     "batch180.css": "text/css; charset=utf-8",
+    "studio182.js": "application/javascript; charset=utf-8",
+    "studio182.css": "text/css; charset=utf-8",
     "avatar3d/index.html": "text/html; charset=utf-8",
     "avatar3d/stage.js": "application/javascript; charset=utf-8",
     "avatar3d/three.module.min.js": "application/javascript; charset=utf-8",
@@ -1272,6 +1274,13 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             elif url.path.lstrip("/") in STATIC_FILES:
                 name = url.path.lstrip("/")
                 self._send(200, (STATIC / name).read_bytes(), STATIC_FILES[name])
+            elif url.path.startswith("/studio/app/"):   # 1.8.2 photo-to-app previews
+                import studio182
+                f = studio182.app_file(url.path.rsplit("/", 1)[-1])
+                if f:
+                    self._send(200, f.read_bytes(), "text/html; charset=utf-8")
+                else:
+                    self._send(404, b"not found", "text/plain")
             elif url.path.startswith("/avatar3d/") and _avatar_file(url.path):   # 1.8.1 avatar engine + models
                 f, mime = _avatar_file(url.path)
                 self._send(200, f.read_bytes(), mime)
@@ -1611,6 +1620,9 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             elif url.path == "/api/tutor":   # 1.8.0 screen tutor
                 import batch180
                 self._json(batch180.tutor(str(data.get("question") or "")))
+            elif url.path == "/api/studio":   # 1.8.2 Studio tools
+                import studio182
+                self._json(studio_call(studio182, data))
             elif url.path == "/api/offline":   # 1.8.0 offline mode (local Ollama)
                 import batch180
                 self._json(batch180.offline(None if "on" not in data else bool(data.get("on"))))
@@ -2222,10 +2234,49 @@ def _avatar_file(path: str):
     except (OSError, ValueError):
         return None
 
+def studio_call(mod, data: dict[str, Any]) -> dict[str, Any]:
+    """1.8.2: one endpoint for the Studio page; only named tools, keyword args filtered."""
+    tool = str(data.get("tool") or "")
+    g = lambda k, d="": data.get(k, d)
+    try:
+        if tool == "wa":
+            return mod.wa_draft(str(g("to")), str(g("intent")), str(g("tone", "casual")))
+        if tool == "trends":
+            return mod.trend_radar(str(g("geo", "IN")))
+        if tool == "trend_use":
+            return mod.trend_use(str(g("title")))
+        if tool == "video":
+            return mod.video_edit(str(g("path")), str(g("instruction")))
+        if tool in ("shortcuts", "calls", "prices"):
+            fn = {"shortcuts": mod.shortcuts, "calls": mod.calls, "prices": mod.price_watch}[tool]
+            kw = {k: v for k, v in data.items() if k in ("label", "command", "at", "id", "about", "repeat", "bot", "url", "target", "name")}
+            return fn(str(g("action", "list")), **kw)
+        if tool == "pending_call":
+            return mod.pending_call()
+        if tool == "notes":
+            return mod.meeting_notes(str(g("audio")), str(g("mime", "audio/webm")), str(g("title")))
+        if tool == "photo_app":
+            return mod.photo_app(str(g("image")), str(g("notes")))
+        if tool == "factory":
+            return mod.app_factory(str(g("goal")))
+        if tool == "factory_job":
+            return mod.app_job(str(g("job")))
+        if tool == "mood":
+            return mod.mood(str(g("action", "list")), str(g("text")))
+    except Exception as exc:
+        return {"ok": False, "error": "That tool hit a problem.", "detail": str(exc)[:200]}
+    return {"ok": False, "error": "Unknown tool."}
+
+
 def serve(model: str, port: int = 8765) -> tuple[ThreadingHTTPServer, AppState]:
     try:   # 1.8.0: restore offline mode (local Ollama) without slowing start-up
         import batch180, threading as _th
         _th.Thread(target=batch180.offline, daemon=True).start()
+    except Exception:
+        pass
+    try:   # 1.8.2 Studio: call-me alarms, timed shortcuts, price checks
+        import studio182
+        studio182.start()
     except Exception:
         pass
     apply_saved_voice()
