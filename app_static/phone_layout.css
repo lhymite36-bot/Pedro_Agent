@@ -1,0 +1,76 @@
+/* 1.6.5 spacious phone layout. Only applies with body.pl (<=520px, set by phone_layout.js). */
+@media (max-width:520px){
+html body.pl{--pl-bg:#0b0b0c;--pl-card:#17181a;--pl-line:#26272a;--pl-text:#ececec;--pl-dim:#8d9096;background:var(--pl-bg)!important}
+/* top bar: [menu] ...... [bot pill] ...... [+ / ...] */
+html body.pl header{position:relative!important;display:flex!important;align-items:center!important;justify-content:space-between!important;gap:10px!important;height:auto!important;min-height:64px!important;padding:calc(10px + env(safe-area-inset-top)) 16px 10px!important;background:var(--pl-bg)!important;border:0!important;box-shadow:none!important;overflow:visible!important;flex-wrap:nowrap!important}
+html body.pl header #new#new,html body.pl header #avc-open#avc-open,html body.pl header #pause-all#pause-all,html body.pl header #hdr-model#hdr-model,html body.pl header>.spacer{display:none!important}
+html body.pl header>#hdr-stop:not([hidden]){display:inline-flex!important;width:44px!important;height:44px!important;border-radius:50%!important;flex:0 0 44px!important}
+html body.pl header #menubtn,html body.pl .pl-round{width:46px!important;height:46px!important;min-width:46px!important;flex:0 0 46px!important;border-radius:50%!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;padding:0!important;background:var(--pl-card)!important;border:1px solid var(--pl-line)!important;color:var(--pl-text)!important;margin:0!important;box-shadow:none!important}
+html body.pl header #menubtn svg,html body.pl .pl-round svg{width:22px!important;height:22px!important}
+html body.pl header .bot-pill{position:absolute!important;left:50%!important;top:calc(9px + env(safe-area-inset-top))!important;transform:translateX(-50%)!important;display:inline-flex!important;align-items:center!important;gap:8px!important;max-width:calc(100% - 150px)!important;height:46px!important;padding:0 16px 0 6px!important;border-radius:999px!important;background:var(--pl-card)!important;border:1px solid var(--pl-line)!important;flex:none!important;min-width:0!important}
+html body.pl header .bot-pill #hdr-avatar{width:34px!important;height:34px!important;flex:0 0 34px!important}
+html body.pl header .bot-pill .who{display:block!important;min-width:0!important;overflow:hidden!important}
+html body.pl header .bot-pill .who b{font-size:16px!important;font-weight:600!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;display:block!important}
+html body.pl header .bot-pill .who small{display:none!important}
+#pl-right{display:flex;gap:10px;margin-left:auto}
+html body.pl #pl-more{display:none!important}
+html body.pl.pl-chat #pl-more{display:inline-flex!important}
+html body.pl.pl-chat #pl-new{display:none!important}
+#pl-dot{display:none}
+html body.pl #pl-dot{display:block;width:10px;height:10px;border-radius:50%;background:#2ecc71;flex:0 0 10px;margin-left:2px;box-shadow:0 0 0 3px #17181a}
+html body.pl.pl-offline #pl-dot{background:#f5b301}
+html body.pl.pl-paused #pl-dot{background:#e74c3c}
+/* phone-mode banner: never over the header; its info lives in the status dot + ... menu */
+html body.pl #pb-banner{display:none!important}
+/* ... menu */
+#pl-menu,#pl-scrim{display:none}
+html body.pl.pl-menu-open #pl-scrim,html body.pl.pl-grid-open #pl-scrim{display:block;position:fixed;inset:0;background:#0008;z-index:60}
+html body.pl.pl-menu-open #pl-menu{display:flex;flex-direction:column;position:fixed;top:calc(68px + env(safe-area-inset-top));right:14px;min-width:230px;background:#1b1c1f;border:1px solid var(--pl-line);border-radius:22px;padding:8px;z-index:61;box-shadow:0 12px 40px #000a}
+#pl-menu button{background:none;border:0;color:var(--pl-text);text-align:left;font-size:16px;padding:14px 16px;border-radius:14px;min-height:48px}
+#pl-menu button:active{background:#26272a}
+#pl-menu button.danger{color:#ff6b5e}
+#pl-status{color:var(--pl-dim);font-size:13px;padding:8px 16px 6px}
+/* home: big face, name, recent chats */
+html body.pl #empty:not(.hidden){z-index:3}
+html body.pl #pl-recent{pointer-events:auto}
+html body.pl #empty{inset:76px 0 84px!important;padding:8px 20px 16px!important;justify-content:flex-start!important;gap:0!important;overflow-y:auto!important}
+html body.pl #empty .big{width:132px!important;height:132px!important;margin:36px auto 14px!important}
+html body.pl #empty h2,html body.pl #empty p,html body.pl #empty .hint-row{display:none!important}
+#pl-name{display:none}
+html body.pl #pl-name{display:block;text-align:center;font-size:22px;font-weight:600;color:var(--pl-text);margin-bottom:34px}
+html body.pl #pl-recent{width:100%;max-width:520px;margin:0 auto;display:flex;flex-direction:column;gap:4px}
+.pl-rec-h{color:var(--pl-dim);font-size:13px;padding:0 6px 8px}
+.pl-rec{display:flex;align-items:center;gap:14px;width:100%;background:none;border:0;color:var(--pl-text);text-align:left;padding:12px 6px;border-radius:16px;min-height:64px}
+.pl-rec:active{background:#17181a}
+.pl-rec-av{width:44px;height:44px;flex:0 0 44px;border-radius:50%;background:#222326;display:flex;align-items:center;justify-content:center;font-weight:600;color:#cfd2d6}
+.pl-rec-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.pl-rec-main b{font-size:16px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pl-rec-main small{font-size:14px;color:var(--pl-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pl-rec time{color:var(--pl-dim);font-size:13px;flex:0 0 auto}
+/* chat log breathing room */
+html body.pl #log{padding:12px 18px 18px!important}
+/* bottom: [grid] [ pill: + ... Ask Ped Bot ... mic voice send ] */
+html body.pl #composer{display:flex!important;flex-wrap:wrap!important;align-items:flex-end!important;gap:10px!important;padding:10px 14px calc(14px + env(safe-area-inset-bottom))!important;background:var(--pl-bg)!important;border:0!important;margin:0!important;bottom:0!important;position:relative!important}
+html body.pl #composer>#reply-to:not([hidden]),html body.pl #composer>#att-tray:not([hidden]){flex:1 1 100%}
+html body.pl #composer>[hidden]{display:none!important}
+html body.pl #composer .sub{display:none!important}
+html body.pl #composer #pl-grid{flex:0 0 50px!important;align-self:center!important;width:50px!important;height:50px!important;min-width:50px!important}
+html body.pl #composer .box{flex:1 1 0!important;width:auto!important;min-width:0!important;margin:0!important;display:flex!important;align-items:center!important;gap:4px!important;min-height:50px!important;padding:3px 6px 3px 4px!important;border-radius:999px!important;background:var(--pl-card)!important;border:1px solid var(--pl-line)!important;box-shadow:none!important;max-width:none!important}
+html body.pl #composer .box .ib{width:42px!important;height:42px!important;min-width:42px!important;flex:0 0 42px!important;border-radius:50%!important;padding:0!important;background:none!important;border:0!important}
+html body.pl #composer .box #send{background:#ececec!important;color:#0b0b0c!important}
+html body.pl #composer .box #hands{display:none!important}
+html body.pl #composer #t{flex:1 1 auto!important;min-width:0!important;font-size:16px!important;padding:12px 4px!important;background:none!important;border:0!important;min-height:0!important;max-height:140px}
+/* the tab bar becomes an apps sheet opened by the grid button */
+html body.pl #bottomnav{display:none!important}
+html body.pl.pl-grid-open #bottomnav{display:grid!important;grid-template-columns:repeat(4,1fr)!important;gap:14px 6px!important;position:fixed!important;left:12px!important;right:12px!important;top:auto!important;bottom:calc(84px + env(safe-area-inset-bottom))!important;height:auto!important;padding:20px 10px!important;border-radius:26px!important;background:#1b1c1f!important;border:1px solid var(--pl-line)!important;z-index:61!important;box-shadow:0 12px 40px #000a!important}
+html body.pl.pl-grid-open #bottomnav button{display:flex!important;flex-direction:column!important;align-items:center!important;gap:8px!important;font-size:12px!important;color:var(--pl-text)!important;background:none!important;border:0!important;padding:0!important;height:auto!important;min-width:0!important}
+html body.pl.pl-grid-open #bottomnav button svg{width:24px!important;height:24px!important;box-sizing:content-box;padding:13px;border-radius:50%;background:#26272a}
+html body.pl.pl-grid-open #bottomnav button.active svg{background:#3a3b3f}
+html body.pl.pl-grid-open #bottomnav::before,html body.pl.pl-grid-open #bottomnav::after{display:none!important}
+html body.pl main{padding-bottom:0!important}
+html body.pl{padding-bottom:0!important}
+html body.pl #bottomnav>:not(button){display:none!important}
+html body.pl #composer #t::placeholder{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+html body.pl #composer #t{white-space:pre-wrap;line-height:22px!important;height:46px}
+}
+body:not(.pl) #pl-grid,body:not(.pl) #pl-right,body:not(.pl) #pl-name,body:not(.pl) #pl-recent,body:not(.pl) #pl-dot,body:not(.pl) #pl-menu,body:not(.pl) #pl-scrim{display:none!important}

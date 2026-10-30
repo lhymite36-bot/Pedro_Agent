@@ -217,9 +217,17 @@ public class MainActivity extends Activity {
                 JSONObject sess = refreshIfNeeded(new JSONObject(prefs.getString("ticket", "{}")));
                 prefs.edit().putString("ticket", sess.toString()).apply();
                 String access = sess.getString("access_token");
-                String url = fetchPresence(access);
+                // 1.6.5: the PC's free tunnel gets a NEW link on every restart and needs ~10-40 s
+                // to come up, so look a few times before falling back to phone mode.
+                String url = "";
+                for (int i = 0; i < 4; i++) {
+                    url = fetchPresence(access);
+                    if (!url.isEmpty() && pcOnline(url)) break;
+                    url = "";
+                    if (i < 3) Thread.sleep(4000);
+                }
                 // 1.5.12: prefer the PC when it answers; otherwise run the bots on the phone.
-                if (url.isEmpty() || !pcOnline(url)) {
+                if (url.isEmpty()) {
                     runOnUiThread(() -> showPhoneMode("PC offline"));
                     return;
                 }
@@ -290,7 +298,33 @@ public class MainActivity extends Activity {
             showingAuth = false; inPhone = true; phoneReason = reason == null ? "PC offline" : reason;
             errorView.setVisibility(View.GONE);
             web.loadUrl(PHONE_ORIGIN + "/?ui=grokskin");
+            watchForPc();
         });
+    }
+
+    /** 1.6.5: while in phone mode (not chosen by hand), keep checking for the PC and switch to it when it comes online. */
+    boolean watching;
+    void watchForPc() {
+        if (watching || prefs.getBoolean("phone_only", false)) return;
+        watching = true;
+        new Thread(() -> {
+            try {
+                while (inPhone && !prefs.getBoolean("phone_only", false)) {
+                    Thread.sleep(20000);
+                    if (!resumed) continue;
+                    try {
+                        JSONObject sess = refreshIfNeeded(new JSONObject(prefs.getString("ticket", "{}")));
+                        prefs.edit().putString("ticket", sess.toString()).apply();
+                        String url = fetchPresence(sess.getString("access_token"));
+                        if (!url.isEmpty() && pcOnline(url)) {
+                            runOnUiThread(() -> { toast("Your PC is online - connecting"); connectWithAccount(); });
+                            break;
+                        }
+                    } catch (Exception ignored) {}
+                }
+            } catch (InterruptedException ignored) {
+            } finally { watching = false; }
+        }).start();
     }
 
     static String mimeOf(String path) {
