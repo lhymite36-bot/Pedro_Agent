@@ -13,7 +13,7 @@ import re
 import threading
 from typing import Any
 
-DEFAULT_WAKE_PHRASE = "hey agent"
+DEFAULT_WAKE_PHRASE = "hey ped"  # 1.8.0; "hey pedro" and "hey bed" also wake it
 commands: queue.Queue[dict[str, Any]] = queue.Queue()
 _stop = threading.Event()
 _pause = threading.Event()
@@ -33,14 +33,18 @@ def wake_phrase() -> str:
 
 def split_wake_phrase(transcript: str, phrase: str | None = None) -> tuple[bool, str]:
     """Return whether the phrase was said, and any words that followed it."""
-    target = (phrase or wake_phrase()).casefold().split()
+    chosen = (phrase or wake_phrase()).casefold()
+    targets = [chosen.split()]
+    if chosen == "hey ped":   # 1.8.0: what speech recognisers usually hear for "Hey Ped"
+        targets += [t.split() for t in ("hey pedro", "hey bed", "hey pad", "hay ped", "a ped", "hey peds", "hi ped", "okay ped")]
     words = re.findall(r"[a-z0-9']+", (transcript or "").casefold())
-    if not target:
-        return False, ""
-    width = len(target)
-    for index in range(len(words) - width + 1):
-        if words[index : index + width] == target:
-            return True, " ".join(words[index + width :])
+    for target in targets:
+        if not target:
+            continue
+        width = len(target)
+        for index in range(len(words) - width + 1):
+            if words[index : index + width] == target:
+                return True, " ".join(words[index + width :])
     return False, ""
 
 

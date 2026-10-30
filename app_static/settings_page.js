@@ -158,5 +158,5 @@
 
   function boot() { build(); setTimeout(() => { decorate($('#settings') || document); status(); }, 1200); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
-  window.pbSettingsPage = { status, filter, _iconFor: iconFor };
+  window.pbSettingsPage = { status, filter, decorate, _iconFor: iconFor };
 })();

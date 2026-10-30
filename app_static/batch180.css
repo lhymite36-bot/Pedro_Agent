@@ -1,0 +1,27 @@
+/* 1.8.0 pages: same look as the 1.7.2 settings pages */
+#av3d{position:fixed;inset:0;width:100%;height:100%;border:0;z-index:9000;background:#050506}
+.b180-page{position:fixed;inset:0;z-index:8999;background:#000;color:#f7f9f9;display:flex;flex-direction:column;font-family:inherit}
+.b180-page>*{width:100%;max-width:760px;margin:0 auto;box-sizing:border-box}
+.b180-head{display:flex;align-items:center;gap:14px;padding:14px 16px 10px}
+.b180-head b{flex:1;font-size:20px;font-weight:700}
+.b180-x{width:46px;height:46px;flex:0 0 46px;border-radius:50%;border:1px solid #2a2b2e;background:#000;color:#fff;display:grid;place-items:center;cursor:pointer}
+.b180-pill{border:1px solid #2a2b2e;border-radius:999px;padding:10px 16px;font-size:15px;font-weight:600;white-space:nowrap}
+.b180-body{flex:1;overflow-y:auto;padding:0 16px 24px}
+.b180-sec{font-size:17px;font-weight:600;margin:12px 0 10px}
+.b180-bar{display:flex;gap:8px;align-items:center;background:#1c1d1f;border:1px solid #2f3033;border-radius:999px;padding:6px 6px 6px 18px;margin:12px 0}
+.b180-bar input{flex:1;background:none;border:0;outline:0;color:#fff;font:inherit;font-size:16px;min-width:0}
+.b180-btn{border:0;border-radius:999px;background:#2a2b2e;color:#f1f1f1;font:inherit;font-size:15px;font-weight:500;padding:10px 16px;cursor:pointer;white-space:nowrap}
+.b180-btn.acc,.b180-btn.on{background:#1d6fe0;color:#fff}
+.b180-row{display:flex;gap:10px;align-items:center;color:#c7ccd1;font-size:14.5px;margin:8px 4px}
+.b180-row input{accent-color:#1d9bf0;width:18px;height:18px}
+.b180-log{display:flex;flex-direction:column;gap:10px;margin-top:8px}
+.b180-item{background:#1c1d1f;border-radius:16px;padding:12px 14px;font-size:16px;line-height:1.4}
+.b180-item small{display:block;color:#8b8f94;font-size:13.5px;margin-bottom:4px}
+.b180-shot{width:100%;border-radius:14px;background:#1c1d1f center/48px no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7076' stroke-width='1.6'%3E%3Crect x='2' y='3' width='20' height='14' rx='2'/%3E%3Cpath d='M8 21h8M12 17v4'/%3E%3C/svg%3E");aspect-ratio:16/9;object-fit:contain;display:block}
+.b180-side{display:flex;flex-direction:column;gap:2px;margin-top:8px}
+body.grok-light .b180-page{background:#fff;color:#0f1419}
+body.grok-light .b180-x,body.grok-light .b180-pill{background:#fff;color:#0f1419;border-color:#e1e4e8}
+body.grok-light .b180-bar,body.grok-light .b180-item{background:#f2f3f5;border-color:#e1e4e8}
+body.grok-light .b180-bar input{color:#0f1419}
+body.grok-light .b180-btn{background:#e9ebee;color:#0f1419}
+body.grok-light .b180-row{color:#334}

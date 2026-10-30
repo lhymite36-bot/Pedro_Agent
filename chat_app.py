@@ -42,6 +42,14 @@ STATIC_FILES = {
     "ui_guard.css": "text/css; charset=utf-8",
     "settings_page.css": "text/css; charset=utf-8",
     "settings_page.js": "application/javascript; charset=utf-8",
+    "batch180.js": "application/javascript; charset=utf-8",
+    "batch180.css": "text/css; charset=utf-8",
+    "avatar3d/index.html": "text/html; charset=utf-8",
+    "avatar3d/stage.js": "application/javascript; charset=utf-8",
+    "avatar3d/three.module.min.js": "application/javascript; charset=utf-8",
+    "avatar3d/GLTFLoader.js": "application/javascript; charset=utf-8",
+    "avatar3d/BufferGeometryUtils.js": "application/javascript; charset=utf-8",
+    "avatar3d/RobotExpressive.glb": "model/gltf-binary",
     "pc_layout.css": "text/css; charset=utf-8",
     "pc_layout.js": "application/javascript; charset=utf-8",
     "bubbles.css": "text/css; charset=utf-8",
@@ -1591,6 +1599,18 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                         self._json(undo_store.undo_last_change())
             elif url.path == "/api/chat":
                 self._chat(data)
+            elif url.path == "/api/avatar/plan":   # 1.8.0 3D avatar commands
+                import batch180
+                self._json(batch180.avatar_plan(str(data.get("command") or ""), str(data.get("gender") or "male")))
+            elif url.path == "/api/translate":   # 1.8.0 live Hindi -> English
+                import batch180
+                self._json(batch180.translate(str(data.get("text") or "")))
+            elif url.path == "/api/tutor":   # 1.8.0 screen tutor
+                import batch180
+                self._json(batch180.tutor(str(data.get("question") or "")))
+            elif url.path == "/api/offline":   # 1.8.0 offline mode (local Ollama)
+                import batch180
+                self._json(batch180.offline(None if "on" not in data else bool(data.get("on"))))
             elif url.path == "/api/chat_side":
                 self._json(side_message(state, str(data.get("session") or ""), " ".join(str(data.get("text") or "").split())))
             elif url.path == "/api/checkins":
@@ -1753,7 +1773,9 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                         tone, user = "excited", ""
                     else:
                         bot = bots.bot_for_session(str(data.get("session") or ""))
-                        words, tone, user = str(data.get("text") or "")[:3000], "", str(data.get("user") or "")
+                        if data.get("gender") in ("male", "female"):   # 1.8.0 avatar / translator voice
+                            bot = {"voice": {"gender": data["gender"], "name": str(data.get("name") or ("Sulafat" if data["gender"] == "female" else "Puck"))}}
+                        words, tone, user = str(data.get("text") or "")[:3000], str(data.get("tone") or ""), str(data.get("user") or "")
                     TTS_DIR.mkdir(parents=True, exist_ok=True)
                     clip = uuid.uuid4().hex
                     dest = TTS_DIR / f"{clip}.mp3"
@@ -2182,6 +2204,11 @@ def start_routines(state: "AppState") -> None:
 
 
 def serve(model: str, port: int = 8765) -> tuple[ThreadingHTTPServer, AppState]:
+    try:   # 1.8.0: restore offline mode (local Ollama) without slowing start-up
+        import batch180, threading as _th
+        _th.Thread(target=batch180.offline, daemon=True).start()
+    except Exception:
+        pass
     apply_saved_voice()
     state = AppState(model)
     import bot_mind

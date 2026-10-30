@@ -2345,7 +2345,7 @@ class AgentToolTests(unittest.TestCase):
         logged = "\n".join(str(call.args[0]) for call in printed.call_args_list if call.args)
         self.assertIn("[schedule] reminder: stand up", logged)
 
-        phrases = iter(["not now", "hey agent", "hey agent open notepad"])
+        phrases = iter(["not now", "hey ped", "hey ped open notepad"])  # 1.8.0 wake phrase
         commands = {"n": 0}
         chimes = {"n": 0}
 
