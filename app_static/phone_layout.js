@@ -61,6 +61,7 @@
   }
   async function recent() {
     const rec = $('#pl-recent'); if (!rec || !document.body.classList.contains('pl')) return;
+    rec.textContent = ''; return;   // 1.6.8: a bot tap opens its chat; old chats are in '...' > Chat history
     try {
       const rows = await (await fetch('/api/sessions')).json();
       const list = (Array.isArray(rows) ? rows : []).filter((s) => !String(s.session).startsWith('group-')).slice(0, 8);
@@ -145,12 +146,16 @@
   }
   function face(box, look) { box.textContent = ''; if (window.createAvatar) { try { window.createAvatar(box, look); return; } catch (e) {} } box.textContent = '•'; }
   function look(b) { return b ? { color: b.color || '#1683f5', shape: b.avatar || 'round' } : { color: '#f2f2f2', shape: 'pedbot' }; }
+  function ready() { if (window.applyBotHeader) window.applyBotHeader(); const t = $('#t'); if (t && !mq.matches) t.focus(); }
   function openChat(id) {
     hide();
     try { history.pushState({ plchat: 1 }, ''); } catch (e) {}
-    if (id) { if (window.openSession) window.openSession('bot-' + id).then(() => { if (window.applyBotHeader) window.applyBotHeader(); }); }
-    else { const s = sessions.find((r) => !/^(bot-|group-)/.test(String(r.session))); if (s && window.openSession) window.openSession(s.session).then(() => { if (window.applyBotHeader) window.applyBotHeader(); }); else { const n = $('#new'); if (n) n.click(); } }
+    if (id && window.pbBotMenu) window.pbBotMenu.openedBot(id);
+    if (id) { if (window.openSession) window.openSession('bot-' + id).then(ready); }
+    else { const s = sessions.find((r) => !/^(bot-|group-)/.test(String(r.session))); if (s && window.openSession) window.openSession(s.session).then(ready); else { const n = $('#new'); if (n) n.click(); } }
   }
+  // 1.6.8: open any saved chat (history sheet etc.) - leave the home screen first so the chat is visible
+  window.pbOpenChat = (sess) => { hide(); try { history.pushState({ plchat: 1 }, ''); } catch (e) {} return window.openSession ? window.openSession(sess).then(ready) : null; };
   function show() { document.body.classList.add('pl-home-on'); load(); }
   function hide() { document.body.classList.remove('pl-home-on', 'pl-grid-open', 'pl-menu-open'); }
   function build() {
@@ -185,7 +190,7 @@
     }
     const menu = $('#pl-menu');
     if (menu && !menu.querySelector('[data-do2="history"]')) {
-      const hb = el('button', '', 'History'); hb.type = 'button'; hb.dataset.do2 = 'history';
+      const hb = el('button', '', 'Chat history'); hb.type = 'button'; hb.dataset.do2 = 'history';
       hb.onclick = (e) => { e.stopPropagation(); document.body.classList.remove('pl-menu-open'); historySheet(); };
       menu.insertBefore(hb, menu.children[2] || null);
     }
@@ -208,30 +213,48 @@
       const c = el('button', 'plh-create', 'Create a bot'); c.type = 'button'; c.onclick = newBot; e.appendChild(c);
       list.appendChild(e); return;
     }
-    const rows = bots.map((b) => ({ b, s: by['bot-' + b.id] || {} }))
-      .filter((r) => !query || (r.b.name + ' ' + (r.s.preview || '') + ' ' + (r.b.role || '')).toLowerCase().includes(query))
-      .sort((a, b) => (Number(b.s.last || 0) - Number(a.s.last || 0)));
-    const head = el('button', 'plh-sec' + (collapsed ? ' closed' : '')); head.type = 'button';
-    head.append(el('span', '', 'Unassigned'), el('small', '', String(rows.length))); head.insertAdjacentHTML('beforeend', CHEV);
-    head.onclick = () => { collapsed = !collapsed; draw(); };
-    list.appendChild(head);
-    if (collapsed) return;
-    if (!rows.length) { list.appendChild(el('div', 'plh-none', 'No bots match "' + query + '"')); return; }
-    rows.forEach(({ b, s }) => {
-      const r = el('button', 'plh-row'); r.type = 'button';
-      const f = el('div', 'plh-face'); const m = el('div', 'plh-main'); const top = el('div', 'plh-l1');
-      top.append(el('b', '', b.name), el('time', '', when(s.last)));
-      m.append(top, el('small', '', String(s.preview || b.role || 'Say hi to ' + b.name).replace(/\s+/g, ' ')));
-      r.append(f, m); r.onclick = () => openChat(b.id); list.appendChild(r);
-      face(f, look(b));
+    const BM = window.pbBotMenu, H = BM ? BM.home : { sections: [], pinned: [], hidden: [], unread: [] };
+    const lastOf = (b) => (by['bot-' + b.id] || {}).last;
+    const vis = (BM ? BM.arrange(bots.slice(), lastOf) : bots.slice())
+      .filter((b) => !query || (b.name + ' ' + ((by['bot-' + b.id] || {}).preview || '') + ' ' + (b.role || '')).toLowerCase().includes(query));
+    const placed = new Set();
+    const group = (key, name, ids, closed, toggle) => {
+      const head = el('button', 'plh-sec' + (closed ? ' closed' : '')); head.type = 'button'; head.dataset.sec = key;
+      head.append(el('span', '', name), el('small', '', String(ids.length))); head.insertAdjacentHTML('beforeend', CHEV);
+      head.onclick = toggle; list.appendChild(head);
+      if (closed) return;
+      ids.forEach((b) => list.appendChild(row(b, by['bot-' + b.id] || {})));
+    };
+    H.sections.forEach((sec) => {
+      const ids = vis.filter((b) => sec.ids.includes(b.id)); ids.forEach((b) => placed.add(b.id));
+      group(sec.id, sec.name, ids, sec.collapsed, () => BM.op('collapse', { section: sec.id, on: !sec.collapsed }).then(draw));
     });
+    const rest = vis.filter((b) => !placed.has(b.id));
+    group('', 'Unassigned', rest, collapsed, () => { collapsed = !collapsed; draw(); });
+    if (!vis.length && query) list.appendChild(el('div', 'plh-none', 'No bots match "' + query + '"'));
+    const hid = H.hidden.filter((id) => bots.some((b) => b.id === id)).length;
+    if (hid && BM) { const l = el('button', 'bm-hidden-link', 'Hidden bots (' + hid + ')'); l.type = 'button'; l.id = 'plh-hidden'; l.onclick = () => BM.hiddenSheet(bots, load); list.appendChild(l); }
+  }
+  function row(b, s) {
+    const BM = window.pbBotMenu, H = BM ? BM.home : { pinned: [], unread: [] };
+    const unread = H.unread.includes(b.id);
+    const r = el('button', 'plh-row' + (unread ? ' is-unread' : '')); r.type = 'button'; r.dataset.id = b.id;
+    const f = el('div', 'plh-face'); const m = el('div', 'plh-main'); const top = el('div', 'plh-l1');
+    const nm = el('b', '', b.name); if (H.pinned.includes(b.id) && BM) nm.insertAdjacentHTML('beforeend', '<span class="bm-pinmark">' + BM.IC.pin + '</span>');
+    const tm = el('time', '', when(s.last));
+    top.append(nm, tm); if (unread) top.appendChild(el('span', 'bm-dot'));
+    m.append(top, el('small', '', String(s.preview || b.role || 'Say hi to ' + b.name).replace(/\s+/g, ' ')));
+    r.append(f, m); r.onclick = () => openChat(b.id);
+    if (BM) BM.bind(r, () => b, { reload: load });
+    face(f, look(b));
+    return r;
   }
   window.pbHistorySheet = (...a) => historySheet(...a);
   async function historySheet() {
     let s = []; try { s = await (await fetch('/api/sessions')).json(); } catch (e) {}
     const cur = (typeof session === 'string') ? session : (localStorage.session || '');
     const isBot = /^bot-/.test(cur);
-    const items = (Array.isArray(s) ? s : []).filter((r) => isBot ? r.session === cur : !/^(bot-|group-)/.test(String(r.session)));
+    const items = (Array.isArray(s) ? s : []).filter((r) => isBot ? r.session === cur || !/^(bot-|group-)/.test(String(r.session)) : !/^(bot-|group-)/.test(String(r.session)));
     let sh = $('#plh-hist'); if (sh) sh.remove();
     sh = el('div'); sh.id = 'plh-hist';
     const card = el('div', 'plh-hist-card'); card.appendChild(el('h3', '', 'History'));
@@ -240,7 +263,7 @@
       const b = el('button', 'plh-row'); b.type = 'button'; const m = el('div', 'plh-main'); const t = el('div', 'plh-l1');
       t.append(el('b', '', String(r.title || r.session).replace(/\s+/g, ' ').slice(0, 70)), el('time', '', when(r.last)));
       m.append(t, el('small', '', String(r.preview || '').replace(/\s+/g, ' '))); b.appendChild(m);
-      b.onclick = () => { sh.remove(); if (window.openSession) window.openSession(r.session); };
+      b.onclick = (e) => { e.stopPropagation(); sh.remove(); window.pbOpenChat(r.session); };
       card.appendChild(b);
     });
     sh.onclick = (e) => { if (e.target === sh) sh.remove(); };
@@ -257,6 +280,7 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
   setInterval(() => { if (document.body.classList.contains('pl-home-on') && !document.hidden) load(); }, 30000);
   window.pbShowHome = show;
+  if (window.pbBotMenu) window.pbBotMenu.onChange(() => draw());
 })();
 
 // 1.6.6: every drawer menu item lives in the apps grid on phone.

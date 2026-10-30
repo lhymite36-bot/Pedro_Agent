@@ -37,6 +37,8 @@ STATIC_FILES = {
     "app.js": "application/javascript; charset=utf-8",
     "phone_layout.css": "text/css; charset=utf-8",
     "phone_layout.js": "application/javascript; charset=utf-8",
+    "bot_menu.js": "application/javascript; charset=utf-8",
+    "bot_menu.css": "text/css; charset=utf-8",
     "pc_layout.css": "text/css; charset=utf-8",
     "pc_layout.js": "application/javascript; charset=utf-8",
     "bubbles.css": "text/css; charset=utf-8",
@@ -1351,6 +1353,22 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 self._json({"ok": True, "memories": _agent().list_memories()})
             elif url.path == "/api/bots":
                 self._json({"bots": bots.list_bots(), "tools": sorted(_agent().TOOLS)})
+            elif url.path == "/api/bot_home":
+                import bot_home
+                self._json(bot_home.load())
+            elif url.path == "/api/bots/template":   # 1.6.8: share as template (download on phone)
+                import bot_home
+                try:
+                    t = bot_home.template(parse_qs(url.query).get("id", [""])[0])
+                    body = json.dumps(t, indent=2).encode("utf-8")
+                    name = bots._slug(t["bot"]["name"]) or "bot"
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Disposition", f'attachment; filename="{name}-template.json"')
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers(); self.wfile.write(body)
+                except Exception as exc:
+                    self._json({"ok": False, "error": str(exc)}, 404)
             elif url.path == "/api/checkins":
                 import checkins
                 self._json(checkins.settings())
@@ -1452,7 +1470,7 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 self._send(404, b"{}")
 
         _SYNC_PATHS = {"/api/card/answer", "/api/react", "/api/rename", "/api/delete_session", "/api/clear_chats", "/api/clear_chats/undo",
-                       "/api/pin", "/api/routines/update", "/api/bots", "/api/bots/delete", "/api/groups",
+                       "/api/pin", "/api/routines/update", "/api/bot_home", "/api/bots/duplicate", "/api/bots", "/api/bots/delete", "/api/groups",
                        "/api/groups/delete", "/api/undo", "/api/stop", "/api/pause_all", "/api/resume_all", "/api/tasks", "/api/pending/answer"}
 
         def do_POST(self) -> None:
@@ -1705,6 +1723,31 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 self._json({"ok": True, "model": state.model, "speak": state.speak,
                             "speak_mode": state.speak_mode,
                             "voice_style": current_voice_style()})
+            elif url.path == "/api/bot_home":
+                import bot_home
+                try:
+                    self._json({"ok": True, "home": bot_home.apply(str(data.get("op") or ""), data)})
+                except Exception as exc:
+                    self._json({"ok": False, "error": str(exc)}, 400)
+            elif url.path == "/api/bots/duplicate":
+                import bot_home
+                try:
+                    self._json({"ok": True, "bot": bot_home.duplicate(str(data.get("id") or ""))})
+                except Exception as exc:
+                    self._json({"ok": False, "error": str(exc)}, 400)
+            elif url.path == "/api/bots/template_save":   # 1.6.8: PC window - save the template into Downloads
+                import bot_home
+                try:
+                    t = bot_home.template(str(data.get("id") or ""))
+                    dl = Path.home() / "Downloads"; dl.mkdir(parents=True, exist_ok=True)
+                    base = (bots._slug(t["bot"]["name"]) or "bot") + "-template"
+                    dest, n = dl / f"{base}.json", 1
+                    while dest.exists():
+                        dest = dl / f"{base} ({n}).json"; n += 1
+                    dest.write_text(json.dumps(t, indent=2), encoding="utf-8")
+                    self._json({"ok": True, "saved": str(dest), "message": "Template saved to Downloads: " + dest.name})
+                except Exception as exc:
+                    self._json({"ok": False, "error": str(exc)}, 400)
             elif url.path == "/api/save_download":   # 1.6.6: PC window - copy a chat photo/video into Downloads
                 if self.remote:
                     self._json({"ok": False, "error": "Use the phone's own download."}, 403)
@@ -1757,6 +1800,12 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     state.histories.pop(bots.SESSION_PREFIX + bot_id, None)
                     ok = bots.delete_bot(bot_id)
                     cleaned = bots.cleanup_after_delete(bot_id) if ok else {}
+                    if ok:
+                        try:
+                            import bot_home
+                            bot_home.apply("forget", {"id": bot_id})
+                        except Exception:
+                            pass
                     self._json({"ok": ok, "groups_updated": groups.remove_bot(bot_id) if ok else 0, "cleaned": cleaned})
             elif url.path == "/api/bots/run_task":
                 bot_id, task_id = str(data.get("id") or ""), str(data.get("task") or "")

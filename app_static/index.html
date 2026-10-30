@@ -6,7 +6,8 @@
 <link rel="stylesheet" href="/avatars.css">
 <link rel="stylesheet" href="/app.css?v=grokskin16">
 <link rel="stylesheet" href="/glass.css?v=grokskin16">
-<link rel="stylesheet" href="/phone_layout.css?v=166">
+<link rel="stylesheet" href="/phone_layout.css?v=168">
+<link rel="stylesheet" href="/bot_menu.css?v=168">
 <link rel="stylesheet" href="/pc_layout.css?v=166">
 <link rel="stylesheet" href="/bubbles.css?v=166">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -378,7 +379,7 @@
 <details><summary>Telegram (optional)</summary><input id="fr-tg" type="password" placeholder="Telegram bot token" autocomplete="off"><input id="fr-chat" placeholder="Your Telegram chat ID"></details>
 <p id="fr-err" class="fr-err"></p><button type="submit">Save and start</button></form></div>
 <script>/* 1.4.18: secondary screens load after the first paint (right away on PC, when idle in Lite mode) */
-(function () { var late = ["/newbot_ui.js", "/live_ui.js", "/routines_ui.js", "/tasks_ui.js", "/connectors_ui.js", "/avatar_mode.js", "/maintenance_ui.js", "/whatsapp_ui.js", "/navtabs.js", "/phone_layout.js", "/pc_layout.js"];
+(function () { var late = ["/newbot_ui.js", "/live_ui.js", "/routines_ui.js", "/tasks_ui.js", "/connectors_ui.js", "/avatar_mode.js", "/maintenance_ui.js", "/whatsapp_ui.js", "/navtabs.js", "/bot_menu.js", "/phone_layout.js", "/pc_layout.js"];
   function go() { late.forEach(function (n) { var s = document.createElement('script'); s.src = n; s.async = false; document.body.appendChild(s); }); }
   if (window.LITE && window.LITE.on) (window.requestIdleCallback || function (f) { setTimeout(f, 300); })(go, { timeout: 1200 }); else go();
 })();</script>

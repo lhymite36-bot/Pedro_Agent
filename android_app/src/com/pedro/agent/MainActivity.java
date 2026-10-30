@@ -458,6 +458,17 @@ public class MainActivity extends Activity {
         @JavascriptInterface public String anonKey() { return Config.ANON_KEY; }
         @JavascriptInterface public void reauth() { runOnUiThread(() -> { CookieManager.getInstance().removeAllCookies(null); toast("Reconnecting to your PC…"); autoConnect(); }); }
         @JavascriptInterface public void listen() { runOnUiThread(MainActivity.this::startListening); }
+        @android.webkit.JavascriptInterface public void shareText(String subject, String text) { runOnUiThread(() -> {
+            // 1.6.8: Share as Template - Android share sheet with the bot setup JSON
+            android.content.Intent send = new android.content.Intent(android.content.Intent.ACTION_SEND);
+            send.setType("text/plain"); send.putExtra(android.content.Intent.EXTRA_SUBJECT, subject); send.putExtra(android.content.Intent.EXTRA_TEXT, text);
+            startActivity(android.content.Intent.createChooser(send, "Share template"));
+        }); }
+        @android.webkit.JavascriptInterface public void copyText(String text) { runOnUiThread(() -> {
+            android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (cm != null) cm.setPrimaryClip(android.content.ClipData.newPlainText("Bot ID", text));
+        }); }
+        @android.webkit.JavascriptInterface public void haptic() { runOnUiThread(() -> web.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)); }
         @JavascriptInterface public void signOut() { runOnUiThread(() -> { prefs.edit().remove("ticket").remove("secret").remove("base").apply(); CookieManager.getInstance().removeAllCookies(null); showAuth(); }); }
         @JavascriptInterface public void newLink() { signOut(); }
         @JavascriptInterface public void notify(String title, String body) { if (!resumed) postNotification(title, body); }

@@ -49,7 +49,7 @@
     // avatar menu: everything that used to be in the top bar and the drawer
     const m = el('div'); m.id = 'pd-menu';
     const items = [
-      ['Model', () => click('hdr-model'), 'pd-model'], ['New chat', () => click('new')], ['History', () => history()], ['Memory', () => memory()],
+      ['Model', () => click('hdr-model'), 'pd-model'], ['New chat', () => click('new')], ['Chat history', () => history()], ['Memory', () => memory()],
       ['Avatar', () => click('avc-open')], ['Pause all', () => click('pause-all'), 'pd-pause'], null,
       ['Live PC', () => click('livebtn')], ['Projects', () => click('acct-projects')], ['Tasks', () => nav('tasks')], ['Routines', () => nav('routines')],
       ['Connectors', () => nav('connectors')], ['Settings', () => click('setbtn')], ['Usage', () => click('acct-usage')], ['Updates', () => click('acct-updates')],
@@ -76,48 +76,65 @@
   async function load() {
     try { const r = await (await fetch('/api/bots')).json(); bots = (r && r.bots) || []; } catch (e) {}
     try { const s = await (await fetch('/api/sessions')).json(); sessions = Array.isArray(s) ? s : []; } catch (e) {}
+    if (window.pbBotMenu) { await window.pbBotMenu.load(); await migrate(); }
     draw();
   }
+  const BMH = () => (window.pbBotMenu ? window.pbBotMenu.home : { sections: [], pinned: [], hidden: [], unread: [] });
   function row(b, by) {
-    const r = el('div', 'pd-row'); r.draggable = true; r.dataset.id = b.id; r.tabIndex = 0;
+    const H = BMH(), BM = window.pbBotMenu, unread = H.unread.includes(b.id);
+    const r = el('div', 'pd-row' + (unread ? ' is-unread' : '')); r.draggable = true; r.dataset.id = b.id; r.tabIndex = 0;
     const f = el('div', 'pd-face'); const m = el('div', 'pd-main');
     const s = by['bot-' + b.id] || {};
-    m.append(el('b', '', b.name), el('small', '', String(s.preview || b.role || '').replace(/\s+/g, ' ')));
-    r.append(f, m); face(f, look(b));
-    r.onclick = () => openBot(b.id);
+    const nm = el('b', '', b.name); if (BM && H.pinned.includes(b.id)) nm.insertAdjacentHTML('beforeend', '<span class="bm-pinmark">' + BM.IC.pin + '</span>');
+    m.append(nm, el('small', '', String(s.preview || b.role || '').replace(/\s+/g, ' ')));
+    r.append(f, m); if (unread) r.appendChild(el('span', 'bm-dot')); face(f, look(b));
+    r.onclick = () => { if (BM) BM.openedBot(b.id); openBot(b.id); };
+    if (BM) BM.bind(r, () => b, { reload: load });
     r.addEventListener('dragstart', (e) => { dragId = b.id; r.classList.add('drag'); try { e.dataTransfer.setData('text/plain', b.id); e.dataTransfer.effectAllowed = 'move'; } catch (x) {} });
     r.addEventListener('dragend', () => { dragId = ''; r.classList.remove('drag'); });
     return r;
   }
-  function dropZone(box, index) {
+  function dropZone(box, sid) {
     box.addEventListener('dragover', (e) => { e.preventDefault(); box.classList.add('over'); });
     box.addEventListener('dragleave', () => box.classList.remove('over'));
     box.addEventListener('drop', (e) => {
       e.preventDefault(); box.classList.remove('over');
-      const id = dragId || (e.dataTransfer && e.dataTransfer.getData('text/plain')); if (!id) return;
-      const s = sections(); s.list.forEach((sec) => { sec.ids = sec.ids.filter((x) => x !== id); });
-      if (index >= 0) s.list[index].ids.push(id);
-      saveSections(s); draw();
+      const id = dragId || (e.dataTransfer && e.dataTransfer.getData('text/plain')); if (!id || !window.pbBotMenu) return;
+      window.pbBotMenu.op('move', { id, section: sid });
     });
+  }
+  async function migrate() {   // 1.6.8: sections used to live in this browser only; move them to the PC once
+    const BM = window.pbBotMenu; if (!BM || localStorage.getItem(KEY + '.moved')) return;
+    const old = sections(); localStorage.setItem(KEY + '.moved', '1');
+    if (BM.home.sections.length) return;
+    for (const sec of old.list) {
+      if (sec.ids.length) { for (const id of sec.ids) await BM.op('move', { id, new_section: sec.name }); }
+      else await BM.op('add_section', { name: sec.name });
+    }
   }
   function draw() {
     const list = $('#pd-list'); if (!list) return; list.textContent = '';
     const by = {}; sessions.forEach((s) => { by[s.session] = s; });
-    const s = sections(); const placed = new Set();
-    s.list.forEach((sec, i) => {
+    const H = BMH(), BM = window.pbBotMenu;
+    const vis = BM ? BM.arrange(bots.slice(), (b) => (by['bot-' + b.id] || {}).last) : bots.slice();
+    const placed = new Set();
+    H.sections.forEach((sec) => {
       const box = el('div', 'pd-sec');
-      const h = el('div', 'pd-sec-h'); h.append(el('span', '', sec.name)); box.appendChild(h);
-      const ids = sec.ids.filter((id) => bots.some((b) => b.id === id));
-      if (!ids.length) box.appendChild(el('div', 'pd-drop', 'Drag Bots here'));
-      ids.forEach((id) => { placed.add(id); box.appendChild(row(bots.find((b) => b.id === id), by)); });
-      dropZone(box, i); list.appendChild(box);
+      const h = el('div', 'pd-sec-h' + (sec.collapsed ? ' closed' : '')); h.append(el('span', '', sec.name));
+      const ids = vis.filter((b) => sec.ids.includes(b.id)); ids.forEach((b) => placed.add(b.id));
+      h.appendChild(el('small', 'pd-count', String(ids.length))); h.insertAdjacentHTML('beforeend', IC.chev);
+      h.onclick = () => BM.op('collapse', { section: sec.id, on: !sec.collapsed }); box.appendChild(h);
+      if (!sec.collapsed) { if (!ids.length) box.appendChild(el('div', 'pd-drop', 'Drag Bots here')); ids.forEach((b) => box.appendChild(row(b, by))); }
+      dropZone(box, sec.id); list.appendChild(box);
     });
     const un = el('div', 'pd-sec');
     const h = el('div', 'pd-sec-h'); h.append(el('span', '', 'Unassigned')); h.insertAdjacentHTML('beforeend', IC.chev); un.appendChild(h);
-    const rest = bots.filter((b) => !placed.has(b.id)).sort((a, b) => Number((by['bot-' + b.id] || {}).last || 0) < Number((by['bot-' + a.id] || {}).last || 0) ? 1 : -1);
+    const rest = vis.filter((b) => !placed.has(b.id));
     if (!bots.length) { const c = el('button', 'pd-create', 'Create a bot'); c.type = 'button'; c.onclick = () => { if (window.showNewBot) window.showNewBot(); else click('newbot'); }; un.appendChild(c); }
     rest.forEach((b) => un.appendChild(row(b, by)));
-    dropZone(un, -1); list.appendChild(un);
+    dropZone(un, ''); list.appendChild(un);
+    const hid = H.hidden.filter((id) => bots.some((b) => b.id === id)).length;
+    if (hid && BM) { const l = el('button', 'bm-hidden-link', 'Hidden bots (' + hid + ')'); l.type = 'button'; l.onclick = () => BM.hiddenSheet(bots, load); list.appendChild(l); }
     mark();
   }
   function mark() {
@@ -135,5 +152,6 @@
   if (mq.addEventListener) mq.addEventListener('change', apply);
   const start = () => setTimeout(apply, 0);
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+  if (window.pbBotMenu) window.pbBotMenu.onChange(() => { if (document.body.classList.contains('pd')) draw(); });
   window.addEventListener('focus', () => { if (document.body.classList.contains('pd')) mark(); });
 })();
