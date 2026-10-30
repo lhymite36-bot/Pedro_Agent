@@ -372,6 +372,10 @@ def run_routine(r: dict[str, Any], manual: bool = False) -> dict[str, Any]:
             raise RuntimeError("The app is not running the scheduler.")
         if not result.strip():
             status = "no reply"
+        elif "No tool ran, so nothing was opened" in result:   # 1.6.7: a no-op is not "ok"
+            status = "did nothing"
+        elif result.lstrip().startswith("Not finished yet"):
+            status = "unfinished"
     except Exception as exc:
         status, result = "failed", str(exc)
     finally:

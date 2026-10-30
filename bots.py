@@ -474,7 +474,16 @@ def _prompt(bot: dict[str, Any], text: str, *, earlier: bool = False) -> str:
         blocks = []
         for skill in skills[-6:]:
             body = str(skill.get("text") or "")[:1200]
-            replay = f" Replay name: {skill['replay']}." if skill.get("replay") else ""
+            replay = ""
+            if skill.get("replay"):
+                try:
+                    import demo_skills
+                    has = (demo_skills.skills_dir() / demo_skills.resolve_skill_name(skill["replay"]) / "actions.json").is_file()
+                except Exception:
+                    has = False
+                # 1.6.7: only point at replay_skill when the recording really exists
+                replay = (f" Replay name: {skill['replay']}." if has else
+                          " (Written lesson - no recording. Do these steps yourself with the screen tools.)")
             blocks.append(f"### {skill['name']}{replay}\n{body}")
         lines.append("Lessons you were taught. Follow them when the task matches:\n" + "\n".join(blocks))
     if earlier:
@@ -784,7 +793,8 @@ def add_taught_skill(bot_id: str, name: str, text: str, replay: str = "") -> dic
         "id": uuid.uuid4().hex[:8],
         "name": title,
         "text": note,
-        "replay": (replay or title)[:60],
+        # 1.6.7: only a real recording is replayable (a written lesson used to claim replay=its name)
+        "replay": (replay or "")[:60],
         "at": time.time(),
         "chars": len(raw),
     })

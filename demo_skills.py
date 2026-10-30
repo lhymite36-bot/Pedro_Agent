@@ -541,12 +541,70 @@ def _paused_now() -> bool:
         return False
 
 
+def _recordings() -> list[str]:
+    root = skills_dir()
+    return sorted(p.parent.name for p in root.glob("*/actions.json")) if root.is_dir() else []
+
+
+def resolve_skill_name(name: str) -> str:
+    """1.6.7: 'Workflow 1', 'workflow_1', 'workflow1' all find the recording 'workflow-1'."""
+    import difflib
+
+    slug = skill_name(name)
+    names = _recordings()
+    if slug in names:
+        return slug
+    squash = lambda v: re.sub(r"[^a-z0-9]", "", v)
+    same = [n for n in names if squash(n) == squash(slug)]
+    if len(same) == 1:
+        return same[0]
+    close = difflib.get_close_matches(slug, names, n=2, cutoff=0.85)
+    if len(close) == 1:
+        return close[0]
+    return slug
+
+
+def _bot_lesson(name: str) -> dict[str, Any] | None:
+    """A taught lesson with this name in the current bot (or any bot): its written steps."""
+    try:
+        import bots
+    except Exception:
+        return None
+    want = re.sub(r"[^a-z0-9]", "", skill_name(name))
+    cur = None
+    try:
+        cur = bots.current_bot()
+    except Exception:
+        cur = None
+    pool = ([cur] if cur else []) + [b for b in bots.list_bots() if not cur or b.get("id") != cur.get("id")]
+    for bot in pool:
+        for sk in bot.get("skills") or []:
+            keys = {re.sub(r"[^a-z0-9]", "", skill_name(str(sk.get(k) or ""))) for k in ("name", "replay")}
+            if want and want in keys:
+                return {"bot": bot.get("name"), "name": sk.get("name"), "text": str(sk.get("text") or "")}
+    return None
+
+
+def missing_skill(name: str) -> dict[str, Any]:
+    slug = skill_name(name)
+    recs = _recordings()
+    lesson = _bot_lesson(name)
+    if lesson and lesson["text"].strip():
+        return _err(
+            f"'{lesson['name']}' is a written lesson of {lesson['bot']}, not a recording, so there is nothing to replay. "
+            "Do its steps yourself now with the screen tools (look at the screen, click, type), one step at a time, "
+            "and check each step on screen before the next.",
+            lesson=lesson["name"], steps=lesson["text"][:8000], recordings=recs, written_lesson=True)
+    hint = ("Recordings on this PC: " + ", ".join(recs) + ".") if recs else "There are no recordings on this PC yet."
+    return _err(f"No recording or lesson named '{slug}'. {hint}", available=recs)
+
+
 def replay_skill(name: str, speed: float = 0.0, cancel_event: threading.Event | None = None,
                  sleep: Callable[[float], None] = time.sleep, inputs: Any = None) -> dict[str, Any]:
-    slug = skill_name(name)
+    slug = resolve_skill_name(name)
     path = skills_dir() / slug / "actions.json"
     if not path.is_file():
-        return _err(f"No replayable skill named '{slug}'.", available=[s["name"] for s in list_skills()["skills"]])
+        return missing_skill(name)
     data = json.loads(path.read_text(encoding="utf-8"))
     events = data.get("events") or []
     slots = input_slots(events)

@@ -2005,6 +2005,9 @@ def routine_action(data: dict) -> dict:
     return {"ok": False, "error": "Unknown action."}
 
 
+NO_TOOL_REPLY = "No tool ran, so nothing was opened"
+
+
 def start_routines(state: "AppState") -> None:
     import routines
 
@@ -2015,7 +2018,20 @@ def start_routines(state: "AppState") -> None:
             if ev.get("type") in ("done", "final") and ev.get("text"):
                 out.append(str(ev["text"]))
 
-        reply = stream_turn(state, routines.session_for(r), f"[Routine: {r['name']}] {r['prompt']}", emit, speak=False)
+        # 1.6.7: a routine is an unattended job on this PC: it must DO the work with tools, not describe it.
+        # The bot's chat was full of earlier "completed successfully" replies, and the model copied them with
+        # no tool call (the grounding check then answered "No tool ran").
+        brief = (f"[Routine: {r['name']} - scheduled run on this PC, unattended. Do the work now with your tools; "
+                 "do not describe it or copy an earlier reply. First make a short step plan, then run each step with "
+                 "tools and check it on screen. For a named lesson or workflow, call list_bot_skills, then replay_skill "
+                 "with its name; if it says it is a written lesson, do its steps yourself with the screen tools. "
+                 "Only say a step is done when a tool result shows it. If a step needs Pedro (login, yes card), stop and say so.] ")
+        reply = stream_turn(state, routines.session_for(r), brief + str(r["prompt"]), emit, speak=False)
+        if isinstance(reply, str) and NO_TOOL_REPLY in reply:
+            out.clear()
+            reply = stream_turn(state, routines.session_for(r),
+                                "[Routine retry] Your last reply ran no tools, so nothing happened. Start now: call the "
+                                "first tool for step 1 of: " + str(r["prompt"]), emit, speak=False)
         if isinstance(reply, str) and reply:
             return reply
         return out[-1] if out else ""
