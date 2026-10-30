@@ -14,7 +14,7 @@
     const banner = q('#update-banner');
     if (info.update_available && !banner) {
       const b = document.createElement('button'); b.id = 'update-banner'; b.className = 'btn update-banner'; b.type = 'button';
-      b.textContent = 'Update available: ' + info.latest; b.onclick = () => { const s = document.querySelector('[data-nav="settings"]'); if (s) s.click(); const t = document.querySelector('[data-pane="p-more"]'); if (t) t.click(); };
+      b.textContent = 'Update available: ' + info.latest; b.onclick = () => { const s = document.querySelector('[data-nav="settings"]'); if (s) s.click(); const t = document.querySelector('[data-pane="p-updates"]'); if (t) t.click(); };
       const hdr = document.querySelector('header') || document.body; hdr.appendChild(b);
     }
   }

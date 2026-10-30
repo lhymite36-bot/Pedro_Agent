@@ -1388,7 +1388,7 @@ if ($('#pause-all')) $('#pause-all').onclick = async () => {
       const ng = $('#newgroup'); if (ng) ng.click();
     }
   };
-  const upd = $('#acct-updates'); if (upd) upd.onclick = () => { hide(menu); const t = document.querySelector('.tab[data-pane="p-more"]'); openSettings(); if (t) t.click(); const el = $('#upd-check'); if (el) el.scrollIntoView({ block: 'nearest' }); };
+  const upd = $('#acct-updates'); if (upd) upd.onclick = () => { hide(menu); const t = document.querySelector('.tab[data-pane="p-updates"]'); openSettings(); if (t) t.click(); const el = $('#upd-check'); if (el) el.scrollIntoView({ block: 'nearest' }); };
   const helpBtn = $('#acct-help'), helpClose = $('#help-close');
   if (helpBtn) helpBtn.onclick = () => { hide(menu); show(helpOv); };
   if (helpClose) helpClose.onclick = () => hide(helpOv);

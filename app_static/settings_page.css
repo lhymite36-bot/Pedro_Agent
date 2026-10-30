@@ -1,0 +1,69 @@
+/* 1.7.2 Settings pages in the Grok "Connect apps" style. Loaded after ui_guard.css. */
+html:root body #settings.sp.sp{--sp-bg:#000;--sp-row:#1c1d1f;--sp-pill:#2a2b2e;--sp-pill-t:#f1f1f1;--sp-muted:#1c1d1f;--sp-muted-t:#71767b;--sp-t:#f7f9f9;--sp-d:#8b8f94;--sp-line:#2a2b2e;--sp-acc:#1d6fe0;
+  position:fixed!important;inset:0!important;width:auto!important;max-width:none!important;height:auto!important;border:0!important;border-radius:0!important;
+  background:var(--sp-bg)!important;color:var(--sp-t);display:flex!important;flex-direction:column;z-index:60;box-shadow:none!important;font-family:inherit}
+html.desktop-app body #settings.sp.sp{top:34px!important}
+html body #settings.sp.sp:not(.open){transform:translateY(16px)!important;opacity:0;visibility:hidden;pointer-events:none}
+html body #settings.sp.sp.open{transform:none!important;opacity:1;visibility:visible;transition:opacity .18s ease,transform .22s ease}
+html body #settings.sp.sp>*{width:100%;max-width:760px;margin-left:auto!important;margin-right:auto!important;box-sizing:border-box}
+html body #settings.sp.sp .sp-head{display:flex!important;align-items:center;gap:14px;padding:14px 16px 10px!important;background:none!important;border:0!important;position:static}
+html body #settings.sp.sp .sp-head>b{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:20px;font-weight:700;letter-spacing:-.01em;color:var(--sp-t)}
+html body #settings.sp.sp .sp-x{width:46px!important;height:46px!important;min-width:46px;flex:0 0 46px;border-radius:50%!important;border:1px solid var(--sp-line)!important;background:var(--sp-bg)!important;color:var(--sp-t)!important;display:grid!important;place-items:center;padding:0!important}
+html body #settings.sp.sp .sp-x svg{width:22px;height:22px}
+html body #settings.sp.sp .sp-status{border:1px solid var(--sp-line);border-radius:999px;padding:10px 16px;font-size:15px;font-weight:600;color:var(--sp-t);white-space:nowrap;max-width:46%;overflow:hidden;text-overflow:ellipsis}
+html body #settings.sp.sp>.tabs{display:flex!important;flex-wrap:nowrap!important;gap:8px!important;overflow-x:auto;scrollbar-width:none;padding:6px 16px 10px!important;border:0!important;background:none!important;margin:0 auto!important}
+html body #settings.sp.sp>.tabs::-webkit-scrollbar{display:none}
+html body #settings.sp.sp .tab{flex:0 0 auto;border-radius:999px!important;padding:9px 16px!important;background:var(--sp-row)!important;color:var(--sp-t)!important;font-size:15px!important;font-weight:500!important;border:0!important;box-shadow:none!important;white-space:nowrap}
+html body #settings.sp.sp .tab.active{background:#fff!important;color:#000!important}
+html body #settings.sp.sp .pane{padding:0 16px 96px!important;overflow-y:auto;flex:1;min-height:0}
+html body #settings.sp.sp .pane:not(.active){display:none!important}
+html body #settings.sp.sp.sp-searching .pane.sp-hit{display:block!important}
+html body #settings.sp.sp.sp-searching .pane:not(.sp-hit){display:none!important}
+html body #settings.sp.sp .sp-hide{display:none!important}
+html body #settings.sp.sp .sp-sec{display:flex;align-items:center;gap:4px;font-size:17px;font-weight:600;color:var(--sp-t);margin:16px 0 6px}
+html body #settings.sp.sp .sp-sec svg{opacity:.75}
+html body #settings.sp.sp .sp-sec-old{display:none!important}
+html body #settings.sp.sp .hint-line{color:var(--sp-d);font-size:13px;margin:2px 0 10px}
+/* list rows */
+html body #settings.sp.sp .field.sp-row{display:grid!important;grid-template-columns:44px minmax(0,1fr) auto;align-items:center;column-gap:14px;row-gap:8px;padding:12px 0!important;margin:0!important;border:0!important;background:none!important;border-radius:0!important}
+html body #settings.sp.sp .field.sp-row>.sp-ic{grid-column:1;grid-row:1}
+html body #settings.sp.sp .field.sp-row>div:nth-child(2){grid-column:2;grid-row:1;font-size:16px;font-weight:500;color:var(--sp-t);min-width:0}
+html body #settings.sp.sp .field.sp-row>div:nth-child(2) small,html body #settings.sp.sp .field small{display:block;color:var(--sp-d)!important;font-size:13.5px;font-weight:400;line-height:1.35;margin-top:2px}
+html body #settings.sp.sp .field.sp-row>:nth-child(n+3){grid-column:3;grid-row:1;justify-self:end}
+html body #settings.sp.sp .field.sp-row>:nth-child(n+4){grid-column:2/-1;grid-row:auto;justify-self:stretch}
+html body #settings.sp.sp .field.sp-row.col>:nth-child(n+3){grid-column:2/-1;grid-row:auto;justify-self:stretch}
+html body #settings.sp.sp .sp-ic{width:44px;height:44px;border-radius:12px;background:var(--sp-row);display:grid;place-items:center;color:var(--sp-t);flex:0 0 44px}
+html body #settings.sp.sp .sp-conn #conn-list{display:flex;flex-direction:column}
+html body #settings.sp.sp .conn-row{display:grid!important;grid-template-columns:44px minmax(0,1fr) auto;align-items:center;column-gap:14px;padding:10px 0!important;border:0!important;background:none!important}
+html body #settings.sp.sp .sp-txt b{display:block;font-size:16px;font-weight:500;color:var(--sp-t)}
+html body #settings.sp.sp .sp-txt small{display:block;color:var(--sp-d);font-size:13.5px}
+/* pills */
+html body #settings.sp.sp .btn,html body #settings.sp.sp .sp-pill{border-radius:999px!important;background:var(--sp-pill)!important;color:var(--sp-pill-t)!important;border:0!important;padding:9px 16px!important;font-size:15px!important;font-weight:500!important;box-shadow:none!important;white-space:nowrap;min-height:38px}
+html body #settings.sp.sp .btn.sp-on{background:var(--sp-muted)!important;color:var(--sp-muted-t)!important}
+html body #settings.sp.sp .btn.sp-accent,html body #settings.sp.sp #providers-save,html body #settings.sp.sp #backup-save,html body #settings.sp.sp #upd-get,html body #settings.sp.sp #upd-install{background:var(--sp-acc)!important;color:#fff!important}
+html body #settings.sp.sp .btn.danger,html body #settings.sp.sp .btn.ghost.danger{color:#f4212e!important}
+html body #settings.sp.sp .btn:disabled{opacity:.45}
+html body #settings.sp.sp input:not([type=checkbox]):not([type=radio]),html body #settings.sp.sp select,html body #settings.sp.sp textarea{background:var(--sp-row)!important;color:var(--sp-t)!important;border:1px solid var(--sp-line)!important;border-radius:12px!important;padding:10px 12px!important;font:inherit;font-size:15px;max-width:100%;box-sizing:border-box}
+html body #settings.sp.sp .th-card{background:var(--sp-row)!important;border-radius:16px!important}
+/* floating search */
+html body #settings.sp.sp .sp-search{position:absolute;left:0;right:0;bottom:calc(14px + env(safe-area-inset-bottom));width:calc(100% - 32px);max-width:728px;display:flex;align-items:center;gap:10px;padding:0 18px;height:52px;border-radius:999px;background:#1c1d1f;border:1px solid #2f3033;color:#8b8f94;box-shadow:0 10px 30px #000a;z-index:2}
+html body #settings.sp.sp .sp-search input{flex:1;background:none!important;border:0!important;outline:0;color:var(--sp-t)!important;font:inherit;font-size:16px;padding:0!important}
+html body #settings.sp.sp .sp-search input::placeholder{color:#7a7e83}
+/* light theme */
+html body.grok-light #settings.sp.sp{--sp-bg:#fff;--sp-row:#f2f3f5;--sp-pill:#e9ebee;--sp-pill-t:#0f1419;--sp-muted:#f2f3f5;--sp-muted-t:#8b98a5;--sp-t:#0f1419;--sp-d:#536471;--sp-line:#e1e4e8}
+html body.grok-light #settings.sp.sp .tab.active{background:#0f1419!important;color:#fff!important}
+html body.grok-light #settings.sp.sp .sp-search{background:#f2f3f5;border-color:#e1e4e8;box-shadow:0 8px 24px #0002}
+html body #settings.sp.sp input[type=checkbox]{accent-color:#1d9bf0;width:18px;height:18px}
+html body #settings.sp.sp label.row,html body #settings.sp.sp label.inline{display:flex;align-items:center;gap:10px;color:var(--sp-t);font-size:14.5px}
+
+html body.grok-light #settings.sp.sp .btn{border:1px solid #dfe3e8!important}
+html body #settings.sp.sp{overflow:hidden}
+html body #settings.sp.sp .pane .sp-hide.sp-hide,html body #settings.sp.sp .sp-row.sp-hide,html body #settings.sp.sp .conn-row.sp-hide{display:none!important}
+html body #settings.sp.sp.sp-searching .sp-sec{display:none}
+html body #settings.sp.sp .field.sp-row>:nth-child(3){max-width:44vw}
+html body #settings.sp.sp .field.sp-row>select:nth-child(3){width:auto!important;min-width:0}
+html body #settings.sp.sp .field.sp-row.col>*{justify-self:start;text-align:left}
+html body #settings.sp.sp .field.sp-row.col>input,html body #settings.sp.sp .field.sp-row.col>label.col,html body #settings.sp.sp .field.sp-row.col>label.col>input{justify-self:stretch;width:100%}
+html body #settings.sp.sp .sp-search input#sp-q{background:none!important;border:0!important;border-radius:0!important;padding:0!important;height:100%}
+html body #settings.sp.sp .field.sp-row.col .row{justify-content:flex-start!important;margin-left:0}
+html body.grok-light #settings.sp.sp .sp-search input#sp-q{background:transparent!important;border:0!important;box-shadow:none!important}

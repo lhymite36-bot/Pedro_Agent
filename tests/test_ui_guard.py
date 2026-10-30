@@ -12,7 +12,7 @@ class UiGuardTests(unittest.TestCase):
         links = re.findall(r'<link rel="stylesheet" href="/([a-z_]+\.css)\?v=(\w+)"', html)
         self.assertTrue(links); self.assertIn("ui_guard.css", [l[0] for l in links])
         for name, v in links:
-            self.assertEqual(v, "170", name); self.assertIn(name, chat_app.STATIC_FILES, name)
+            self.assertEqual(v, "172", name); self.assertIn(name, chat_app.STATIC_FILES, name)
         self.assertNotIn("grokskin16", html)
         self.assertIn("stylesheet failed to load", html)
         self.assertNotIn("Connections &amp; updates", html)
@@ -59,3 +59,15 @@ class FreshPcTests(unittest.TestCase):
         java = (ROOT / "android_app/src/com/pedro/agent/MainActivity.java").read_text()
         self.assertIn("grant_type=password", java); self.assertIn("showLock(", java)
         self.assertNotIn('putString("password"', java)
+
+
+class SettingsPageTests(unittest.TestCase):
+    def test_settings_page_assets_wired(self):
+        import chat_app
+        html = (ROOT / "app_static" / "index.html").read_text(encoding="utf-8")
+        for f in ("settings_page.css", "settings_page.js"):
+            self.assertIn(f, html); self.assertIn(f, chat_app.STATIC_FILES)
+        js = (ROOT / "app_static" / "settings_page.js").read_text(encoding="utf-8")
+        for k in ("p-updates", "sp-status", "sp-q", "Connect apps", "Authorize"):
+            self.assertIn(k, js)
+        self.assertIn('data-pane="p-updates"', (ROOT / "app_static" / "app.js").read_text(encoding="utf-8"))
