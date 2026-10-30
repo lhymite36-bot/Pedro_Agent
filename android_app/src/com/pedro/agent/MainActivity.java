@@ -39,7 +39,7 @@ public class MainActivity extends Activity {
             NotificationChannel c = new NotificationChannel(CH, "Agent replies", NotificationManager.IMPORTANCE_DEFAULT);
             getSystemService(NotificationManager.class).createNotificationChannel(c);
         }
-        FrameLayout root = new FrameLayout(this);
+        root = new FrameLayout(this);
         root.setBackgroundColor(Color.parseColor("#0e0f11"));
         web = new WebView(this);
         root.addView(web, new FrameLayout.LayoutParams(-1, -1));
@@ -48,7 +48,8 @@ public class MainActivity extends Activity {
         configureWeb();
         String shared = getIntent() != null ? getIntent().getStringExtra(Intent.EXTRA_TEXT) : null;
         if (shared != null && shared.contains("http")) { saveLink(shared, ""); }
-        else if (!prefs.getString("ticket", "").isEmpty() || !prefs.getString("base", "").isEmpty()) autoConnect();
+        else if (!prefs.getString("ticket", "").isEmpty()) showLock(this::autoConnect);
+        else if (!prefs.getString("base", "").isEmpty()) autoConnect();
         else showAuth();
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 3);
@@ -185,7 +186,8 @@ public class MainActivity extends Activity {
             if (!sess.has("access_token") || sess.optString("access_token").isEmpty()) {
                 toast("Could not sign in."); return;
             }
-            prefs.edit().putString("ticket", sess.toString()).apply();
+            String em = sess.optJSONObject("user") != null ? sess.optJSONObject("user").optString("email", "") : "";
+            prefs.edit().putString("ticket", sess.toString()).putString("email", em).apply();
             connectWithAccount();
         } catch (Exception e) { toast("Could not sign in."); }
     }
@@ -259,6 +261,78 @@ public class MainActivity extends Activity {
                 showError(e.getMessage() != null ? e.getMessage() : "Can't reach your PC.");
             }
         }).start();
+    }
+
+    // 1.7.1: the phone asks for the password every time the app is opened or
+    // brought back from the background. The password is checked with Supabase
+    // and never stored; only the email is kept to know who to check.
+    FrameLayout root; View lockView; boolean needLock = false;
+
+    String lockEmail() {
+        String e = prefs.getString("email", "");
+        if (!e.isEmpty()) return e;
+        try { return new JSONObject(prefs.getString("ticket", "{}")).optJSONObject("user").optString("email", ""); }
+        catch (Exception ex) { return ""; }
+    }
+
+    void signOutFully() {
+        prefs.edit().remove("ticket").remove("secret").remove("base").remove("email").apply();
+        CookieManager.getInstance().removeAllCookies(null);
+        hideLock(); showAuth();
+    }
+
+    void hideLock() { if (lockView != null) { root.removeView(lockView); lockView = null; } }
+
+    void showLock(Runnable after) {
+        String email = lockEmail();
+        if (email.isEmpty()) { signOutFully(); return; }
+        hideLock();
+        LinearLayout l = new LinearLayout(this); l.setOrientation(LinearLayout.VERTICAL); l.setGravity(Gravity.CENTER);
+        l.setBackgroundColor(Color.parseColor("#0e0f11")); int p = dp(28); l.setPadding(p, p, p, p);
+        l.setClickable(true);
+        ImageView logo = new ImageView(this); logo.setImageResource(R.drawable.splash_icon);
+        l.addView(logo, new LinearLayout.LayoutParams(dp(80), dp(80)));
+        TextView t = text("Enter your password", 18, "#e7e9ea"); t.setGravity(Gravity.CENTER); l.addView(t);
+        TextView who = text(email, 14, "#8b9096"); who.setGravity(Gravity.CENTER); l.addView(who);
+        EditText pw = new EditText(this);
+        pw.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        pw.setHint("Password"); pw.setTextColor(Color.parseColor("#e7e9ea")); pw.setHintTextColor(Color.parseColor("#6b7076"));
+        pw.setSingleLine(true);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2); lp.topMargin = dp(18); l.addView(pw, lp);
+        TextView err = text("", 13, "#f4212e"); err.setGravity(Gravity.CENTER); l.addView(err);
+        Button go = grokBtn("Unlock", true); l.addView(go);
+        Button out = grokBtn("Log out", false); out.setOnClickListener(v -> signOutFully()); l.addView(out);
+        Runnable check = () -> {
+            String pass = pw.getText().toString();
+            if (pass.isEmpty()) { err.setText("Type your password."); return; }
+            go.setEnabled(false); err.setText("Checking...");
+            new Thread(() -> {
+                String msg = null;
+                try {
+                    JSONObject body = new JSONObject(); body.put("email", email); body.put("password", pass);
+                    HttpResult r = http("POST", Config.SUPABASE_URL + "/auth/v1/token?grant_type=password",
+                        body.toString(), Config.ANON_KEY, Config.ANON_KEY);
+                    JSONObject data = new JSONObject(r.body);
+                    if (r.code >= 400 || !data.has("access_token")) msg = "Wrong password. Try again.";
+                    else {
+                        if (!data.has("expires_at"))
+                            data.put("expires_at", (System.currentTimeMillis() / 1000) + data.optLong("expires_in", 3600));
+                        prefs.edit().putString("ticket", data.toString()).putString("email", email).apply();
+                    }
+                } catch (Exception e) { msg = "Can't check your password. Check your internet."; }
+                final String m = msg;
+                runOnUiThread(() -> {
+                    go.setEnabled(true);
+                    if (m != null) { err.setText(m); pw.setText(""); return; }
+                    pw.setText(""); needLock = false; hideLock();
+                    if (after != null) after.run();
+                });
+            }).start();
+        };
+        go.setOnClickListener(v -> check.run());
+        pw.setOnEditorActionListener((v, a, e) -> { check.run(); return true; });
+        lockView = l; root.addView(l, new FrameLayout.LayoutParams(-1, -1));
+        pw.requestFocus();
     }
 
     JSONObject refreshIfNeeded(JSONObject sess) throws Exception {
@@ -474,7 +548,7 @@ public class MainActivity extends Activity {
             if (cm != null) cm.setPrimaryClip(android.content.ClipData.newPlainText("Bot ID", text));
         }); }
         @android.webkit.JavascriptInterface public void haptic() { runOnUiThread(() -> web.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)); }
-        @JavascriptInterface public void signOut() { runOnUiThread(() -> { prefs.edit().remove("ticket").remove("secret").remove("base").apply(); CookieManager.getInstance().removeAllCookies(null); showAuth(); }); }
+        @JavascriptInterface public void signOut() { runOnUiThread(() -> signOutFully()); }
         @JavascriptInterface public void newLink() { signOut(); }
         @JavascriptInterface public void notify(String title, String body) { if (!resumed) postNotification(title, body); }
         @JavascriptInterface public String phoneSession() { return session(); }
@@ -607,16 +681,24 @@ public class MainActivity extends Activity {
     @Override protected void onActivityResult(int req, int res, Intent data) {
         if (req == 9 && fileCb != null) { fileCb.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(res, data)); fileCb = null; }
     }
-    @Override protected void onResume() { super.onResume(); resumed = true; web.onResume(); }
+    @Override protected void onResume() {
+        super.onResume(); resumed = true; web.onResume();
+        if (needLock && lockView == null && !showingAuth && !prefs.getString("ticket", "").isEmpty()) showLock(null);
+        needLock = false;
+    }
     @Override protected void onPause() { super.onPause(); resumed = false; web.onPause(); CookieManager.getInstance().flush(); }
-    @Override protected void onStop() { super.onStop(); resumed = false; }
+    @Override protected void onStop() {
+        super.onStop(); resumed = false;
+        // Lock again when the app goes to the background (not for our own file/mic pickers).
+        if (!isChangingConfigurations() && fileCb == null && !prefs.getString("ticket", "").isEmpty()) needLock = true;
+    }
 
     @Override public void onBackPressed() {
         if (errorView.getVisibility() == View.VISIBLE) { errorView.setVisibility(View.GONE); return; }
         if (!showingAuth && !inPhone && web.canGoBack()) { web.goBack(); return; }
         new AlertDialog.Builder(this).setTitle("Ped Bot")
             .setItems(new String[]{"Sign out", "Reload", "Exit"}, (d, w) -> {
-                if (w == 0) { prefs.edit().remove("ticket").remove("secret").remove("base").apply(); CookieManager.getInstance().removeAllCookies(null); showAuth(); }
+                if (w == 0) signOutFully();
                 else if (w == 1) autoConnect();
                 else finish();
             }).show();

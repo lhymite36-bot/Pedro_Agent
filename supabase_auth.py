@@ -22,12 +22,28 @@ _ADMIN_ROLES = {"admin"}
 _STATUSES = {"free", "trial", "paid"}
 
 
+def _builtin(name: str) -> str:
+    """1.7.1: public project URL + anon key baked into the installer build
+    (supabase_public.py, generated at build time, git-ignored). The anon key is
+    public by design. The service role key is never baked in."""
+    try:
+        import supabase_public  # type: ignore
+    except Exception:
+        return ""
+    return str(getattr(supabase_public, name, "") or "").strip()
+
+
 def _url() -> str:
-    return (os.environ.get("SUPABASE_URL") or "").strip().rstrip("/")
+    return ((os.environ.get("SUPABASE_URL") or "").strip() or _builtin("SUPABASE_URL")).rstrip("/")
 
 
 def _anon() -> str:
-    return (os.environ.get("SUPABASE_ANON_KEY") or "").strip()
+    return (os.environ.get("SUPABASE_ANON_KEY") or "").strip() or _builtin("SUPABASE_ANON_KEY")
+
+
+def has_service() -> bool:
+    """Admin-only extras (Users page, profile rows, phone link publish)."""
+    return bool(_service())
 
 
 def _service() -> str:
@@ -48,8 +64,7 @@ def missing_env() -> list[str]:
         needed.append("SUPABASE_URL")
     if not _anon():
         needed.append("SUPABASE_ANON_KEY")
-    if not _service():
-        needed.append("SUPABASE_SERVICE_ROLE_KEY")
+    # 1.7.1: the service role key is optional; sign-in works without it.
     return needed
 
 
@@ -87,6 +102,7 @@ def public_config(origin: str | None = None) -> dict[str, Any]:
             redirect = origin.rstrip("/") + "/"
     return {
         "configured": not miss,
+        "adminTools": has_service(),
         "url": _url() if not miss else "",
         "anonKey": _anon() if not miss else "",
         "oauthGoogle": _flag("SUPABASE_OAUTH_GOOGLE"),
@@ -136,7 +152,10 @@ def _gotrue_user(access_token: str) -> dict[str, Any] | None:
 
 
 def _rest(method: str, path: str, *, json: Any = None, params: dict[str, str] | None = None) -> Any:
-    res = requests.request(
+    if not _service():
+        return None
+    try:
+      res = requests.request(
         method,
         f"{_url()}/rest/v1/{path.lstrip('/')}",
         headers={
@@ -146,7 +165,9 @@ def _rest(method: str, path: str, *, json: Any = None, params: dict[str, str] | 
         params=params,
         json=json,
         timeout=_TIMEOUT,
-    )
+      )
+    except requests.RequestException:
+        return None
     if res.status_code >= 400:
         return None
     if not res.content:
@@ -307,6 +328,8 @@ def _row_public(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def list_profiles() -> dict[str, Any]:
+    if not _service():
+        return {"ok": False, "error": "The Users page needs SUPABASE_SERVICE_ROLE_KEY in this PC's .env.", "code": "no_service_key", "count": 0, "users": []}
     rows = _rest(
         "GET",
         "profiles",

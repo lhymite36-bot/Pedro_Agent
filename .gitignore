@@ -77,3 +77,4 @@ bak-*/
 *.p12
 keystore-backup/
 python/
+supabase_public.py

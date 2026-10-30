@@ -1,6 +1,6 @@
 [project]
 name = "pedro-agent"
-version = "1.7.0"
+version = "1.7.1"
 description = "Ped Bot, a local Gemini assistant for voice, files, and desktop tools."
 readme = "README.md"
 requires-python = ">=3.10"

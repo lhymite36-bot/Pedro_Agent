@@ -31,3 +31,31 @@ class UiGuardTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FreshPcTests(unittest.TestCase):
+    def test_service_key_optional_and_builtin_defaults(self):
+        import os, importlib, supabase_auth
+        old = {k: os.environ.pop(k, None) for k in ("SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY")}
+        try:
+            os.environ["SUPABASE_URL"] = "https://abc.supabase.co"; os.environ["SUPABASE_ANON_KEY"] = "anon"
+            self.assertEqual(supabase_auth.missing_env(), [])
+            self.assertFalse(supabase_auth.has_service())
+            self.assertIsNone(supabase_auth._rest("GET", "profiles"))
+            self.assertEqual(supabase_auth.list_profiles()["code"], "no_service_key")
+        finally:
+            for k, v in old.items():
+                os.environ.pop(k, None)
+                if v is not None: os.environ[k] = v
+
+    def test_no_service_key_in_repo_or_builtin(self):
+        self.assertIn("supabase_public.py", (ROOT / ".gitignore").read_text())
+        gen = (ROOT / "installer" / "make_supabase_public.py").read_text()
+        self.assertNotIn("SERVICE_ROLE_KEY =", gen)
+
+    def test_pc_session_persists_and_phone_locks(self):
+        js = (ROOT / "app_static" / "auth.js").read_text()
+        self.assertIn("localStorage.setItem(key, val)", js)
+        java = (ROOT / "android_app/src/com/pedro/agent/MainActivity.java").read_text()
+        self.assertIn("grant_type=password", java); self.assertIn("showLock(", java)
+        self.assertNotIn('putString("password"', java)

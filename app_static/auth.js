@@ -38,18 +38,20 @@
     q.forEach((item) => { withAuth(item.u, item.o).then(item.resolve, item.reject); });
   }
 
+  // 1.7.1: the session lives in localStorage so closing the app, a reboot or an
+  // update never signs you out. Only "Log out" clears it.
   function storeGet(key) {
     try {
-      const s = sessionStorage.getItem(key);
-      if (s) return s;
       const l = localStorage.getItem(key);
-      if (l) { try { sessionStorage.setItem(key, l); localStorage.removeItem(key); } catch (e) {} return l; }
+      if (l) return l;
+      const s = sessionStorage.getItem(key);
+      if (s) { try { localStorage.setItem(key, s); } catch (e) {} return s; }
     } catch (e) { return null; }
     return null;
   }
   function storeSet(key, val) {
+    try { localStorage.setItem(key, val); } catch (e) {}
     try { sessionStorage.setItem(key, val); } catch (e) {}
-    try { localStorage.removeItem(key); } catch (e) {}
   }
   function storeDel(key) {
     try { sessionStorage.removeItem(key); } catch (e) {}
@@ -181,8 +183,9 @@
   }
 
   async function afterSession() {
-    const me = await withAuth('/api/auth/me').then((r) => r.json()).catch(() => null);
-    if (!me || !me.ok || !me.user) return false;
+    let status = 0;
+    const me = await withAuth('/api/auth/me').then((r) => { status = r.status; return r.json(); }).catch(() => null);
+    if (!me || !me.ok || !me.user) return (status === 401 || (me && me.code === 'auth_required')) ? false : null;
     const adminBtn = $('#acct-admin');
     if (adminBtn) adminBtn.hidden = !me.user.is_admin;
     const who = $('#auth-who');
@@ -400,8 +403,11 @@
       token = sess.access_token;
       try { sess = await refreshIfNeeded(sess); } catch (e) { /* try the old ticket */ }
       if (sess && sess.access_token) token = sess.access_token;
-      if (await afterSession()) return;
-      clearTicket();
+      const ok = await afterSession();
+      if (ok) return;
+      // Only a rejected token signs out; a slow network or PC restart keeps the session.
+      if (ok === false) clearTicket();
+      else { setTimeout(boot, 3000); return; }
     }
     showGate();
   }
