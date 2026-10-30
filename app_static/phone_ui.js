@@ -10,6 +10,7 @@
     $('#phone-on').checked = !!st.enabled; $('#phone-body').hidden = !st.enabled;
     const a = $('#phone-apk'); a.innerHTML = ''; const l = document.createElement('a'); l.href = st.apk; l.target = '_blank'; l.rel = 'noopener'; l.textContent = 'download the APK'; a.appendChild(l);
     $('#phone-url').textContent = st.url || '(starting…)';
+    if ('phone_control' in st && $('#phone-ctl')) $('#phone-ctl').checked = !!st.phone_control;
   }
   async function pair() {
     const r = await post('/api/phone/pair');
@@ -40,6 +41,10 @@
     const r = await post('/api/phone/enable', { consent: true }); if (!r.ok && r.error) $('#phone-msg').textContent = r.error; show(r); if (r.ok) pair();
   };
   $('#phone-newqr').onclick = pair;
+  if ($('#phone-ctl')) $('#phone-ctl').onchange = async (e) => {
+    const r = await post('/api/phone/control', { on: e.target.checked });
+    $('#phone-msg').textContent = r.ok ? (r.allow_control ? 'Your phone can now control this PC from the Live tab.' : 'Phone control is off (view only).') : (r.error || 'Could not change it.');
+  };
   $('#phone-unpair').onclick = async () => {
     if (!confirm('Unpair ALL phones? They will be signed out and need a new QR code.')) return;
     const r = await post('/api/phone/unpair', { confirm: true }); $('#phone-msg').textContent = r.message || r.error || ''; pair();

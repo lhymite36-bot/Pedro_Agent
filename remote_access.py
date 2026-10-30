@@ -128,7 +128,7 @@ def rotate_token() -> str:
 
 # ---- one-time pairing codes (QR) ----
 PAIR_TTL = 600
-APK_URL = "https://github.com/lhymite36-bot/Pedro_Agent/releases/download/v1.6.3-test/PedBot-1.6.3-test.apk"
+APK_URL = "https://github.com/lhymite36-bot/Pedro_Agent/releases/download/v1.6.4-test/PedBot-1.6.4-test.apk"
 _pair_codes: dict[str, float] = {}
 _PAIR_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 
@@ -206,7 +206,7 @@ def phone_status() -> dict[str, Any]:
     cfg = settings()
     return {"enabled": bool(cfg["enabled"]), "running": _server is not None, "url": public_url,
             "tunnel": cfg["tunnel"], "cloudflared": bool(cloudflared_exe()),
-            "apk": APK_URL}
+            "apk": APK_URL, "phone_control": phone_control_on(cfg)}
 
 
 def phone_enable(state: Any, consent: bool = False) -> dict[str, Any]:
@@ -287,11 +287,25 @@ def check_login(secret: str, ip: str, now: float | None = None) -> tuple[bool, s
     return False, "Wrong token or PIN."
 
 
-def new_session(now: float | None = None) -> str:
+_session_uid: dict[str, str] = {}
+
+
+def new_session(now: float | None = None, uid: str = "") -> str:
     sid = secrets.token_urlsafe(32)
     with _lock:
         _sessions[sid] = (time.time() if now is None else now) + float(settings()["session_hours"]) * 3600
+        _session_uid[sid] = str(uid or "")
     return sid
+
+
+def session_uid(cookie_header: str) -> str:
+    """Supabase user id the phone session was signed in with ('' for PIN/QR-token sessions)."""
+    for part in (cookie_header or "").split(";"):
+        name, _, value = part.strip().partition("=")
+        if name == COOKIE:
+            with _lock:
+                return _session_uid.get(value, "")
+    return ""
 
 
 def session_valid(cookie_header: str, now: float | None = None) -> bool:
@@ -363,25 +377,58 @@ def remote_control_action(type: str, x: float = 0.0, y: float = 0.0, text: str =
     return {"ok": False, "error": "type must be click or type."}
 
 
-def control_refusal() -> dict[str, Any] | None:
+def set_phone_control(on: bool, pc_uid: str = "") -> dict[str, Any]:
+    """PC-only switch (Settings > Connect phone). On = a signed-in phone of the same
+    Supabase account (or a QR/PIN-paired phone) may tap/drag/scroll/type on this PC.
+    The switch itself is the owner's yes, so no extra 10-minute 'Allow control' step."""
+    save_overlay(phone_control=bool(on), control_user_id=_real_uid(pc_uid) if on else "")
+    _note("Phone control " + ("on" if on else "off"))
+    return {"ok": True, "allow_control": bool(on)}
+
+
+def phone_control_on(cfg: dict[str, Any] | None = None) -> bool:
+    """1.6.4: a signed-in phone may control the PC unless the PC switch turned it off.
+    (Before, this needed rules.yaml allow_control: true AND a 10-minute 'Allow control'
+    yes that the phone UI never sent - so every tap was refused.)"""
+    cfg = settings() if cfg is None else cfg
+    return bool(cfg.get("phone_control", True))
+
+
+def control_refusal(uid: str = "") -> dict[str, Any] | None:
     """Why phone input is refused right now, or None when it may run.
-    Needs remote.allow_control, the 'Allow control' yes, and remote_control_action not blocked."""
-    if not settings()["allow_control"]:
-        return {"ok": False, "error": "View only. Set remote.allow_control: true in rules.yaml to allow control."}
-    if not control_open():
-        return {"ok": False, "error": "Tap 'Allow control' first.", "needs_confirmation": True}
+    1.6.4: the PC switch (overlay allow_control) is the consent; when the PC knows its
+    Supabase user id the phone's session user id (auth.uid) must match it."""
+    cfg = settings()
+    if not phone_control_on(cfg):
+        return {"ok": False, "code": "control_off",
+                "error": "Phone control is off on the PC. On the PC: Settings > Connect phone > 'Let my phone control this PC'."}
+    owner = _real_uid(cfg.get("control_user_id"))
+    uid = _real_uid(uid)
+    if owner and uid and uid != owner:
+        return {"ok": False, "code": "wrong_account", "error": "This phone is signed in to a different account than the PC."}
     reason = rules.tool_block_reason("remote_control_action")
     if reason:
         return {"ok": False, "error": reason}
     return None
 
 
-def phone_control(data: dict[str, Any]) -> dict[str, Any]:
+_last_refusal_note = 0.0
+
+
+def _real_uid(value: Any) -> str:
+    v = str(value or "")
+    return "" if v in {"local", "remote-cookie"} else v
+
+
+def phone_control(data: dict[str, Any], uid: str = "") -> dict[str, Any]:
     """Live PC input from the phone: the same permission checks as do_control, then the
     Live PC control (clicks, drags, scrolls, typing)."""
-    refused = control_refusal()
+    global _last_refusal_note
+    refused = control_refusal(uid)
     if refused is not None:
-        _note("Remote control refused")
+        if time.time() - _last_refusal_note > 10:   # don't flood the feed
+            _last_refusal_note = time.time()
+            _note("Remote control refused: " + str(refused.get("error") or ""))
         return refused
     import live_pc
 
@@ -390,8 +437,17 @@ def phone_control(data: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def do_control(data: dict[str, Any]) -> dict[str, Any]:
-    refused = control_refusal()
+def _legacy_refusal() -> dict[str, Any] | None:
+    if not settings()["allow_control"]:
+        return {"ok": False, "error": "View only. Set remote.allow_control: true in rules.yaml to allow control."}
+    if not control_open():
+        return {"ok": False, "error": "Tap 'Allow control' first.", "needs_confirmation": True}
+    reason = rules.tool_block_reason("remote_control_action")
+    return {"ok": False, "error": reason} if reason else None
+
+
+def do_control(data: dict[str, Any], uid: str = "") -> dict[str, Any]:
+    refused = _legacy_refusal()
     if refused is not None:
         return refused
     import agent_core
@@ -570,7 +626,7 @@ def make_remote_handler(state: Any) -> type:
                     _note("Failed remote sign-in")
                     self._json({"ok": False, "error": error}, 403 if access else 401)
                     return
-                sid = new_session()
+                sid = new_session(uid=str((self.auth_user or {}).get("id") or "") if access else "")
                 max_age = int(float(settings()["session_hours"]) * 3600)
                 body = b'{"ok":true}'
                 self.send_response(200)
@@ -594,7 +650,8 @@ def make_remote_handler(state: Any) -> type:
                 self._json(allow_control(str(self._body().get("confirm") or "")))
                 return
             if path == "/live/control":
-                result = phone_control(self._body())
+                uid = session_uid(self.headers.get("Cookie", "")) or str((getattr(self, "auth_user", None) or {}).get("id") or "")
+                result = phone_control(self._body(), uid)
                 self._json(result)
                 return
             super().do_POST()
@@ -933,7 +990,7 @@ def _announce(url: str, token: str) -> None:
 def status() -> dict[str, Any]:
     cfg = settings()
     return {"enabled": bool(cfg["enabled"]), "running": _server is not None, "public_url": public_url,
-            "allow_control": bool(cfg["allow_control"]), "tunnel": cfg["tunnel"]}
+            "allow_control": bool(cfg["allow_control"]), "phone_control": phone_control_on(cfg), "tunnel": cfg["tunnel"]}
 
 
 DECLARATIONS = [{

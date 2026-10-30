@@ -83,7 +83,7 @@
   <section id="livepane" aria-label="Live PC">
     <div class="live-head"><b>Live PC</b><span id="live-now">Idle</span><div class="spacer"></div>
       <select id="live-mode" title="View mode"><option value="stream">Stream</option><option value="frames">Frames</option></select>
-      <label class="fps"><select id="live-fps" title="Frames per second"><option>1</option><option>5</option><option selected>10</option><option>15</option><option>30</option></select><span id="live-fps-v">10 fps</span></label>
+      <label class="fps"><select id="live-fps" title="Frames per second"><option>1</option><option>5</option><option>10</option><option>15</option><option selected>20</option><option>30</option></select><span id="live-fps-v">20 fps</span></label>
       <label class="fps">Size <input id="live-size" type="range" min="40" max="100" value="100" title="Picture size"><span id="live-size-v">100</span></label>
       <button class="ib" id="live-close" type="button" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
     <div class="live-screen"><img id="live-img" alt="Your PC screen" draggable="false"><button type="button" class="live-resize" id="live-resize" title="Drag to resize"></button></div>
@@ -242,6 +242,7 @@
       <div id="phone-consent" hidden><small>Phone access needs Cloudflare's free <b>cloudflared</b> tool (about 60 MB, from github.com/cloudflare). Download it now?</small> <button class="btn" id="phone-allow" type="button">Allow download</button></div>
       <div id="phone-body" hidden>
         <p id="phone-msg" class="phone-msg"></p>
+        <div class="field"><div>Let my phone control this PC<small>Tap, drag, scroll and type from the Live tab. Only your signed-in phone (same account) can use it.</small></div><label class="switch"><input type="checkbox" id="phone-ctl"><span></span></label></div>
         <div class="phone-pair"><div id="phone-qr"></div><div><ol class="phone-steps"><li>Install the Android app: <span id="phone-apk"></span></li><li>Open it and tap <b>Scan QR</b>.</li><li>Scan this code (valid 10 minutes, one use). No camera? Type the link and code shown below.</li></ol>
         <div class="phone-manual">Link: <code id="phone-url"></code><br>Code: <code id="phone-code"></code></div>
         <button class="btn" id="phone-newqr" type="button">New QR code</button> <button class="btn ghost danger" id="phone-unpair" type="button">Unpair all devices</button></div></div>

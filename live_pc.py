@@ -12,8 +12,8 @@ from typing import Any, Callable
 
 import rules
 
-DEFAULTS = {"max_fps": 30, "default_fps": 10, "max_width": 1280, "jpeg_quality": 55}
-FPS_CHOICES = (1, 5, 10, 15, 30)
+DEFAULTS = {"max_fps": 30, "default_fps": 20, "max_width": 1280, "jpeg_quality": 55}
+FPS_CHOICES = (1, 5, 10, 15, 20, 30)
 
 # Tests replace: grabber() -> JPEG bytes
 grabber: Callable[[], bytes | None] | None = None
@@ -92,6 +92,16 @@ def frame(max_age: float = 0.15) -> bytes | None:
         return blob or None
 
 
+def _signature(img: Any) -> bytes | None:
+    """Tiny grey thumbnail of a frame: equal thumbnails = nothing visible changed."""
+    if img is None:
+        return None
+    try:
+        return img.convert("L").resize((96, 54)).tobytes()
+    except Exception:
+        return None
+
+
 class Adaptive:
     """Per-viewer quality: if sending a frame takes longer than the frame gap
     (slow tunnel), drop JPEG quality and size; when it's fast again, step back up."""
@@ -146,6 +156,7 @@ def mjpeg(write: Callable[[bytes], Any], fps: float, stop: threading.Event | Non
             time.sleep(0.001)
 
     seen = 0
+    last_sig, last_sent_at = None, 0.0
     if grabber is None:
         threading.Thread(target=capture, name="live-capture", daemon=True).start()
     try:
@@ -159,6 +170,12 @@ def mjpeg(write: Callable[[bytes], Any], fps: float, stop: threading.Event | Non
                 time.sleep(0.003)   # wait for a fresh grab (never resend the same frame)
             seen = latest.get("n", 0)
             img = latest.get("img")
+            # 1.6.4: only changed frames - an unchanged screen costs no bandwidth (keep-alive each 1 s)
+            sig = _signature(img)
+            if sig is not None and sig == last_sig and time.monotonic() - last_sent_at < 1.0:
+                sleep(max(0.0, min(gap, 0.02)))
+                continue
+            last_sig = sig
             try:
                 blob = _encode(img, adapt.q, adapt.scale) if img is not None else None
             except Exception:
@@ -170,6 +187,7 @@ def mjpeg(write: Callable[[bytes], Any], fps: float, stop: threading.Event | Non
             except (BrokenPipeError, ConnectionError, OSError):
                 break
             adapt.update(time.monotonic() - w0)
+            last_sent_at = time.monotonic()
             sent += 1
         if stats is not None:
             stats.update(frames=sent, fps=round(sent / max(1e-6, time.monotonic() - t0), 1), quality=adapt.q, scale=round(adapt.scale, 2))
@@ -255,6 +273,7 @@ def _apply_mouse(kind: str, fields: dict[str, Any]) -> None:
     import pyautogui
 
     pyautogui.FAILSAFE = True
+    pyautogui.PAUSE = 0   # 1.6.4: pyautogui waits 0.1 s after every call by default - that was most of the tap lag
     width, height = pyautogui.size()
 
     def px(x_norm: float, y_norm: float) -> tuple[int, int]:
@@ -290,12 +309,17 @@ def _apply_mouse(kind: str, fields: dict[str, Any]) -> None:
     elif kind == "drag":
         x2, y2 = px(fields.get("x2", fields["x"]), fields.get("y2", fields["y"]))
         pyautogui.moveTo(x, y)
-        pyautogui.dragTo(x2, y2, duration=0.12, button=button)
+        pyautogui.dragTo(x2, y2, duration=0.05, button=button)
 
 
 def local_control(data: dict[str, Any] | None) -> dict[str, Any]:
-    """Clicks, drags, scrolls, and typing from Live PC on this PC or a signed-in phone."""
+    """Clicks, drags, scrolls, and typing from Live PC on this PC or a signed-in phone.
+    1.6.4: {"batch": [event, ...]} runs several events (e.g. a drag path) in one request."""
     data = data if isinstance(data, dict) else {}
+    if isinstance(data.get("batch"), list):
+        results = [local_control(item) for item in data["batch"][:64] if isinstance(item, dict)]
+        bad = [r for r in results if not r.get("ok")]
+        return bad[0] if bad else {"ok": True, "message": f"{len(results)} events"}
     kind = str(data.get("type") or "").casefold()
     if kind not in _CONTROL_KINDS:
         return {"ok": False, "error": "Unknown control."}

@@ -121,7 +121,11 @@ def safe_media_path(raw: str) -> Path | None:
 
 
 def remote_control_allowed() -> bool:
-    return bool(rules.section("remote", {"allow_control": False}).get("allow_control"))
+    try:
+        import remote_access
+        return remote_access.phone_control_on()
+    except Exception:
+        return bool(rules.section("remote", {"allow_control": False}).get("allow_control"))
 
 
 def level_payload() -> dict[str, Any]:
@@ -1474,6 +1478,9 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                         self._json(remote_access.phone_disable())
                     elif act == "pair":
                         self._json(remote_access.phone_pair())
+                    elif act == "control":
+                        uid = str((getattr(self, "auth_user", None) or {}).get("id") or "")
+                        self._json(remote_access.set_phone_control(bool(data.get("on")), uid))
                     elif act == "unpair" and data.get("confirm"):
                         self._json(remote_access.unpair_all())
                     else:

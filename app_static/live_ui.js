@@ -184,11 +184,38 @@
     try { localStorage.liveControl = ctlBox.checked ? '1' : '0'; } catch (e) {}
     aimCursor();
   });
-  function noteCtl(r) { const el = $('#live-ctl-msg'); if (el) el.textContent = r && r.ok ? (r.message || 'Sent') : ((r && r.error) || 'Blocked'); }
-  let controlChain = Promise.resolve();
+  function noteCtl(r) {
+    const el = $('#live-ctl-msg'); if (!el) return;
+    const t = r && r.ok ? (r.message || 'Sent') : ((r && r.error) || 'Blocked');
+    if (el.textContent !== t) el.textContent = t;
+    el.classList.toggle('bad', !(r && r.ok));
+  }
+  // 1.6.4: fast input. Taps go out at once (no waiting behind earlier requests);
+  // drag moves are coalesced: while one request is in flight, new moves queue and
+  // go together as one {batch:[...]} request, so order is kept and nothing piles up.
+  let inFlight = false, queue = [];
+  function flush() {
+    if (inFlight || !queue.length) return;
+    const items = queue; queue = [];
+    inFlight = true;
+    const body = items.length === 1 ? items[0] : { batch: items };
+    fetch('/live/control', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), keepalive: true })
+      .then((r) => r.json()).then(noteCtl).catch(() => {})
+      .finally(() => { inFlight = false; flush(); });
+  }
   function sendCtl(body) {
-    controlChain = controlChain.then(() => post('/live/control', body).then(noteCtl).catch(() => {}));
-    return controlChain;
+    if (body.type === 'move' && queue.length && queue[queue.length - 1].type === 'move') queue[queue.length - 1] = body;
+    else queue.push(body);
+    flush();
+    return Promise.resolve();
+  }
+  // Optimistic feedback: a ripple where you tapped, before the PC answers.
+  function ripple(e) {
+    const stage = liveImg.parentElement; if (!stage) return;
+    const r = stage.getBoundingClientRect();
+    const d = document.createElement('span'); d.className = 'live-ripple';
+    d.style.left = (e.clientX - r.left) + 'px'; d.style.top = (e.clientY - r.top) + 'px';
+    stage.appendChild(d); setTimeout(() => d.remove(), 450);
   }
   function picturePoint(e) {
     const img = $('#live-img');
@@ -229,6 +256,7 @@
     }
     const p = picturePoint(e); if (!p) return;
     e.preventDefault();
+    ripple(e);
     hold = { x: p.x, y: p.y, cx: e.clientX, cy: e.clientY, button: e.button === 2 ? 'right' : 'left', moved: false, sentDown: false, last: 0 };
     try { liveImg.setPointerCapture(e.pointerId); } catch (err) {}
   });
@@ -266,7 +294,7 @@
       hold.sentDown = true;
       sendCtl({ type: 'down', x: hold.x, y: hold.y, button: hold.button });
     }
-    if (now - hold.last < 50) return;
+    if (now - hold.last < 16) return;
     hold.last = now;
     sendCtl({ type: 'move', x: p.x, y: p.y });
   });

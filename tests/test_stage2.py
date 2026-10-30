@@ -895,7 +895,7 @@ class RemoteAccessTests(_Tmp):
         self.assertEqual((code, headers["Content-Type"], frame[:2]), (200, "image/jpeg", b"\xff\xd8"))
         act = json.loads(self._req(base, "/live/activity", cookie=cookie)[2])
         self.assertTrue(act["remote"])
-        self.assertFalse(act["control"])
+        self.assertTrue(act["control"])   # 1.6.4: signed-in phone may control unless the PC switch is off
         self.assertTrue(any("signed in" in a["text"] for a in act["items"]))
         self.assertEqual(self._req(base, "/api/rules", {"text": "x"}, cookie=cookie)[0], 403)
         seen: list[str] = []
@@ -954,6 +954,19 @@ class RemoteAccessTests(_Tmp):
         self.write_rules({"remote": {"allow_control": True}, "tools": {"blocked": ["remote_control_action"]}})
         self.assertFalse(self.ra.do_control({"type": "click"})["ok"])
 
+    def test_pc_switch_lets_same_account_phone_control(self) -> None:
+        import live_pc
+
+        live_pc.mouse_override = lambda kind, fields: None
+        self.addCleanup(setattr, live_pc, "mouse_override", None)
+        self.assertTrue(self.ra.phone_control({"type": "click", "x": 0.5, "y": 0.5})["ok"])  # on by default
+        self.ra.set_phone_control(True, "user-a")
+        self.assertTrue(self.ra.phone_control({"type": "click", "x": 0.5, "y": 0.5}, "user-a")["ok"])
+        self.assertEqual(self.ra.phone_control({"type": "click"}, "user-b")["code"], "wrong_account")
+        self.assertTrue(self.ra.phone_control({"batch": [{"type": "move", "x": 0.1, "y": 0.1}, {"type": "click", "x": 0.2, "y": 0.2}]}, "user-a")["ok"])
+        self.ra.set_phone_control(False)
+        self.assertEqual(self.ra.phone_control({"type": "click"}, "user-a")["code"], "control_off")
+
     def test_local_app_refuses_foreign_host(self) -> None:
         import urllib.error
         import urllib.request
@@ -983,7 +996,7 @@ class RemoteAccessTests(_Tmp):
         self.assertTrue(parts[0].startswith(b"--frame\r\nContent-Type: image/jpeg"))
         self.assertEqual(self.lp.clamp_fps(99), 30)
         self.assertEqual(self.lp.clamp_fps(0.1), 0.5)
-        self.assertEqual(self.lp.clamp_fps("x"), 10)
+        self.assertEqual(self.lp.clamp_fps("x"), 20)
 
     def _hold_tunnel_state(self):
         saved = (self.ra.public_url, self.ra._tunnel, self.ra._tunnel_gen)
