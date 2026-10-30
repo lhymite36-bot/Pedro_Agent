@@ -20,6 +20,11 @@ html,body{margin:0;height:100%;background:#050506;color:#f7f9f9;font-family:syst
 #status{position:fixed;top:72px;left:0;right:0;text-align:center;font-size:14px;color:#c7ccd1;z-index:2;pointer-events:none;text-shadow:0 1px 6px #000}
 #say{position:fixed;top:100px;left:50%;transform:translateX(-50%);max-width:80%;background:#ffffffee;color:#0f1419;padding:10px 14px;border-radius:18px;font-size:15px;z-index:2;display:none}
 #load{position:fixed;inset:0;display:grid;place-items:center;color:#8b8f94;z-index:1}
+body.call .chips{display:none}
+#callbar{position:fixed;left:50%;transform:translateX(-50%);bottom:84px;display:flex;gap:10px;align-items:center;z-index:5;background:rgba(0,0,0,.55);padding:8px 10px;border-radius:999px;backdrop-filter:blur(8px)}
+#callbar span{font-variant-numeric:tabular-nums;color:#fff;padding:0 6px;font-size:14px}
+#callbar button{border:0;border-radius:999px;padding:10px 16px;font:inherit;font-size:14px;color:#fff;background:#3a3a3a;cursor:pointer}
+#callbar #call-mic.on{background:#2e7d4f}#callbar #call-end{background:#e53935}
 </style></head><body>
 <div id="stage" style="position:fixed;inset:0"></div><div id="load">Loading the avatar…</div>
 <div class="top"><button class="x" id="close" aria-label="Close" title="Close"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>

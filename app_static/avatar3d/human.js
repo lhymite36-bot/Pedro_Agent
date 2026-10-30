@@ -1,7 +1,7 @@
 // 1.8.1 realistic full-body avatars (male + female) with visemes, blinks and expressions.
 // Engine: TalkingHead (MIT, Mika Suominen) on three.js, all files bundled on this PC.
-// Models: male = MPFB/MakeHuman base human (CC0); female = Ready Player Me "brunette" sample
-// (CC BY-NC 4.0, personal use). Both carry ARKit + Oculus viseme blendshapes and a Mixamo rig.
+// Models: male = built for Pedro from MakeHuman/MPFB CC0 assets (tools/avatar_build); female = TalkingHead's
+// MPFB sample (CC0). Both carry ARKit + Oculus viseme blendshapes and a Mixamo-compatible rig.
 // Same commands as 1.8.0: /api/avatar/plan -> chained steps (action, expression, say, to).
 import { TalkingHead } from './th/talkinghead.mjs';
 
@@ -181,3 +181,36 @@ $('#mic').onclick = () => {
 };
 document.addEventListener('visibilitychange', () => { if (document.hidden) head.stop(); else head.start(); });
 const q = new URLSearchParams(location.search).get('do'); if (q) { const go = () => (window.__avatarReady ? command(q) : setTimeout(go, 400)); go(); }
+
+// ---- 1.8.3 call mode: a face-to-face call with your AI twin (?call=1) ----
+if (new URLSearchParams(location.search).get('call') === '1') {
+  document.body.classList.add('call');
+  const hist = []; let live = true, busy = false, rec = null;
+  const bar = document.createElement('div'); bar.id = 'callbar';
+  bar.innerHTML = '<span id="call-t">00:00</span><button type="button" id="call-mic" class="on" aria-label="Mute">Mic on</button><button type="button" id="call-end" aria-label="End call">End</button>';
+  document.body.appendChild(bar);
+  const t0 = Date.now(); setInterval(() => { const s = Math.floor((Date.now() - t0) / 1000); $('#call-t').textContent = String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); }, 1000);
+  async function turn(text) {
+    if (!text || busy) return; busy = true; hist.push({ who: 'Pedro', text }); status('You: ' + text);
+    try {
+      const r = await api('/api/lab', { tool: 'twin', text, history: hist, gender });
+      if (r.ok) { hist.push({ who: 'Ped', text: r.say }); await run([{ action: r.action, expression: r.expression, say: r.say, to: '', seconds: 2 }]); }
+      else status(r.error || 'Could not answer.');
+    } catch (e) { status('Connection problem.'); }
+    busy = false; listen();
+  }
+  function listen() {
+    if (!live || busy) return;
+    if (!SR) { if (P.PedroApp && P.PedroApp.listen) { P.__pedroHeard = (t) => turn(t); P.PedroApp.listen(); } else status('Voice is not available here; type to talk.'); return; }
+    rec = new SR(); rec.lang = navigator.language || 'en-IN';
+    rec.onresult = (e) => turn(e.results[0][0].transcript);
+    rec.onend = () => { rec = null; if (live && !busy) setTimeout(listen, 300); };
+    try { rec.start(); status('Listening…'); } catch (e) {}
+  }
+  $('#call-mic').onclick = (e) => { live = !live; e.target.textContent = live ? 'Mic on' : 'Muted'; e.target.classList.toggle('on', live); if (live) listen(); else if (rec) rec.stop(); };
+  $('#call-end').onclick = () => { live = false; if (rec) rec.stop(); try { head.stopSpeaking(); } catch (e) {} if (P.pbCloseAvatar) P.pbCloseAvatar(); };
+  $('#bar').onsubmit = (e) => { e.preventDefault(); const v = $('#cmd').value; $('#cmd').value = ''; turn(v); };
+  $('#cmd').placeholder = 'Talk to your twin…';
+  const go = () => (window.__avatarReady ? run([{ action: 'Wave', expression: 'happy', say: "Hey Pedro! I'm here. What's up?", to: '', seconds: 2 }]).then(listen) : setTimeout(go, 400)); go();
+  window.twinTurn = turn;
+}

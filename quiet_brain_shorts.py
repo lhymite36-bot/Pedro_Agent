@@ -361,6 +361,13 @@ def pick_idea(known: list[str], say: Callable[[str], Any] | None = None) -> tupl
     import random
 
     import qb_idea_bank
+    try:                                           # 0) 1.8.3: ideas Pedro approved in Lab > YouTube autopilot
+        import lab183
+        q = lab183.autopilot_take(known)
+        if q:
+            return q, "autopilot"
+    except Exception:
+        pass
     for attempt in range(3):                       # 1) model, up to 3 tries, explicit used list on retries
         got = write_ideas(1, known) if attempt == 0 else _retry_ideas(known)
         if got:

@@ -46,6 +46,8 @@ STATIC_FILES = {
     "batch180.css": "text/css; charset=utf-8",
     "studio182.js": "application/javascript; charset=utf-8",
     "studio182.css": "text/css; charset=utf-8",
+    "lab183.js": "application/javascript; charset=utf-8",
+    "lab183.css": "text/css; charset=utf-8",
     "avatar3d/index.html": "text/html; charset=utf-8",
     "avatar3d/stage.js": "application/javascript; charset=utf-8",
     "avatar3d/three.module.min.js": "application/javascript; charset=utf-8",
@@ -1620,6 +1622,9 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             elif url.path == "/api/tutor":   # 1.8.0 screen tutor
                 import batch180
                 self._json(batch180.tutor(str(data.get("question") or "")))
+            elif url.path == "/api/lab":   # 1.8.3 Lab tools
+                import lab183
+                self._json(lab_call(lab183, data))
             elif url.path == "/api/studio":   # 1.8.2 Studio tools
                 import studio182
                 self._json(studio_call(studio182, data))
@@ -2233,6 +2238,45 @@ def _avatar_file(path: str):
         return f, _AV_MIME[f.suffix]
     except (OSError, ValueError):
         return None
+
+def lab_call(mod, data: dict[str, Any]) -> dict[str, Any]:
+    """1.8.3: one endpoint for the Lab page; only named tools."""
+    tool = str(data.get("tool") or "")
+    g = lambda k, d="": data.get(k, d)
+    try:
+        if tool == "swarm":
+            return mod.swarm(str(g("question")))
+        if tool == "job":
+            return mod.job(str(g("job")))
+        if tool == "vision":
+            return mod.vision(str(g("image")), str(g("question")))
+        if tool == "improve":
+            ap = g("apply", None)
+            return mod.improve(str(g("bot")), ap if isinstance(ap, dict) else None)
+        if tool == "improve_undo":
+            return mod.improve_undo(str(g("bot")))
+        if tool == "bots":
+            import bots
+            return {"ok": True, "bots": [{"id": b["id"], "name": b["name"]} for b in bots.list_bots()]}
+        if tool == "predict":
+            return mod.predict()
+        if tool == "company":
+            return mod.company(str(g("goal")))
+        if tool == "autopilot":
+            return mod.autopilot_plan(int(g("count", 3) or 3))
+        if tool == "autopilot_queue":
+            return mod.autopilot_queue(int(g("index", -1)))
+        if tool == "os":
+            return mod.osinfo()
+        if tool == "voice":
+            return mod.voice_clone(str(g("action", "status")), str(g("audio")), str(g("kind", "sample")))
+        if tool == "twin":
+            h = g("history", [])
+            return mod.twin(str(g("text")), h if isinstance(h, list) else [], str(g("gender", "male")))
+    except Exception as exc:
+        return {"ok": False, "error": "That tool hit a problem.", "detail": str(exc)[:200]}
+    return {"ok": False, "error": "Unknown tool."}
+
 
 def studio_call(mod, data: dict[str, Any]) -> dict[str, Any]:
     """1.8.2: one endpoint for the Studio page; only named tools, keyword args filtered."""
