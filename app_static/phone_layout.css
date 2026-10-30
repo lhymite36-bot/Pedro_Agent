@@ -1,5 +1,5 @@
 /* 1.6.5 spacious phone layout. Only applies with body.pl (<=520px, set by phone_layout.js). */
-@media all{
+@media (max-width:520px){
 html body.pl{--pl-bg:#0b0b0c;--pl-card:#17181a;--pl-line:#26272a;--pl-text:#ececec;--pl-dim:#8d9096;background:var(--pl-bg)!important}
 /* top bar: [menu] ...... [bot pill] ...... [+ / ...] */
 html body.pl header{position:relative!important;display:flex!important;align-items:center!important;justify-content:space-between!important;gap:10px!important;height:auto!important;min-height:64px!important;padding:calc(10px + env(safe-area-inset-top)) 16px 10px!important;background:var(--pl-bg)!important;border:0!important;box-shadow:none!important;overflow:visible!important;flex-wrap:nowrap!important}
@@ -75,7 +75,7 @@ html body.pl #composer #t{white-space:pre-wrap;line-height:22px!important;height
 }
 body:not(.pl) #pl-grid,body:not(.pl) #pl-right,body:not(.pl) #pl-name,body:not(.pl) #pl-recent,body:not(.pl) #pl-dot,body:not(.pl) #pl-menu,body:not(.pl) #pl-scrim{display:none!important}
 /* 1.6.6 bots home + no drawer on phone */
-@media all{
+@media (max-width:520px){
 html body.pl-nodrawer #side,html body.pl-nodrawer #sidescrim,html body.pl-nodrawer header #menubtn{display:none!important}
 #pl-back{display:none}
 html body.pl #pl-back{display:inline-flex!important}
@@ -118,21 +118,11 @@ html body.pl.pl-home-on.pl-grid-open #bottomnav{z-index:61!important;bottom:calc
 .plh-hist-card h3{margin:0 0 8px;font-size:18px}
 }
 body:not(.pl) #pl-home,body:not(.pl) #pl-back,body:not(.pl) .pl-extra,body:not(.pl) #plh-hist{display:none!important}
-@media all{
+@media (max-width:520px){
 .plm-row{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #222326;font-size:15px}
 .plm-row span{flex:1;min-width:0}
 .plm-del{background:none;border:1px solid #3a2b2b;color:#ff6b5e;border-radius:999px;padding:8px 14px;min-height:40px}
 .plm-add{display:flex;gap:8px;margin-top:14px}
 .plm-add input{flex:1;min-width:0;background:#0e0f11;color:#ececec;border:1px solid #2a2b2e;border-radius:999px;padding:12px 16px;font-size:15px}
 .plm-add button{background:#ececec;color:#0b0b0c;border:0;border-radius:999px;padding:0 18px;font-weight:600;min-height:46px}
-}
-/* 1.6.6 PC: same clean layout, centered column */
-@media (min-width:521px){
-html body.pl{padding-left:0!important}
-html body.pl main{margin:0 auto!important;max-width:760px!important;width:100%!important;left:0!important}
-html body.pl.pl-home-on #pl-home{padding-left:calc(50% - 360px);padding-right:calc(50% - 360px)}
-html body.pl header{max-width:760px!important;margin:0 auto!important;width:100%!important}
-html body.pl.pl-grid-open #bottomnav{left:50%!important;right:auto!important;width:min(720px,calc(100% - 24px))!important;transform:translateX(-50%)!important;grid-template-columns:repeat(5,1fr)!important}
-html body.pl.pl-menu-open #pl-menu{right:calc(50% - 370px)}
-html body.pl #composer{max-width:760px!important;width:100%!important;margin:0 auto!important;box-sizing:border-box!important;left:auto!important;right:auto!important}
 }

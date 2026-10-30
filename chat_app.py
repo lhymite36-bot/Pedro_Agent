@@ -37,6 +37,9 @@ STATIC_FILES = {
     "app.js": "application/javascript; charset=utf-8",
     "phone_layout.css": "text/css; charset=utf-8",
     "phone_layout.js": "application/javascript; charset=utf-8",
+    "pc_layout.css": "text/css; charset=utf-8",
+    "pc_layout.js": "application/javascript; charset=utf-8",
+    "bubbles.css": "text/css; charset=utf-8",
     "routines_ui.js": "application/javascript; charset=utf-8",
     "tasks_ui.js": "application/javascript; charset=utf-8",
     "navtabs.js": "application/javascript; charset=utf-8",
@@ -1081,6 +1084,45 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             self.end_headers()
             self.wfile.write(body)
 
+        def _send_file(self, path: Any, kind: str, download: bool) -> None:
+            """1.6.6: stream big photos/videos in 256 KB chunks (no whole-file read), with byte ranges for video seeking."""
+            size = path.stat().st_size
+            start, end = 0, size - 1
+            rng = self.headers.get("Range", "")
+            m = re.match(r"bytes=(\d*)-(\d*)$", rng.strip()) if rng else None
+            if m and size:
+                a, b = m.group(1), m.group(2)
+                if a:
+                    start = int(a); end = min(size - 1, int(b)) if b else size - 1
+                elif b:
+                    start = max(0, size - int(b))
+                if start > end or start >= size:
+                    self.send_response(416); self.send_header("Content-Range", f"bytes */{size}"); self.end_headers(); return
+                self.send_response(206); self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+            else:
+                self.send_response(200)
+            self.send_header("Content-Type", kind)
+            self.send_header("Content-Length", str(end - start + 1))
+            self.send_header("Accept-Ranges", "bytes")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Cache-Control", "private, max-age=3600")
+            if download:
+                from urllib.parse import quote
+                self.send_header("Content-Disposition", "attachment; filename*=UTF-8''" + quote(path.name))
+            self.end_headers()
+            left = end - start + 1
+            with open(path, "rb") as fh:
+                fh.seek(start)
+                while left > 0:
+                    chunk = fh.read(min(262144, left))
+                    if not chunk:
+                        break
+                    try:
+                        self.wfile.write(chunk)
+                    except (BrokenPipeError, ConnectionError, OSError):
+                        return
+                    left -= len(chunk)
+
         def _json(self, data: Any, code: int = 200) -> None:
             self._send(code, json.dumps(data, default=str).encode("utf-8"))
 
@@ -1297,14 +1339,14 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     self._send(404, b"{}")
                 else:
                     kind = "image/png" if found.suffix.casefold() == ".png" else "image/jpeg"
-                    self._send_saved(found.read_bytes(), kind, found.name, query.get("download", ["0"])[0] == "1")
+                    self._send_file(found, kind, query.get("download", ["0"])[0] == "1")
             elif url.path == "/api/media":
                 found = safe_media_path(query.get("path", [""])[0])
                 if found is None:
                     self._send(404, b"{}")
                 else:
                     kind = _MEDIA_TYPES.get(found.suffix.casefold(), "application/octet-stream")
-                    self._send_saved(found.read_bytes(), kind, found.name, query.get("download", ["0"])[0] == "1")
+                    self._send_file(found, kind, query.get("download", ["0"])[0] == "1")
             elif url.path == "/api/memory":   # 1.6.6: Ped Bot's lasting facts
                 self._json({"ok": True, "memories": _agent().list_memories()})
             elif url.path == "/api/bots":
@@ -1663,6 +1705,24 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 self._json({"ok": True, "model": state.model, "speak": state.speak,
                             "speak_mode": state.speak_mode,
                             "voice_style": current_voice_style()})
+            elif url.path == "/api/save_download":   # 1.6.6: PC window - copy a chat photo/video into Downloads
+                if self.remote:
+                    self._json({"ok": False, "error": "Use the phone's own download."}, 403)
+                else:
+                    raw = str(data.get("path") or "")
+                    found = safe_image_path(raw) if data.get("kind") == "image" else safe_media_path(raw)
+                    if found is None:
+                        self._json({"ok": False, "error": "That file is no longer there."}, 404)
+                    else:
+                        import shutil
+                        dl = Path.home() / "Downloads"
+                        dl.mkdir(parents=True, exist_ok=True)
+                        dest = dl / found.name
+                        n = 1
+                        while dest.exists():
+                            dest = dl / f"{found.stem} ({n}){found.suffix}"; n += 1
+                        shutil.copyfile(found, dest)
+                        self._json({"ok": True, "saved": str(dest), "message": "Saved to Downloads: " + dest.name})
             elif url.path == "/api/memory/forget":
                 try:
                     self._json({"ok": _agent().forget_memory(int(data.get("id")))})

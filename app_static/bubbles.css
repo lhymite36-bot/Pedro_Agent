@@ -1,0 +1,17 @@
+/* 1.6.6 Grok-style rounded bubbles (phone + PC) */
+html body #log .row{display:flex!important;flex-wrap:wrap!important;align-items:flex-start!important;gap:0 10px!important;margin:6px 0 10px!important;max-width:100%!important}
+html body #log .row.user{justify-content:flex-end!important}
+html body #log .row .bubble{box-sizing:border-box;max-width:85%!important;width:auto!important;border-radius:20px!important;padding:10px 14px!important;margin:0!important;border:0!important;box-shadow:none!important;line-height:1.45}
+html body #log .row.bot .bubble{background:#2a2a2a!important;color:#ececec!important;border-top-left-radius:8px!important;flex:0 1 auto!important;max-width:calc(85% - 40px)!important}
+html body #log .row.user .bubble{background:#3a3a3c!important;color:#f4f4f4!important;border-radius:22px!important;padding:10px 16px!important}
+html body #log .row.bot>.face,html body #log .row.bot>.pb-avatar{flex:0 0 28px!important;width:28px!important;height:28px!important;margin-top:4px!important}
+html body #log .row .msg-actions{flex:0 0 100%!important;display:flex!important;gap:4px!important;margin:4px 0 0!important;padding:0!important;opacity:.55;transition:opacity .15s;order:3}
+html body #log .row.bot .msg-actions{padding-left:38px!important}
+html body #log .row.user .msg-actions{justify-content:flex-end!important}
+html body #log .row:hover .msg-actions,html body #log .row:focus-within .msg-actions{opacity:1}
+html body #log .row .msg-actions button{background:none!important;border:0!important;color:#9a9da3!important;min-height:28px!important;height:28px!important;min-width:28px!important;padding:0 6px!important;font-size:12px!important;border-radius:8px!important;box-shadow:none!important}
+html body #log .row .msg-actions button:hover{background:#26272a!important;color:#ececec!important}
+html body #log .row .msg-time{flex:0 0 100%!important;order:4;font-size:11px!important;color:#6e7177!important;margin:2px 0 0!important;padding:0!important;text-align:left!important}
+html body #log .row.bot .msg-time{padding-left:38px!important}
+html body #log .row.user .msg-time{text-align:right!important}
+html body #log .row .bubble .md>*:first-child{margin-top:0}html body #log .row .bubble .md>*:last-child{margin-bottom:0}

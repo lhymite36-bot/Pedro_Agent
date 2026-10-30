@@ -2,7 +2,7 @@
 // recent chats on the home screen. The PC layout is untouched (everything is gated by body.pl).
 (function () {
   const $ = (s) => document.querySelector(s);
-  const mq = window.matchMedia('all');
+  const mq = window.matchMedia('(max-width: 520px)');
   const ICON = {
     more: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>',
     plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
@@ -120,7 +120,7 @@
 // is gone on phone; top-left is the initials avatar (settings), '...' has History.
 (function () {
   const $ = (s) => document.querySelector(s);
-  const mq = window.matchMedia('all');
+  const mq = window.matchMedia('(max-width: 520px)');
   const SEARCH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5L21 21"/></svg>';
   const BACK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M15 5l-7 7 7 7"/></svg>';
   const CHEV = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>';
@@ -226,6 +226,7 @@
       face(f, look(b));
     });
   }
+  window.pbHistorySheet = (...a) => historySheet(...a);
   async function historySheet() {
     let s = []; try { s = await (await fetch('/api/sessions')).json(); } catch (e) {}
     const cur = (typeof session === 'string') ? session : (localStorage.session || '');
@@ -296,6 +297,7 @@
   const $ = (s) => document.querySelector(s);
   function el(t, c, x) { const e = document.createElement(t); if (c) e.className = c; if (x != null) e.textContent = x; return e; }
   const post = (u, b) => fetch(u, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b || {}) }).then((r) => r.json());
+  window.pbMemorySheet = (...a) => sheet(...a);
   async function sheet() {
     const cur = (typeof session === 'string') ? session : (localStorage.session || '');
     const botId = /^bot-/.test(cur) ? cur.slice(4) : '';
@@ -341,7 +343,7 @@
     sh.appendChild(card); document.body.appendChild(sh);
   }
   function add() {
-    const menu = $('#pl-menu'); if (!menu) { setTimeout(add, 500); return; }
+    const menu = $('#pl-menu'); if (!menu) { if (window.matchMedia('(max-width: 520px)').matches) setTimeout(add, 500); return; }
     if (menu.querySelector('[data-do2="memory"]')) return;
     const b = el('button', '', 'Memory'); b.type = 'button'; b.dataset.do2 = 'memory';
     b.onclick = (e) => { e.stopPropagation(); document.body.classList.remove('pl-menu-open'); sheet(); };

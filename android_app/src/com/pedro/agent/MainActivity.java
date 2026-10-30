@@ -101,6 +101,20 @@ public class MainActivity extends Activity {
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, false);
         web.setBackgroundColor(Color.parseColor("#0e0f11"));
         web.addJavascriptInterface(new Bridge(), "PedroNative");
+        // 1.6.6: downloads. The WebView had no DownloadListener, so chat "Download" links did nothing.
+        web.setDownloadListener((url, ua, disposition, mime, length) -> saveToDownloads(url, disposition, mime));
+        web.setOnLongClickListener(v -> {
+            WebView.HitTestResult h = web.getHitTestResult();
+            if (h == null) return false;
+            int t = h.getType();
+            if (t != WebView.HitTestResult.IMAGE_TYPE && t != WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE) return false;
+            String src = h.getExtra(); if (src == null || !src.startsWith("http")) return false;
+            new AlertDialog.Builder(this).setItems(new String[]{"Save image", "Share link"}, (d, which) -> {
+                if (which == 0) saveToDownloads(src + (src.contains("?") ? "&" : "?") + "download=1", null, null);
+                else { Intent i = new Intent(Intent.ACTION_SEND); i.setType("text/plain"); i.putExtra(Intent.EXTRA_TEXT, src); startActivity(Intent.createChooser(i, "Share")); }
+            }).show();
+            return true;
+        });
         web.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
                 Uri u = r.getUrl(); String base = prefs.getString("base", "");
@@ -593,6 +607,49 @@ public class MainActivity extends Activity {
     }
 
     int dp(int v) { return (int) (v * getResources().getDisplayMetrics().density); }
+    /** 1.6.6: save a chat image/video/file to Downloads with the signed-in session (streamed by DownloadManager). */
+    void saveToDownloads(String url, String disposition, String mime) {
+        try {
+            if (url == null || !(url.startsWith("http://") || url.startsWith("https://"))) { toast("Can't save this file from here."); return; }
+            if (url.contains("phone.pedbot.local")) { toast("This file is on your PC - open it when your PC is online."); return; }
+            String name = URLUtil.guessFileName(url, disposition, mime);
+            try {
+                String q = Uri.parse(url).getQueryParameter("path");
+                if (q != null && !q.isEmpty()) { String n = q.replace('\\', '/'); n = n.substring(n.lastIndexOf('/') + 1); if (!n.isEmpty()) name = n; }
+            } catch (Exception ignored) {}
+            DownloadManager.Request r = new DownloadManager.Request(Uri.parse(url));
+            String cookie = CookieManager.getInstance().getCookie(url);
+            if (cookie != null) r.addRequestHeader("Cookie", cookie);
+            try {
+                String access = new JSONObject(prefs.getString("ticket", "{}")).optString("access_token", "");
+                if (!access.isEmpty()) r.addRequestHeader("Authorization", "Bearer " + access);
+            } catch (Exception ignored) {}
+            if (mime != null && !mime.isEmpty()) r.setMimeType(mime);
+            r.setTitle(name);
+            r.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            r.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name);
+            DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+            final long id = dm.enqueue(r);
+            toast("Saving " + name + "…");
+            final String shown = name;
+            BroadcastReceiver done = new BroadcastReceiver() {
+                @Override public void onReceive(Context c, Intent i) {
+                    if (i.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1) != id) return;
+                    try { unregisterReceiver(this); } catch (Exception ignored) {}
+                    DownloadManager.Query q = new DownloadManager.Query().setFilterById(id);
+                    try (android.database.Cursor cur = dm.query(q)) {
+                        boolean ok = cur != null && cur.moveToFirst() && cur.getInt(cur.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)) == DownloadManager.STATUS_SUCCESSFUL;
+                        toast(ok ? "Saved to Downloads: " + shown : "Download failed - is your PC online?");
+                    } catch (Exception e) { toast("Saved to Downloads"); }
+                }
+            };
+            IntentFilter f = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
+            if (Build.VERSION.SDK_INT >= 33) registerReceiver(done, f, Context.RECEIVER_EXPORTED); else registerReceiver(done, f);
+        } catch (Exception e) {
+            toast("Couldn't save: " + e.getMessage());
+        }
+    }
+
     void toast(String s) { runOnUiThread(() -> Toast.makeText(this, s, Toast.LENGTH_SHORT).show()); }
     TextView text(String s, int sp, String c) { TextView t = new TextView(this); t.setText(s); t.setTextSize(sp); t.setTextColor(Color.parseColor(c)); t.setPadding(0, dp(10), 0, dp(6)); return t; }
     Button grokBtn(String s, boolean primary) {

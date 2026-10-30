@@ -304,6 +304,19 @@ function addDownload(container, href, name, label) {
   a.href = href;
   a.download = name;
   a.textContent = label;
+  // 1.6.6: the PC window (pywebview) ignores <a download>; ask the PC app to copy the file into Downloads.
+  // The Android app saves through its own DownloadListener (streams to Downloads, toast when done).
+  a.addEventListener('click', async (e) => {
+    const onPc = /^(127\.0\.0\.1|localhost)$/.test(location.hostname) && !/PedroAgentApp/.test(navigator.userAgent);
+    if (!onPc) return;
+    e.preventDefault();
+    try {
+      const u = new URL(href, location.href);
+      const r = await (await fetch('/api/save_download', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: u.searchParams.get('path') || '', kind: u.pathname === '/api/image' ? 'image' : 'media' }) })).json();
+      if (window.pbToast) window.pbToast(r.ok ? r.message : (r.error || 'Could not save it.'));
+    } catch (err) { if (window.pbToast) window.pbToast('Could not save it.'); }
+  });
   container.appendChild(a);
 }
 function addImage(container, path) {
@@ -553,8 +566,9 @@ function setRunning(on) {
 if ($('#hdr-stop')) $('#hdr-stop').onclick = () => { if (running) stop(); };
 function replyBar(row) {
   const bubble = row && row.querySelector('.bubble'); if (!bubble) return null;
-  let bar = bubble.querySelector('.msg-actions');
-  if (!bar) { bar = document.createElement('div'); bar.className = 'msg-actions'; bubble.appendChild(bar); }
+  // 1.6.6: actions sit under the bubble (small icons), not inside it
+  let bar = row.querySelector('.msg-actions');
+  if (!bar) { bar = document.createElement('div'); bar.className = 'msg-actions'; bubble.after(bar); }
   return bar;
 }
 const COPY_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
