@@ -3155,6 +3155,28 @@ def _topic_exists(topic: str) -> bool:
     return row is not None
 
 
+def list_memories(limit: int = 200) -> list[dict[str, Any]]:
+    """1.6.6: Ped Bot's lasting facts for Settings/'...' > Memory (survive clearing chats)."""
+    connection = _memory_connect()
+    try:
+        rows = connection.execute(
+            "SELECT id, topic, fact, updated_at FROM memories ORDER BY updated_at DESC LIMIT ?", (int(limit),)
+        ).fetchall()
+    finally:
+        connection.close()
+    return [{"id": r[0], "topic": r[1], "text": r[2], "at": r[3]} for r in rows]
+
+
+def forget_memory(memory_id: int) -> bool:
+    connection = _memory_connect()
+    try:
+        cur = connection.execute("DELETE FROM memories WHERE id = ?", (int(memory_id),))
+        connection.commit()
+        return cur.rowcount > 0
+    finally:
+        connection.close()
+
+
 def remember_fact(fact: str, topic: str = "fact") -> dict[str, Any]:
     """Save one lasting fact. The same wording updates the existing row."""
     text = " ".join((fact or "").split())

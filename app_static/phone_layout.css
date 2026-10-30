@@ -1,5 +1,5 @@
 /* 1.6.5 spacious phone layout. Only applies with body.pl (<=520px, set by phone_layout.js). */
-@media (max-width:520px){
+@media all{
 html body.pl{--pl-bg:#0b0b0c;--pl-card:#17181a;--pl-line:#26272a;--pl-text:#ececec;--pl-dim:#8d9096;background:var(--pl-bg)!important}
 /* top bar: [menu] ...... [bot pill] ...... [+ / ...] */
 html body.pl header{position:relative!important;display:flex!important;align-items:center!important;justify-content:space-between!important;gap:10px!important;height:auto!important;min-height:64px!important;padding:calc(10px + env(safe-area-inset-top)) 16px 10px!important;background:var(--pl-bg)!important;border:0!important;box-shadow:none!important;overflow:visible!important;flex-wrap:nowrap!important}
@@ -74,3 +74,65 @@ html body.pl #composer #t::placeholder{white-space:nowrap;overflow:hidden;text-o
 html body.pl #composer #t{white-space:pre-wrap;line-height:22px!important;height:46px}
 }
 body:not(.pl) #pl-grid,body:not(.pl) #pl-right,body:not(.pl) #pl-name,body:not(.pl) #pl-recent,body:not(.pl) #pl-dot,body:not(.pl) #pl-menu,body:not(.pl) #pl-scrim{display:none!important}
+/* 1.6.6 bots home + no drawer on phone */
+@media all{
+html body.pl-nodrawer #side,html body.pl-nodrawer #sidescrim,html body.pl-nodrawer header #menubtn{display:none!important}
+#pl-back{display:none}
+html body.pl #pl-back{display:inline-flex!important}
+html body.pl.pl-grid-open #bottomnav{max-height:62vh!important;overflow-y:auto!important;align-content:start!important}
+html body.pl .pl-extra[hidden]{display:none!important}
+html body.pl:not(.pl-grid-open) .pl-extra{display:none!important}
+#pl-home{display:none}
+html body.pl.pl-home-on #pl-home{display:flex;flex-direction:column;position:fixed;inset:0;z-index:50;background:#0b0b0c;color:#ececec;padding:calc(12px + env(safe-area-inset-top)) 18px calc(14px + env(safe-area-inset-bottom))}
+html body.pl.pl-home-on.pl-grid-open #pl-scrim{z-index:55}
+html body.pl.pl-home-on.pl-grid-open #bottomnav{z-index:61!important;bottom:calc(80px + env(safe-area-inset-bottom))!important}
+.plh-top{display:flex;justify-content:space-between;align-items:center;min-height:50px}
+#plh-me{font-weight:600;font-size:16px;color:#cfd2d6!important;background:#2a2b2e!important}
+.plh-hero{position:relative;display:flex;flex-direction:column;align-items:center;gap:12px;background:none;border:0;color:#ececec;margin:6px auto 22px;padding:0}
+.plh-hero-face{width:112px;height:112px}
+.plh-star{position:absolute;top:80px;left:calc(50% + 30px);width:26px;height:26px;border-radius:50%;background:#f39c12;color:#fff;font-size:14px;line-height:26px;text-align:center;border:3px solid #0b0b0c}
+.plh-hero-name{font-size:16px;color:#cfd2d6}
+#plh-list{flex:1;overflow-y:auto;margin:0 -6px;padding:0 6px}
+.plh-sec{display:flex;align-items:center;gap:8px;background:none;border:0;color:#9a9da3;font-size:16px;padding:12px 0;min-height:44px}
+.plh-sec small{color:#6c6f75;font-size:14px}
+.plh-sec svg{transition:transform .2s}.plh-sec.closed svg{transform:rotate(-90deg)}
+.plh-row{display:flex;align-items:center;gap:14px;width:100%;background:none;border:0;color:#ececec;text-align:left;padding:12px 0;min-height:72px;border-radius:14px}
+.plh-row:active{background:#151618}
+.plh-face{width:52px;height:52px;flex:0 0 52px}
+.plh-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.plh-l1{display:flex;align-items:baseline;gap:10px}
+.plh-l1 b{flex:1;min-width:0;font-size:17px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.plh-l1 time{flex:0 0 auto;color:#7d8086;font-size:14px}
+.plh-main small{font-size:15px;color:#8d9096;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.plh-empty{text-align:center;padding:30px 10px;color:#8d9096}
+.plh-empty b{display:block;color:#ececec;font-size:18px;margin-bottom:6px}
+.plh-create{margin-top:16px;background:#ececec;color:#0b0b0c;border:0;border-radius:999px;padding:13px 26px;font-weight:600;font-size:15px;min-height:46px}
+.plh-none{color:#8d9096;padding:14px 0}
+.plh-bottom{display:flex;align-items:center;gap:12px;padding-top:10px}
+.plh-bottom .pl-round{width:50px!important;height:50px!important;flex:0 0 50px!important}
+.plh-search{flex:1 1 0;min-width:0;box-sizing:border-box;display:flex;align-items:center;gap:10px;height:50px;padding:0 18px;border-radius:999px;background:#1d1e21;border:1px solid #2a2b2e;color:#9a9da3}
+.plh-search svg{width:22px;height:22px;flex:0 0 22px}
+.plh-search input{flex:1;min-width:0;background:none;border:0;outline:0;color:#ececec;font-size:17px}
+#plh-hist{position:fixed;inset:0;background:#0009;z-index:70;display:flex;align-items:flex-end}
+.plh-hist-card{width:100%;max-height:75vh;overflow-y:auto;background:#17181a;border-radius:24px 24px 0 0;padding:18px 18px calc(18px + env(safe-area-inset-bottom))}
+.plh-hist-card h3{margin:0 0 8px;font-size:18px}
+}
+body:not(.pl) #pl-home,body:not(.pl) #pl-back,body:not(.pl) .pl-extra,body:not(.pl) #plh-hist{display:none!important}
+@media all{
+.plm-row{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #222326;font-size:15px}
+.plm-row span{flex:1;min-width:0}
+.plm-del{background:none;border:1px solid #3a2b2b;color:#ff6b5e;border-radius:999px;padding:8px 14px;min-height:40px}
+.plm-add{display:flex;gap:8px;margin-top:14px}
+.plm-add input{flex:1;min-width:0;background:#0e0f11;color:#ececec;border:1px solid #2a2b2e;border-radius:999px;padding:12px 16px;font-size:15px}
+.plm-add button{background:#ececec;color:#0b0b0c;border:0;border-radius:999px;padding:0 18px;font-weight:600;min-height:46px}
+}
+/* 1.6.6 PC: same clean layout, centered column */
+@media (min-width:521px){
+html body.pl{padding-left:0!important}
+html body.pl main{margin:0 auto!important;max-width:760px!important;width:100%!important;left:0!important}
+html body.pl.pl-home-on #pl-home{padding-left:calc(50% - 360px);padding-right:calc(50% - 360px)}
+html body.pl header{max-width:760px!important;margin:0 auto!important;width:100%!important}
+html body.pl.pl-grid-open #bottomnav{left:50%!important;right:auto!important;width:min(720px,calc(100% - 24px))!important;transform:translateX(-50%)!important;grid-template-columns:repeat(5,1fr)!important}
+html body.pl.pl-menu-open #pl-menu{right:calc(50% - 370px)}
+html body.pl #composer{max-width:760px!important;width:100%!important;margin:0 auto!important;box-sizing:border-box!important;left:auto!important;right:auto!important}
+}

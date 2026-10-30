@@ -1305,6 +1305,8 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 else:
                     kind = _MEDIA_TYPES.get(found.suffix.casefold(), "application/octet-stream")
                     self._send_saved(found.read_bytes(), kind, found.name, query.get("download", ["0"])[0] == "1")
+            elif url.path == "/api/memory":   # 1.6.6: Ped Bot's lasting facts
+                self._json({"ok": True, "memories": _agent().list_memories()})
             elif url.path == "/api/bots":
                 self._json({"bots": bots.list_bots(), "tools": sorted(_agent().TOOLS)})
             elif url.path == "/api/checkins":
@@ -1661,6 +1663,13 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 self._json({"ok": True, "model": state.model, "speak": state.speak,
                             "speak_mode": state.speak_mode,
                             "voice_style": current_voice_style()})
+            elif url.path == "/api/memory/forget":
+                try:
+                    self._json({"ok": _agent().forget_memory(int(data.get("id")))})
+                except Exception as exc:
+                    self._json({"ok": False, "error": str(exc)}, 400)
+            elif url.path == "/api/memory/add":
+                self._json(_agent().remember_fact(str(data.get("text") or ""), "fact"))
             elif url.path == "/api/bots":
                 try:
                     bot = bots.save_bot(data)
