@@ -29,10 +29,14 @@
       '<button type="button" data-do="avatar">Talk face to face (Avatar)</button>' +
       '<button type="button" data-do="search">Search</button>' +
       '<button type="button" data-do="model" id="pl-model">Model</button>' +
+      '<button type="button" data-do="editgroup" id="pl-editgroup" hidden>Edit group</button>' +
+      '<button type="button" data-do="delgroup" class="danger" id="pl-delgroup" hidden>Delete group</button>' +
       '<button type="button" data-do="pause" class="danger" id="pl-pause">Pause all</button>';
     menu.onclick = (e) => {
       const d = e.target.closest('button'); if (!d) return; closeAll();
-      ({ new: () => click('#new'), avatar: () => click('#avc-open'), search: () => click('#btn-search'), model: () => click('#hdr-model'), pause: () => click('#pause-all') })[d.dataset.do]();
+      ({ editgroup: () => { const g = window.currentGroup && window.currentGroup(); if (g && window.openGroupEditor) window.openGroupEditor(g); },
+         delgroup: () => { const g = window.currentGroup && window.currentGroup(); if (g && window.deleteGroup) window.deleteGroup(g); },
+         new: () => click('#new'), avatar: () => click('#avc-open'), search: () => click('#btn-search'), model: () => click('#hdr-model'), pause: () => click('#pause-all') })[d.dataset.do]();
     };
     document.body.appendChild(menu);
     const scrim = document.createElement('div'); scrim.id = 'pl-scrim'; scrim.onclick = closeAll; document.body.appendChild(scrim);
@@ -82,6 +86,8 @@
     } catch (e) {}
   }
   function syncMenu() {
+    const inGroup = !!(window.currentGroup && window.currentGroup());
+    ['#pl-editgroup', '#pl-delgroup'].forEach((k) => { const b = $(k); if (b) b.hidden = !inGroup; });
     const st = $('#pl-status');
     const banner = $('#pb-banner');
     const mood = $('#mood');
@@ -95,6 +101,8 @@
     const upd = () => {
       const chat = !!(log && log.children.length);
       document.body.classList.toggle('pl-chat', chat);
+      const cur = (typeof session === 'string') ? session : (localStorage.session || '');
+      document.body.classList.toggle('pl-insess', /^(bot-|group-)/.test(cur));   // 1.6.9: '...' (Edit/Delete group) even in an empty chat
       const banner = $('#pb-banner');
       document.body.classList.toggle('pl-offline', !!banner && /offline/i.test(banner.textContent));
       if (banner && !banner.dataset.pl) { banner.dataset.pl = '1'; }
@@ -126,7 +134,10 @@
   const BACK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M15 5l-7 7 7 7"/></svg>';
   const CHEV = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>';
   const GRID = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="6" height="6" rx="1.5"/><rect x="14" y="4" width="6" height="6" rx="1.5"/><rect x="4" y="14" width="6" height="6" rx="1.5"/><path d="M17 14v6M14 17h6"/></svg>';
-  let bots = [], sessions = [], query = '', collapsed = false, built = false;
+  let bots = [], sessions = [], groupsList = [], query = '', collapsed = false, built = false;
+  // 1.6.9: groups sit in the same list as bots (id 'g:<group id>' in the menu state)
+  const sk = (b) => b.kind === 'group' ? 'group-' + b.group.id : 'bot-' + b.id;
+  const items = () => bots.concat(groupsList.map((g) => ({ id: 'g:' + g.id, name: g.name, role: g.purpose || ((g.members || []).length + 1) + ' bots', kind: 'group', group: g })));
   function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
   function when(ts) {
     const d = new Date(Number(ts || 0) * 1000); if (!ts) return '';
@@ -166,7 +177,7 @@
     me.onclick = () => { hide(); const s = $('#setbtn'); if (s) s.click(); };
     const add = el('button', 'pl-round'); add.type = 'button'; add.title = 'New bot'; add.id = 'plh-add';
     add.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
-    add.onclick = newBot;
+    add.onclick = (e) => { e.stopPropagation(); if (window.pbBotMenu) window.pbBotMenu.newMenu(add); else newBot(); };
     top.append(me, add);
     const hero = el('button', 'plh-hero'); hero.type = 'button'; hero.title = 'Open Ped Bot';
     const hf = el('div', 'plh-hero-face'); const star = el('span', 'plh-star', '★');
@@ -201,6 +212,8 @@
   async function load() {
     try { const r = await (await fetch('/api/bots')).json(); bots = (r && r.bots) || []; } catch (e) {}
     try { const s = await (await fetch('/api/sessions')).json(); sessions = Array.isArray(s) ? s : []; } catch (e) {}
+    try { const g = await (await fetch('/api/groups')).json(); groupsList = (g && g.groups) || []; window.pedroGroups = groupsList; } catch (e) {}
+    if (window.pbBotMenu) await window.pbBotMenu.load();
     const me = $('#plh-me'); if (me) me.textContent = initials();
     draw();
   }
@@ -214,16 +227,16 @@
       list.appendChild(e); return;
     }
     const BM = window.pbBotMenu, H = BM ? BM.home : { sections: [], pinned: [], hidden: [], unread: [] };
-    const lastOf = (b) => (by['bot-' + b.id] || {}).last;
-    const vis = (BM ? BM.arrange(bots.slice(), lastOf) : bots.slice())
-      .filter((b) => !query || (b.name + ' ' + ((by['bot-' + b.id] || {}).preview || '') + ' ' + (b.role || '')).toLowerCase().includes(query));
+    const lastOf = (b) => (by[sk(b)] || {}).last;
+    const vis = (BM ? BM.arrange(items(), lastOf) : items())
+      .filter((b) => !query || (b.name + ' ' + ((by[sk(b)] || {}).preview || '') + ' ' + (b.role || '')).toLowerCase().includes(query));
     const placed = new Set();
     const group = (key, name, ids, closed, toggle) => {
       const head = el('button', 'plh-sec' + (closed ? ' closed' : '')); head.type = 'button'; head.dataset.sec = key;
       head.append(el('span', '', name), el('small', '', String(ids.length))); head.insertAdjacentHTML('beforeend', CHEV);
       head.onclick = toggle; list.appendChild(head);
       if (closed) return;
-      ids.forEach((b) => list.appendChild(row(b, by['bot-' + b.id] || {})));
+      ids.forEach((b) => list.appendChild(row(b, by[sk(b)] || {})));
     };
     H.sections.forEach((sec) => {
       const ids = vis.filter((b) => sec.ids.includes(b.id)); ids.forEach((b) => placed.add(b.id));
@@ -232,8 +245,8 @@
     const rest = vis.filter((b) => !placed.has(b.id));
     group('', 'Unassigned', rest, collapsed, () => { collapsed = !collapsed; draw(); });
     if (!vis.length && query) list.appendChild(el('div', 'plh-none', 'No bots match "' + query + '"'));
-    const hid = H.hidden.filter((id) => bots.some((b) => b.id === id)).length;
-    if (hid && BM) { const l = el('button', 'bm-hidden-link', 'Hidden bots (' + hid + ')'); l.type = 'button'; l.id = 'plh-hidden'; l.onclick = () => BM.hiddenSheet(bots, load); list.appendChild(l); }
+    const hid = H.hidden.filter((id) => items().some((b) => b.id === id)).length;
+    if (hid && BM) { const l = el('button', 'bm-hidden-link', 'Hidden (' + hid + ')'); l.type = 'button'; l.id = 'plh-hidden'; l.onclick = () => BM.hiddenSheet(bots, load); list.appendChild(l); }
   }
   function row(b, s) {
     const BM = window.pbBotMenu, H = BM ? BM.home : { pinned: [], unread: [] };
@@ -244,9 +257,13 @@
     const tm = el('time', '', when(s.last));
     top.append(nm, tm); if (unread) top.appendChild(el('span', 'bm-dot'));
     m.append(top, el('small', '', String(s.preview || b.role || 'Say hi to ' + b.name).replace(/\s+/g, ' ')));
-    r.append(f, m); r.onclick = () => openChat(b.id);
+    r.append(f, m);
     if (BM) BM.bind(r, () => b, { reload: load });
-    face(f, look(b));
+    if (b.kind === 'group') {
+      r.classList.add('is-group');
+      r.onclick = () => { if (BM) BM.openedBot(b.id); window.pbOpenChat('group-' + b.group.id).then(() => { if (window.loadGroups) window.loadGroups(); }); };
+      if (window.groupFace) { const gf = window.groupFace(b.group); gf.classList.add('plh-gface'); f.appendChild(gf); }
+    } else { r.onclick = () => openChat(b.id); face(f, look(b)); }
     return r;
   }
   window.pbHistorySheet = (...a) => historySheet(...a);
@@ -281,6 +298,7 @@
   setInterval(() => { if (document.body.classList.contains('pl-home-on') && !document.hidden) load(); }, 30000);
   window.pbShowHome = show;
   if (window.pbBotMenu) window.pbBotMenu.onChange(() => draw());
+  window.onGroupsChanged = () => { load(); if (window.pdReload) window.pdReload(); };
 })();
 
 // 1.6.6: every drawer menu item lives in the apps grid on phone.

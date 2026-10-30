@@ -14,7 +14,7 @@ html body.pl header .bot-pill .who b{font-size:16px!important;font-weight:600!im
 html body.pl header .bot-pill .who small{display:none!important}
 #pl-right{display:flex;gap:10px;margin-left:auto}
 html body.pl #pl-more{display:none!important}
-html body.pl.pl-chat #pl-more{display:inline-flex!important}
+html body.pl.pl-chat #pl-more,html body.pl.pl-insess #pl-more{display:inline-flex!important}
 html body.pl.pl-chat #pl-new{display:none!important}
 #pl-dot{display:none}
 html body.pl #pl-dot{display:block;width:10px;height:10px;border-radius:50%;background:#2ecc71;flex:0 0 10px;margin-left:2px;box-shadow:0 0 0 3px #17181a}

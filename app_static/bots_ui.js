@@ -107,11 +107,36 @@
     if ($('#bot-teach-stop')) $('#bot-teach-stop').hidden = !recording;
     if ($('#bot-teach')) $('#bot-teach').hidden = recording;
   }
+  // 1.6.9: per-bot Gemini voice - Female or Male, a named voice, and a Preview button
+  let VOICES = { female: [['Sulafat', 'Warm'], ['Aoede', 'Breezy'], ['Kore', 'Firm'], ['Leda', 'Youthful']], male: [['Puck', 'Upbeat'], ['Achird', 'Friendly'], ['Charon', 'Informative'], ['Fenrir', 'Excitable']] };
+  fetch('/api/voices').then((r) => r.json()).then((d) => { if (d && d.voices) VOICES = d.voices; }).catch(() => {});
+  function voiceNames(g, pick) {
+    const sel = $('#bot-vname'); if (!sel) return; sel.innerHTML = '';
+    (VOICES[g] || []).forEach(([n, d]) => { const o = document.createElement('option'); o.value = n; o.textContent = n + ' - ' + d; sel.appendChild(o); });
+    if (pick && Array.from(sel.options).some((o) => o.value === pick)) sel.value = pick;
+  }
+  function voiceFill(v) {
+    const g = $('#bot-vgender'); if (!g) return;
+    g.value = (v && v.gender) || 'female'; voiceNames(g.value, v && v.name);
+    g.onchange = () => voiceNames(g.value);
+    const pv = $('#bot-vpreview'); const msg = $('#bot-vmsg');
+    pv.onclick = async () => {
+      pv.disabled = true; if (msg) msg.textContent = 'Making a sample…';
+      try {
+        const r = await (await fetch('/api/voice/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ gender: g.value, name: $('#bot-vname').value }) })).json();
+        if (!r.ok) { if (msg) msg.textContent = r.error || 'Could not make a sample.'; return; }
+        if (msg) msg.textContent = r.note || ('Playing ' + r.voice + (r.tone ? ' (' + r.tone + ')' : ''));
+        if (r.note && window.pbToast) window.pbToast(r.note);
+        const a = new Audio(r.url); a.play().catch(() => { if (msg) msg.textContent = 'Tap Preview again to hear it.'; });
+      } catch (e) { if (msg) msg.textContent = 'Could not make a sample.'; } finally { pv.disabled = false; }
+    };
+  }
   function openEditor(bot) {
     editing = bot ? Object.assign({}, bot, { notes: (bot.notes || []).slice(), skills: (bot.skills || []).slice() }) : null;
     const b = editing || { name: '', color: '#7c8cff', avatar: 'round', role: '', model: '', tools: [], rules: {}, tasks: [] };
     $('#bot-name').value = b.name; $('#bot-color').value = b.color; $('#bot-shape').value = b.avatar;
     $('#bot-role').value = b.role; $('#bot-model').value = b.model || '';
+    voiceFill(b.voice || null);
     $('#bot-rules').value = Object.keys(b.rules || {}).length ? JSON.stringify(b.rules, null, 2) : '';
     const tl = $('#bot-tools'); tl.innerHTML = '';
     allTools.forEach((name) => {
@@ -165,7 +190,7 @@
     if (raw) rulesObj = JSON.parse(raw);
     const tools = Array.from(document.querySelectorAll('#bot-tools label')).filter((l) => l.querySelector('input').checked).map((l) => l.dataset.name);
     return { id: editing ? editing.id : undefined, created: editing ? editing.created : undefined, name: $('#bot-name').value,
-      color: $('#bot-color').value, avatar: $('#bot-shape').value, role: $('#bot-role').value, model: $('#bot-model').value, tools, rules: rulesObj, tasks,
+      color: $('#bot-color').value, avatar: $('#bot-shape').value, role: $('#bot-role').value, model: $('#bot-model').value, voice: { gender: $('#bot-vgender') ? $('#bot-vgender').value : 'female', name: $('#bot-vname') ? $('#bot-vname').value : '' }, tools, rules: rulesObj, tasks,
       notes: editing ? (editing.notes || []) : [], skills: editing ? (editing.skills || []) : [] };
   }
 

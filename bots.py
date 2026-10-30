@@ -197,7 +197,17 @@ def normalise(data: dict[str, Any], existing: dict[str, Any] | None = None) -> d
         "notes": _clean_notes(notes_raw),
         "skills": _clean_skills(skills_raw),
         "created": float(data.get("created") or prior.get("created") or time.time()),
+        "voice": _clean_voice(data["voice"] if "voice" in data else prior.get("voice")),
     }
+
+
+def _clean_voice(raw: Any) -> dict[str, str]:
+    """1.6.9: the bot's Gemini voice - Male or Female plus a named voice."""
+    try:
+        import gemini_tts
+        return gemini_tts.voice_for({"voice": raw if isinstance(raw, dict) else {}})
+    except Exception:
+        return {"gender": "female", "name": "Sulafat"}
 
 
 def _path(bot_id: str) -> Path:

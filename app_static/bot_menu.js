@@ -15,6 +15,9 @@
     copy: S('<rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>'),
     dup: S('<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M8 12h8M12 8v8"/>'),
     trash: S('<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><path d="M10 11v6M14 11v6"/>'),
+    edit: S('<path d="M12 20h9"/><path d="M16.4 3.6a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4Z"/>'),
+    group: S('<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>'),
+    bot: S('<rect width="16" height="12" x="4" y="8" rx="2"/><path d="M12 8V4H8"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/>'),
     right: S('<path d="m9 18 6-6-6-6"/>'), left: S('<path d="m15 18-6-6 6-6"/>'), check: S('<path d="M20 6 9 17l-5-5"/>'),
   };
   let home = { sections: [], pinned: [], hidden: [], unread: [] };
@@ -90,6 +93,7 @@
     const done = () => { close(); };
     function main() {
       menu.textContent = ''; menu.dataset.view = 'main';
+      if (bot.kind === 'group') return groupMain();
       const unread = home.unread.includes(bot.id), pinned = home.pinned.includes(bot.id);
       menu.append(
         item(IC.unread, unread ? 'Mark Read' : 'Mark Unread', () => { done(); op('unread', { id: bot.id, on: !unread }); }),
@@ -98,6 +102,16 @@
         item(IC.share, 'Share as Template', () => { done(); share(bot); }),
         item(IC.hide, 'Hide', () => { done(); op('hide', { id: bot.id, on: true }).then(() => toast(bot.name + ' hidden - unhide it from Hidden bots')); }, { red: true }),
         item(IC.more, 'More', more, { sub: true }));
+    }
+    function groupMain() {   // 1.6.9: groups get the same menu, with Edit group and Delete group
+      const unread = home.unread.includes(bot.id), pinned = home.pinned.includes(bot.id);
+      menu.append(
+        item(IC.edit, 'Edit group', () => { done(); if (window.openGroupEditor) window.openGroupEditor(bot.group); }),
+        item(IC.unread, unread ? 'Mark Read' : 'Mark Unread', () => { done(); op('unread', { id: bot.id, on: !unread }); }),
+        item(IC.pin, pinned ? 'Unpin' : 'Pin', () => { done(); op('pin', { id: bot.id, on: !pinned }).then(() => toast(pinned ? 'Unpinned' : 'Pinned to top')); }),
+        item(IC.folder, 'Move to', move, { sub: true }),
+        item(IC.hide, 'Hide', () => { done(); op('hide', { id: bot.id, on: true }).then(() => toast(bot.name + ' hidden - unhide it from Hidden')); }, { red: true }),
+        item(IC.trash, 'Delete group', () => { done(); if (window.deleteGroup) window.deleteGroup(bot.group).then(() => { load().then(changed); if (hooks.reload) hooks.reload(); }); }, { red: true }));
     }
     function more() {
       menu.textContent = ''; menu.dataset.view = 'more';
@@ -162,13 +176,22 @@
     const w = el('div', 'bm-dim'); w.id = 'bm-hidden'; const c = el('div', 'bm-dialog bm-list'); c.appendChild(el('h3', '', 'Hidden bots'));
     const draw = () => {
       c.querySelectorAll('.bm-item,.bm-none').forEach((n) => n.remove());
-      const hid = bots.filter((b) => home.hidden.includes(b.id));
+      const hid = bots.concat((window.pedroGroups || []).map((g) => ({ id: 'g:' + g.id, name: g.name }))).filter((b) => home.hidden.includes(b.id));
       if (!hid.length) c.appendChild(el('p', 'bm-none', 'No hidden bots.'));
       hid.forEach((b) => c.appendChild(item(IC.eye, 'Unhide ' + b.name, () => op('hide', { id: b.id, on: false }).then(() => { draw(); if (reload) reload(); }))));
     };
     draw(); const row = el('div', 'bm-actions'); const ok = el('button', 'bm-btn', 'Done'); ok.type = 'button'; ok.onclick = () => w.remove();
     row.appendChild(ok); c.appendChild(row); w.appendChild(c); w.onclick = (e) => { if (e.target === w) w.remove(); }; document.body.appendChild(w);
   }
-  window.pbBotMenu = { open, close, bind, load, op, arrange, openedBot, hiddenSheet, onChange: (f) => listeners.push(f),
+  function newMenu(anchor) {
+    close(); const wrap = el('div'); wrap.id = 'bm-wrap'; const menu = el('div', 'bm-menu'); wrap.appendChild(menu);
+    wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+    menu.append(item(IC.bot, 'New bot', () => { close(); document.body.classList.remove('pl-home-on'); if (window.showNewBot) window.showNewBot(); else { const b = document.getElementById('newbot'); if (b) b.click(); } }),
+      item(IC.group, 'New group', () => { close(); if (window.openGroupEditor) window.openGroupEditor(null); }));
+    document.body.appendChild(wrap);
+    const r = anchor.getBoundingClientRect(); const mw = 220; menu.style.width = mw + 'px';
+    menu.style.left = Math.max(12, Math.min(r.right - mw, window.innerWidth - mw - 12)) + 'px'; menu.style.top = (r.bottom + 6) + 'px';
+  }
+  window.pbBotMenu = { newMenu, open, close, bind, load, op, arrange, openedBot, hiddenSheet, onChange: (f) => listeners.push(f),
                        get home() { return home; }, IC, confirmBox, promptBox };
 })();

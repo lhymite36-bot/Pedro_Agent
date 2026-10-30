@@ -558,7 +558,8 @@ main{position:relative}
   .st-wrap{padding:18px 14px 30px}.nb-center{padding-top:22px}.nb-shape{width:31px;height:31px;padding:4px}.nb-shapes{gap:4px}.nb-dots{gap:8px}.nb-dot{width:24px;height:24px}}
 
 /* 1.4.14 copy button + toast + jump to latest */
-.msg-copy{display:inline-flex;align-items:center;justify-content:center;padding:3px 7px!important}
+.msg-speak{background:none;border:1px solid #33333f;border-radius:6px;color:var(--dim);cursor:pointer}.msg-speak.busy{opacity:.5}
+.msg-copy,.msg-speak{display:inline-flex;align-items:center;justify-content:center;padding:3px 7px!important}
 @media (hover:hover){.row .msg-copy{opacity:0;transition:opacity .12s}.row:hover .msg-copy,.msg-copy:focus-visible{opacity:1}}
 .row.user .msg-actions{justify-content:flex-end}
 #pb-toast{position:fixed;left:50%;bottom:110px;transform:translate(-50%,10px);background:#f2f2f5;color:#111;padding:7px 16px;border-radius:999px;font-size:13px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .15s,transform .15s;z-index:99}

@@ -682,6 +682,11 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
     failed, so hands-free mode always knows when to listen again.
     """
     agent = _agent()
+    try:   # 1.6.9: the reply is spoken in this bot's Gemini voice with a tone that fits
+        import gemini_tts
+        gemini_tts.set_context(bots.bot_for_session(session), text)
+    except Exception:
+        pass
     if from_voice or client_audio:
         try:
             agent.prewarm_voice()
@@ -917,7 +922,8 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
             try:
                 emit({"event": "step", "label": "Getting my voice ready…", "name": ""})
                 clip = synth_client_audio(spoken_reply)
-                emit({"event": "audio", "url": f"/api/tts?id={clip}"})
+                import gemini_tts
+                emit({"event": "audio", "url": f"/api/tts?id={clip}", "note": gemini_tts.last_note})
                 emit({"event": "speech_end", "status": "client"})
             except Exception as exc:
                 emit({"event": "error", "text": f"Voice: {agent._scrub(str(exc))}"})
@@ -1356,6 +1362,9 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             elif url.path == "/api/bot_home":
                 import bot_home
                 self._json(bot_home.load())
+            elif url.path == "/api/voices":   # 1.6.9
+                import gemini_tts
+                self._json({"voices": gemini_tts.VOICES, "default": gemini_tts.DEFAULT, "gemini": gemini_tts.available()})
             elif url.path == "/api/bots/template":   # 1.6.8: share as template (download on phone)
                 import bot_home
                 try:
@@ -1452,7 +1461,8 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 if found is None:
                     self._send(404, b"{}")
                 else:
-                    self._send(200, found.read_bytes(), "audio/mpeg")
+                    data_ = found.read_bytes()
+                    self._send(200, data_, "audio/wav" if data_[:4] == b"RIFF" else "audio/mpeg")
             elif url.path == "/api/whatsapp/status":   # 1.6.1
                 import whatsapp_link
                 self._json(whatsapp_link.status() if not self.remote else {"state": "hidden"})
@@ -1729,6 +1739,45 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     self._json({"ok": True, "home": bot_home.apply(str(data.get("op") or ""), data)})
                 except Exception as exc:
                     self._json({"ok": False, "error": str(exc)}, 400)
+            elif url.path in ("/api/speak_text", "/api/voice/preview"):   # 1.6.9: read aloud / voice preview
+                import gemini_tts
+                try:
+                    if url.path == "/api/voice/preview":
+                        bot = {"voice": {"gender": str(data.get("gender") or ""), "name": str(data.get("name") or "")}}
+                        g = gemini_tts.voice_for(bot)["gender"]
+                        words = ("Hi Pedro! I'm so happy you picked me. Honestly? I think we're going to make something amazing together."
+                                 if g == "female" else "Hey Pedro. Good to finally talk. I've got your back, so let's go make something great.")
+                        tone, user = "excited", ""
+                    else:
+                        bot = bots.bot_for_session(str(data.get("session") or ""))
+                        words, tone, user = str(data.get("text") or "")[:3000], "", str(data.get("user") or "")
+                    TTS_DIR.mkdir(parents=True, exist_ok=True)
+                    clip = uuid.uuid4().hex
+                    dest = TTS_DIR / f"{clip}.mp3"
+                    note, info = "", {}
+                    if gemini_tts.available():
+                        try:
+                            info = gemini_tts.speak_to_file(words, dest, bot if bot is not None else {}, user, tone)
+                        except gemini_tts.Quota:
+                            note = "Gemini voice is out of free quota for now - using the standard voice."
+                        except Exception as exc:
+                            note = "Gemini voice failed - using the standard voice."
+                            print(f"Voice: Gemini speech failed ({_agent()._scrub(str(exc))}).", flush=True)
+                    else:
+                        note = "Add your free Gemini key in Settings for the emotional voice - using the standard voice."
+                    if not info:
+                        agent = _agent()
+                        prev = os.environ.get("PEDBOT_TEST_NO_GEMINI_VOICE")
+                        os.environ["PEDBOT_TEST_NO_GEMINI_VOICE"] = "1"   # skip Gemini inside the old chain
+                        try:
+                            agent._synthesize_reply(agent.clean_text_for_tts(words), dest, agent._neural_voice())
+                        finally:
+                            if prev is None:
+                                os.environ.pop("PEDBOT_TEST_NO_GEMINI_VOICE", None)
+                    self._json({"ok": True, "url": f"/api/tts?id={clip}", "note": note,
+                                "tone": info.get("tone", ""), "voice": info.get("voice", "standard")})
+                except Exception as exc:
+                    self._json({"ok": False, "error": _agent()._scrub(str(exc))}, 400)
             elif url.path == "/api/bots/duplicate":
                 import bot_home
                 try:
@@ -1791,7 +1840,14 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     self._json({"ok": False, "error": "Confirm the delete."}, 400)
                 else:
                     state.histories.pop(groups.SESSION_PREFIX + gid, None)
-                    self._json({"ok": groups.delete_group(gid)})
+                    ok = groups.delete_group(gid)
+                    if ok:
+                        try:
+                            import bot_home
+                            bot_home.apply("forget", {"id": "g:" + gid})
+                        except Exception:
+                            pass
+                    self._json({"ok": ok})
             elif url.path == "/api/bots/delete":
                 bot_id = str(data.get("id") or "")
                 if not data.get("confirm"):

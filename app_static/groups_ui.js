@@ -58,12 +58,19 @@
     if (!has && grpPrev) grpPrev.setLook($('#grp-color').value, $('#grp-avatar').value);
   }
   let grpPrev = null;
-  async function delGroup(g) {
-    if (!confirm('Delete the project "' + g.name + '" and its chat? The bots themselves stay.')) return false;
-    await post('/api/groups/delete', { id: g.id, confirm: true });
-    if (session === 'group-' + g.id) $('#new').click();
-    await load(); return true;
+  async function delGroup(g, skipAsk) {
+    // 1.6.8+: dark confirm dialog (same as Delete bot) instead of the browser's confirm()
+    if (!skipAsk) {
+      const ok = await new Promise((res) => { if (window.pbBotMenu) window.pbBotMenu.confirmBox('Delete ' + g.name + '?', 'The group and its chat are removed. The bots themselves stay.', 'Delete', () => res(true)); else res(confirm('Delete the group "' + g.name + '"?')); setTimeout(() => { const c = document.getElementById('bm-confirm'); if (c) c.addEventListener('click', (e) => { if (e.target === c || e.target.textContent === 'Cancel') res(false); }); }, 0); });
+      if (!ok) return false;
+    }
+    const r = await post('/api/groups/delete', { id: g.id, confirm: true });
+    if (session === 'group-' + g.id) { if (window.pbShowHome && document.body.classList.contains('pl')) window.pbShowHome(); $('#new').click(); }
+    await load(); if (window.pbToast) window.pbToast(r.ok ? g.name + ' deleted' : 'Could not delete');
+    if (root.onGroupsChanged) root.onGroupsChanged(); return !!r.ok;
   }
+  root.deleteGroup = delGroup;
+  root.groupFace = (g) => groupFace(g);
   function memberBoxes(sel) {
     const box = $('#grp-members'); box.innerHTML = '';
     const pa = document.createElement('label'); pa.innerHTML = '<input type="checkbox" checked disabled> Ped Bot (always in)'; box.appendChild(pa);
@@ -80,7 +87,7 @@
     s.value = Array.from(s.options).some((o) => o.value === keep) ? keep : 'pedro';
   }
   function openEditor(g) {
-    editing = g; $('#grped-title').textContent = g ? 'Edit project' : 'New project';
+    editing = g; $('#grped-title').textContent = g ? 'Edit group' : 'New group';
     picSrc = null; picData = g && g.picture ? g.picture : ''; $('#grp-color').value = (g && g.color) || '#5b9dff'; $('#grp-avatar').value = (g && g.avatar) || 'round';
     if (picData) { const im = new Image(); im.onload = () => { const c = $('#grp-crop'); c.getContext('2d').drawImage(im, 0, 0, 160, 160); }; im.src = picData; }
     showPic();
@@ -88,6 +95,7 @@
     memberBoxes(g ? g.members : []); coordOptions(); $('#grp-delete').style.display = g ? '' : 'none'; $('#grpmsg').textContent = '';
     $('#grped').classList.add('open'); $('#overlay').classList.add('open');
   }
+  root.openGroupEditor = (g) => { document.body.classList.remove('pl-home-on'); openEditor(g || null); };
   function closeEditor() { $('#grped').classList.remove('open'); $('#overlay').classList.remove('open'); }
   function wire() {
     if (!$('#grped')) return;
@@ -107,7 +115,8 @@
     $('#grp-save').onclick = async () => {
       const r = await post('/api/groups', { id: editing ? editing.id : '', name: $('#grp-name').value, picture: picData, color: $('#grp-color').value, avatar: $('#grp-avatar').value, purpose: $('#grp-purpose').value, members: chosen(), coordinator: $('#grp-coord').value });
       if (!r.ok) { $('#grpmsg').textContent = r.error || 'Could not save.'; return; }
-      closeEditor(); await load();
+      closeEditor(); await load(); if (root.onGroupsChanged) root.onGroupsChanged();
+      if (window.pbToast) window.pbToast(editing ? 'Group saved' : 'Group created');
       const open = window.openSession || (typeof openSession === 'function' ? openSession : null);
       if (open && r.session) open(r.session).then(load);
     };

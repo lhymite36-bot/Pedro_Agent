@@ -6,7 +6,9 @@
   const KEY = 'pd.sections';
   const P = (d, w) => '<svg viewBox="0 0 24 24" width="' + (w || 18) + '" height="' + (w || 18) + '" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + d + '</svg>';
   const IC = { search: P('<circle cx="11" cy="11" r="7"/><path d="M16.5 16.5L21 21"/>'), plus: P('<path d="M12 5v14M5 12h14"/>'), chev: P('<path d="M6 9l6 6 6-6"/>', 14) };
-  let bots = [], sessions = [], built = false, dragId = '';
+  let bots = [], sessions = [], groupsList = [], built = false, dragId = '';
+  const sk = (b) => b.kind === 'group' ? 'group-' + b.group.id : 'bot-' + b.id;
+  const items = () => bots.concat(groupsList.map((g) => ({ id: 'g:' + g.id, name: g.name, role: g.purpose || '', kind: 'group', group: g })));
   function el(t, c, x) { const e = document.createElement(t); if (c) e.className = c; if (x != null) e.textContent = x; return e; }
   function click(id) { const e = document.getElementById(id); if (e) e.click(); }
   function nav(name) { const b = document.querySelector('#bottomnav [data-nav="' + name + '"]'); if (b) b.click(); }
@@ -31,7 +33,7 @@
     const side = el('aside'); side.id = 'pd-side';
     const top = el('div', 'pd-top');
     const sb = el('button', 'pd-r'); sb.type = 'button'; sb.title = 'Search'; sb.innerHTML = IC.search; sb.onclick = () => click('btn-search');
-    const nb = el('button', 'pd-r'); nb.type = 'button'; nb.title = 'New bot'; nb.innerHTML = IC.plus; nb.onclick = () => { if (window.showNewBot) window.showNewBot(); else click('newbot'); };
+    const nb = el('button', 'pd-r'); nb.type = 'button'; nb.title = 'New bot or group'; nb.innerHTML = IC.plus; nb.onclick = (e) => { e.stopPropagation(); if (window.pbBotMenu) window.pbBotMenu.newMenu(nb); else if (window.showNewBot) window.showNewBot(); else click('newbot'); };
     top.append(sb, nb);
     const tile = el('button', 'pd-tile'); tile.type = 'button'; tile.id = 'pd-main';
     const tf = el('div', 'pd-tile-face'); tile.append(tf, el('span', '', 'Ped Bot')); tile.onclick = () => openBot('');
@@ -64,6 +66,12 @@
     document.addEventListener('click', (e) => { if (!m.contains(e.target)) m.classList.remove('open'); });
     // header: floating pill only
     const t = $('#t'); if (t) { const fix = () => { if (document.body.classList.contains('pd')) { /* keeps 'Message <Bot>…' */ } }; fix(); }
+    // 1.6.9: '...' in a group chat - Edit group / Delete group and the rest of the group menu
+    const gm = el('button', 'pd-r'); gm.type = 'button'; gm.id = 'pd-gmore'; gm.title = 'Group options'; gm.hidden = true;
+    gm.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>';
+    gm.onclick = (e) => { e.stopPropagation(); const g = window.currentGroup && window.currentGroup(); if (g && window.pbBotMenu) window.pbBotMenu.open({ id: 'g:' + g.id, name: g.name, kind: 'group', group: g }, gm, { reload: load }); };
+    document.body.appendChild(gm);
+    window.pdReload = load;
     load();
     setInterval(() => { if (!document.hidden && document.body.classList.contains('pd')) load(); }, 20000);
   }
@@ -76,6 +84,7 @@
   async function load() {
     try { const r = await (await fetch('/api/bots')).json(); bots = (r && r.bots) || []; } catch (e) {}
     try { const s = await (await fetch('/api/sessions')).json(); sessions = Array.isArray(s) ? s : []; } catch (e) {}
+    try { const g = await (await fetch('/api/groups')).json(); groupsList = (g && g.groups) || []; window.pedroGroups = groupsList; } catch (e) {}
     if (window.pbBotMenu) { await window.pbBotMenu.load(); await migrate(); }
     draw();
   }
@@ -84,11 +93,15 @@
     const H = BMH(), BM = window.pbBotMenu, unread = H.unread.includes(b.id);
     const r = el('div', 'pd-row' + (unread ? ' is-unread' : '')); r.draggable = true; r.dataset.id = b.id; r.tabIndex = 0;
     const f = el('div', 'pd-face'); const m = el('div', 'pd-main');
-    const s = by['bot-' + b.id] || {};
+    const s = by[sk(b)] || {};
     const nm = el('b', '', b.name); if (BM && H.pinned.includes(b.id)) nm.insertAdjacentHTML('beforeend', '<span class="bm-pinmark">' + BM.IC.pin + '</span>');
     m.append(nm, el('small', '', String(s.preview || b.role || '').replace(/\s+/g, ' ')));
-    r.append(f, m); if (unread) r.appendChild(el('span', 'bm-dot')); face(f, look(b));
-    r.onclick = () => { if (BM) BM.openedBot(b.id); openBot(b.id); };
+    r.append(f, m); if (unread) r.appendChild(el('span', 'bm-dot'));
+    if (b.kind === 'group') {
+      r.classList.add('is-group'); r.draggable = true;
+      if (window.groupFace) { const gf = window.groupFace(b.group); gf.classList.add('pd-gface'); f.appendChild(gf); }
+      r.onclick = () => { if (BM) BM.openedBot(b.id); if (window.openSession) window.openSession('group-' + b.group.id).then(() => { if (window.loadGroups) window.loadGroups(); mark(); }); };
+    } else { face(f, look(b)); r.onclick = () => { if (BM) BM.openedBot(b.id); openBot(b.id); }; }
     if (BM) BM.bind(r, () => b, { reload: load });
     r.addEventListener('dragstart', (e) => { dragId = b.id; r.classList.add('drag'); try { e.dataTransfer.setData('text/plain', b.id); e.dataTransfer.effectAllowed = 'move'; } catch (x) {} });
     r.addEventListener('dragend', () => { dragId = ''; r.classList.remove('drag'); });
@@ -116,7 +129,7 @@
     const list = $('#pd-list'); if (!list) return; list.textContent = '';
     const by = {}; sessions.forEach((s) => { by[s.session] = s; });
     const H = BMH(), BM = window.pbBotMenu;
-    const vis = BM ? BM.arrange(bots.slice(), (b) => (by['bot-' + b.id] || {}).last) : bots.slice();
+    const vis = BM ? BM.arrange(items(), (b) => (by[sk(b)] || {}).last) : items();
     const placed = new Set();
     H.sections.forEach((sec) => {
       const box = el('div', 'pd-sec');
@@ -133,13 +146,14 @@
     if (!bots.length) { const c = el('button', 'pd-create', 'Create a bot'); c.type = 'button'; c.onclick = () => { if (window.showNewBot) window.showNewBot(); else click('newbot'); }; un.appendChild(c); }
     rest.forEach((b) => un.appendChild(row(b, by)));
     dropZone(un, ''); list.appendChild(un);
-    const hid = H.hidden.filter((id) => bots.some((b) => b.id === id)).length;
-    if (hid && BM) { const l = el('button', 'bm-hidden-link', 'Hidden bots (' + hid + ')'); l.type = 'button'; l.onclick = () => BM.hiddenSheet(bots, load); list.appendChild(l); }
+    const hid = H.hidden.filter((id) => items().some((b) => b.id === id)).length;
+    if (hid && BM) { const l = el('button', 'bm-hidden-link', 'Hidden (' + hid + ')'); l.type = 'button'; l.onclick = () => BM.hiddenSheet(bots, load); list.appendChild(l); }
     mark();
   }
   function mark() {
     const cur = curSession();
-    document.querySelectorAll('#pd-side .pd-row').forEach((r) => r.classList.toggle('active', cur === 'bot-' + r.dataset.id));
+    document.querySelectorAll('#pd-side .pd-row').forEach((r) => r.classList.toggle('active', cur === 'bot-' + r.dataset.id || cur === 'group-' + String(r.dataset.id).replace(/^g:/, '')));
+    const gm = $('#pd-gmore'); if (gm) gm.hidden = !/^group-/.test(cur);
     const main = $('#pd-main'); if (main) main.classList.toggle('active', !/^bot-|^group-/.test(cur));
   }
   // History + Memory reuse the phone sheets when present; otherwise simple fallbacks.

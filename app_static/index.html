@@ -6,8 +6,8 @@
 <link rel="stylesheet" href="/avatars.css">
 <link rel="stylesheet" href="/app.css?v=grokskin16">
 <link rel="stylesheet" href="/glass.css?v=grokskin16">
-<link rel="stylesheet" href="/phone_layout.css?v=168">
-<link rel="stylesheet" href="/bot_menu.css?v=168">
+<link rel="stylesheet" href="/phone_layout.css?v=169">
+<link rel="stylesheet" href="/bot_menu.css?v=169">
 <link rel="stylesheet" href="/pc_layout.css?v=166">
 <link rel="stylesheet" href="/bubbles.css?v=166">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -317,7 +317,7 @@
   <div class="set-head"><b id="grped-title">New project</b><button class="ib" id="close-grped" type="button" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
   <div class="pane active">
     <div class="grp-top"><div class="grp-picbox"><div id="grp-preview"></div><canvas id="grp-crop" width="160" height="160" hidden></canvas></div>
-      <div class="grow"><input id="grp-name" placeholder="Project name, e.g. Shorts Team" maxlength="60">
+      <div class="grow"><input id="grp-name" placeholder="Group name, e.g. Shorts Team" maxlength="60">
       <div class="inline"><label class="btn ghost">Upload picture<input id="grp-file" type="file" accept="image/*" hidden></label>
       <button class="btn ghost" id="grp-picclear" type="button" hidden>Use preset</button></div>
       <div class="inline"><label>Colour <input type="color" id="grp-color" value="#5b9dff"></label>
@@ -325,10 +325,10 @@
       <div id="grp-cropctl" class="inline" hidden><label>Zoom <input id="grp-zoom" type="range" min="1" max="4" step="0.05" value="1"></label>
       <label>Left/right <input id="grp-panx" type="range" min="0" max="1" step="0.01" value="0.5"></label>
       <label>Up/down <input id="grp-pany" type="range" min="0" max="1" step="0.01" value="0.5"></label></div></div></div>
-    <h4>Purpose</h4><textarea id="grp-purpose" rows="3" placeholder="What this project is for…"></textarea>
+    <h4>Purpose</h4><textarea id="grp-purpose" rows="3" placeholder="What this group is for…"></textarea>
     <h4>Members <small>reply in turn; @mention one (or @all) to ask directly</small></h4><div id="grp-members" class="grp-members"></div>
     <h4>Coordinator <small>answers first and hands parts of a task to members</small></h4><select id="grp-coord"></select>
-    <div class="actions"><button class="btn" id="grp-save" type="button">Save project</button><button class="btn ghost danger" id="grp-delete" type="button">Delete</button><span id="grpmsg"></span></div>
+    <div class="actions"><button class="btn" id="grp-save" type="button">Save group</button><button class="btn ghost danger" id="grp-delete" type="button">Delete</button><span id="grpmsg"></span></div>
   </div>
 </section>
 <section id="boted" class="drawer" aria-label="Bot editor">
@@ -339,6 +339,10 @@
       <div class="inline"><label>Colour <input type="color" id="bot-color" value="#7c8cff"></label>
       <input type="hidden" id="bot-shape" value="round">
       <label>Model <input id="bot-model" placeholder="default"></label></div></div></div>
+    <h4>Voice</h4>
+    <div class="inline bot-voice"><select id="bot-vgender" aria-label="Voice gender"><option value="female">Female</option><option value="male">Male</option></select>
+      <select id="bot-vname" aria-label="Voice"></select><button type="button" class="ib" id="bot-vpreview" title="Preview this voice">&#9654; Preview</button></div>
+    <small class="dim" id="bot-vmsg">Gemini voice with feeling - uses your free Gemini key on this PC.</small>
     <h4>Character</h4><div class="shape-pick" id="shape-pick"></div>
     <h4>Role / system prompt</h4>
     <textarea id="bot-role" rows="4" placeholder="You are my email assistant. Keep replies short…"></textarea>

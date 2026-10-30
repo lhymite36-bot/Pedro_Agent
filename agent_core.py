@@ -8632,6 +8632,21 @@ def _synthesize_reply(text: str, destination: Path, voice: str) -> str:
     `voice` is the edge-tts name used only when every cloud engine fails.
     The returned label is the voice that produced the file.
     """
+    # 1.6.9: Gemini TTS with the bot's own voice and a felt tone (free key), like Voice to Short
+    try:
+        import gemini_tts
+        if gemini_tts.available() and not os.environ.get("PEDBOT_TEST_NO_GEMINI_VOICE"):
+            try:
+                info = gemini_tts.speak_to_file(text, destination)
+                gemini_tts.last_note = ""
+                return f"Gemini {info['voice']} ({info['tone']})"
+            except gemini_tts.Quota:
+                gemini_tts.last_note = "Gemini voice is out of free quota for now - using the standard voice."
+            except Exception as exc:
+                gemini_tts.last_note = "Gemini voice failed - using the standard voice."
+                print(f"Voice: Gemini speech failed ({_scrub(str(exc))}).", flush=True)
+    except ImportError:
+        pass
     if tts_engine.cloud_configured():
         try:
             return tts_engine.write_mp3(text, destination)

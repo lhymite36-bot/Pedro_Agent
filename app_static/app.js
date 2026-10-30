@@ -603,12 +603,41 @@ function termEvent(bot, ev) {
   if (ev.kind === 'end') { const f = document.createElement('div'); f.className = 'term-end' + (ev.code === 0 ? ' ok' : ' bad'); f.textContent = 'exit ' + ev.code + ' · ' + ev.seconds + ' s'; t.box.appendChild(f); bot.term = null; }
   scrollDown();
 }
+// 1.6.9: read a reply aloud in the bot's Gemini voice, with a tone that fits the words
+const SPEAK_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4.7a.7.7 0 0 0-1.2-.5L6.4 7.6A1.4 1.4 0 0 1 5.4 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.4a1.4 1.4 0 0 1 1 .4l3.4 3.4a.7.7 0 0 0 1.2-.5z"/><path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.4 18.4a9 9 0 0 0 0-12.8"/></svg>';
+const STOP_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+let speakingBtn = null;
+function addSpeak(row, bar) {
+  if (row.querySelector('.msg-speak')) return;
+  const b = document.createElement('button'); b.type = 'button'; b.className = 'msg-speak'; b.title = 'Read aloud'; b.setAttribute('aria-label', 'Read aloud');
+  b.innerHTML = SPEAK_ICON;
+  b.onclick = async (e) => {
+    e.stopPropagation();
+    if (speakingBtn === b) { stopClip(); b.innerHTML = SPEAK_ICON; speakingBtn = null; return; }
+    if (speakingBtn) { stopClip(); speakingBtn.innerHTML = SPEAK_ICON; }
+    const text = messageText(row); if (!text) return;
+    speakingBtn = b; b.innerHTML = STOP_ICON; b.classList.add('busy');
+    const prev = row.previousElementSibling && row.previousElementSibling.classList.contains('user') ? messageText(row.previousElementSibling) : '';
+    try {
+      const r = await (await fetch('/api/speak_text', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, user: prev, session: (typeof session === 'string' ? session : '') }) })).json();
+      b.classList.remove('busy');
+      if (!r.ok) { toast(r.error || 'Could not speak that.'); b.innerHTML = SPEAK_ICON; speakingBtn = null; return; }
+      if (r.note) toast(r.note);
+      if (r.tone) b.title = 'Read aloud (' + r.voice + ', ' + r.tone + ')';
+      if (speakingBtn === b) await playClip(r.url);
+    } catch (err) { toast('Could not speak that.'); }
+    b.classList.remove('busy'); if (speakingBtn === b) { b.innerHTML = SPEAK_ICON; speakingBtn = null; }
+  };
+  bar.insertBefore(b, bar.children[1] || null);
+}
+window.pbAddSpeak = addSpeak;
 function addCopy(row) {
   if (!row || row.querySelector('.msg-copy')) return;
   const bar = replyBar(row); if (!bar) return;
   const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'msg-copy'; btn.title = 'Copy'; btn.setAttribute('aria-label', 'Copy message');
   btn.innerHTML = COPY_ICON; btn.onclick = (e) => { e.stopPropagation(); copyRow(row); };
   bar.insertBefore(btn, bar.firstChild);
+  if (!row.classList.contains('user')) addSpeak(row, bar);
   // phone: long-press the bubble to copy
   const bubble = row.querySelector('.bubble'); let lp = 0;
   bubble.addEventListener('touchstart', (e) => { if (e.target.closest('button,a,img,input')) return; lp = setTimeout(() => { lp = 0; copyRow(row); if (navigator.vibrate) navigator.vibrate(15); }, 550); }, { passive: true });
@@ -828,7 +857,7 @@ async function send(text, isVoice, files) {
           if (!String(bot.text || '').trim() && !bot.row.querySelector('img,video,.card,.chip')) bot.row.remove();   // 1.5.6: no empty bubbles
           if (talk && bot.text) { voiceOpen = true; setMood('speaking'); } else if (!voiceOpen) setMood('idle');
         }
-        else if (ev.event === 'audio') { clip = ev.url; }
+        else if (ev.event === 'audio') { clip = ev.url; if (ev.note) toast(ev.note); }
         else if (ev.event === 'speech_end') { if (!clip) { voiceOpen = false; setMood('idle'); } }
       }
     }
