@@ -39,6 +39,7 @@ STATIC_FILES = {
     "phone_layout.js": "application/javascript; charset=utf-8",
     "bot_menu.js": "application/javascript; charset=utf-8",
     "bot_menu.css": "text/css; charset=utf-8",
+    "ui_guard.css": "text/css; charset=utf-8",
     "pc_layout.css": "text/css; charset=utf-8",
     "pc_layout.js": "application/javascript; charset=utf-8",
     "bubbles.css": "text/css; charset=utf-8",
@@ -1607,7 +1608,7 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 out = confirm_action.resolve(str(data.get("id") or ""), bool(data.get("approve")), _agent().invoke_tool)
                 if out.get("resolved") and out.get("session"):
                     try:
-                        import chat_store, live_sync
+                        import live_sync  # chat_store is module-level (a local import broke /api/react)
                         chat_store.add(out["session"], "assistant", out["text"])
                         live_sync.notify("changed", what="pending", session=out["session"])
                     except Exception:

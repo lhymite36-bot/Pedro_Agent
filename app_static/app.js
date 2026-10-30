@@ -638,10 +638,13 @@ function addCopy(row) {
   btn.innerHTML = COPY_ICON; btn.onclick = (e) => { e.stopPropagation(); copyRow(row); };
   bar.insertBefore(btn, bar.firstChild);
   if (!row.classList.contains('user')) addSpeak(row, bar);
-  // phone: long-press the bubble to copy
-  const bubble = row.querySelector('.bubble'); let lp = 0;
-  bubble.addEventListener('touchstart', (e) => { if (e.target.closest('button,a,img,input')) return; lp = setTimeout(() => { lp = 0; copyRow(row); if (navigator.vibrate) navigator.vibrate(15); }, 550); }, { passive: true });
-  ['touchend', 'touchmove', 'touchcancel'].forEach((k) => bubble.addEventListener(k, () => { if (lp) { clearTimeout(lp); lp = 0; } }, { passive: true }));
+  // 1.7.0: a small transparent react icon in the action row (long-press the bubble also opens the emoji picker)
+  if (!bar.querySelector('.msg-react')) {
+    const rb = document.createElement('button'); rb.type = 'button'; rb.className = 'msg-react'; rb.title = 'React'; rb.setAttribute('aria-label', 'React');
+    rb.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><path d="M9 9h.01M15 9h.01"/></svg>';
+    rb.onclick = (e) => { e.stopPropagation(); if (window.Reactions && Reactions.open) Reactions.open(row, rb); };
+    bar.appendChild(rb);
+  }
 }
 window.pbCopyRow = copyRow;
 let replyTo = null, keepReply = false;

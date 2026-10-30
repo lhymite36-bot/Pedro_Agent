@@ -1,0 +1,66 @@
+/* 1.7.0: small safety sheet loaded last. Keeps the phone UI correct even if a big stylesheet arrives late or
+   fails (Pedro's 1.6.9 phone showed the Live panel, white reaction squares and a monospace composer). */
+#livepane:not(.open){display:none!important}
+#live-img:not([src]),#live-img[src=""]{visibility:hidden}
+.live-screen{background:#0d0e10 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24' fill='none' stroke='%23555' stroke-width='1.5'%3E%3Crect x='2' y='4' width='20' height='13' rx='2'/%3E%3Cpath d='M8 21h8M12 17v4'/%3E%3C/svg%3E") center/48px no-repeat}
+button,input,select,textarea{font-family:inherit}
+#t{font-family:inherit!important;resize:none!important}
+#t::placeholder{font-family:inherit}
+/* reactions: no native white squares; on phone the trigger lives in the action row */
+.react-btn{background:transparent!important;border:0!important;color:var(--dim,#8e8ea0)!important;border-radius:999px;width:26px;height:26px;padding:0;font-size:15px;line-height:26px;box-shadow:none!important}
+@media (hover:none){.react-btn{display:none!important}}
+body.pl .react-btn{display:none!important}
+.reacts{display:flex;flex-wrap:wrap;gap:5px}.reacts.hidden{display:none}
+.react-pill{-webkit-appearance:none;appearance:none;background:rgba(255,255,255,.08)!important;border:1px solid rgba(255,255,255,.12)!important;color:inherit!important;border-radius:999px;padding:2px 9px;font-size:14px;line-height:1.5}
+.react-pill.mine{border-color:rgba(255,255,255,.35)!important}
+.msg-react{background:none;border:0;color:var(--dim,#8e8ea0);padding:3px 7px;display:inline-flex;align-items:center;cursor:pointer;opacity:.75}
+.msg-react:active,.msg-react:hover{opacity:1;color:var(--text,#ececf1)}
+.msg-actions button{-webkit-appearance:none;appearance:none}
+body.grok-light .react-pill{background:rgba(15,20,25,.06)!important;border-color:rgba(15,20,25,.14)!important}
+/* header: name pill readable, no black block */
+body.pl header{background:transparent!important;box-shadow:none!important;border:0!important}
+body.pl header .bot-pill,body.pl header .bot-pill .who,body.pl header .bot-pill .who b{color:var(--text,#ececf1)!important}
+body.pl.grok-light header .bot-pill,body.pl.grok-light header .bot-pill .who b{color:#0f1419!important}
+/* composer + */
+body.pl #composer .box .attach,body.pl #composer .box #attach,body.pl #composer .box [title="Attach"]{min-width:36px;min-height:36px;font-size:22px}
+/* Settings: full-screen page on phone, scrollable tabs, readable theme cards */
+@media (max-width:520px){
+  #settings{position:fixed!important;inset:0!important;width:100%!important;height:100%!important;max-height:none!important;border-radius:0!important;display:none;flex-direction:column;overflow:hidden;z-index:200;background:var(--base,#0e0f11)!important;transform:none!important}
+  #settings.open{display:flex!important;visibility:visible!important}
+  #settings .tabs{display:flex;flex-wrap:nowrap!important;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;gap:4px;padding:0 12px;flex:none}
+  #settings .tabs::-webkit-scrollbar{display:none}
+  #settings .tab{flex:none!important;white-space:nowrap}
+  #settings .pane{overflow-y:auto;padding:12px 16px 40px}
+  #settings .pane.active,#settings .pane.on{flex:1}
+}
+body.grok-light #settings{background:#fff!important}
+.th-card{-webkit-appearance:none;appearance:none;color:var(--text,#ececf1)}
+.th-name{color:var(--text,#ececf1)!important;font-weight:600}
+.th-sub{color:var(--dim,#8e8ea0)!important}
+body.grok-light .th-name{color:#0f1419!important}body.grok-light .th-sub{color:#536471!important}
+#p-themes>.set-head:first-child{display:none}
+@media (max-width:520px){
+  #settings .field{flex-wrap:wrap;gap:10px}
+  #settings .field>div:first-child{flex:1 1 210px;min-width:0}
+  #settings .field>:not(:first-child){flex:0 0 auto;max-width:100%}
+  #settings .hint-line{padding:0 0 10px}
+}
+/* 1.7.0: Grok Light on phone - the phone layout was dark-only (black pill, buttons, bubbles, composer) */
+html body.pl.grok-light{--pl-bg:#ffffff;--pl-card:#f2f3f5;--pl-line:#e1e4e8;--pl-text:#0f1419;--pl-dim:#536471;--text:#0f1419;--dim:#536471;color:#0f1419}
+html body.grok-light #log .row.bot .bubble{background:#f2f3f5!important;color:#0f1419!important}
+html body.grok-light #log .row.user .bubble{background:#e7f3fe!important;color:#0f1419!important}
+html body.pl.grok-light #composer .box,html body.pl.grok-light #composer{background:#f2f3f5!important;color:#0f1419!important;border-color:#e1e4e8!important}
+html body.pl.grok-light #composer{background:#ffffff!important}
+html body.pl.grok-light #t{color:#0f1419!important}html body.pl.grok-light #t::placeholder{color:#8b98a5!important}
+html body.pl.grok-light #composer .box button,html body.pl.grok-light #composer .box svg{color:#0f1419}
+html body.grok-light .msg-actions button,html body.grok-light .msg-react{color:#536471!important}
+html body.pl.grok-light #pl-home,html body.pl.grok-light .plh-l1 b{color:#0f1419}
+html body.grok-light .bm-menu,html body.grok-light .bm-dialog,html body.grok-light .react-pop{background:#ffffff!important;color:#0f1419!important;border-color:#e1e4e8!important}
+html body.grok-light .bm-item,html body.grok-light .bm-head,html body.grok-light .react-pop button{color:#0f1419!important}
+html body.grok-light .bm-ic{color:#536471}
+html body.grok-light #settings .field small{color:#536471!important}
+html body.grok-light #settings .tab{color:#536471}html body.grok-light #settings .tab.active{color:#0f1419}
+html body.grok-light #pl-menu{background:#fff!important;color:#0f1419!important}
+html body.grok-light #pl-menu button{color:#0f1419!important}
+@media (max-width:520px){ #settings .field>div:first-child{flex:1 1 100%!important} }
+html body.grok-light .msg-reply,html body.grok-light .msg-copy,html body.grok-light .msg-speak{background:none!important;color:#536471!important;border-color:#e1e4e8!important}

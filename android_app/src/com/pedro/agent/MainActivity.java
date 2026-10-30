@@ -101,6 +101,11 @@ public class MainActivity extends Activity {
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, false);
         web.setBackgroundColor(Color.parseColor("#0e0f11"));
         web.addJavascriptInterface(new Bridge(), "PedroNative");
+        // 1.7.0: a new app version starts with a clean WebView cache (old CSS/JS must not linger)
+        try {
+            int vc = getPackageManager().getPackageInfo(getPackageName(), 0).versionCode;
+            if (prefs.getInt("web_vc", 0) != vc) { web.clearCache(true); prefs.edit().putInt("web_vc", vc).apply(); }
+        } catch (Exception ignored) {}
         // 1.6.6: downloads. The WebView had no DownloadListener, so chat "Download" links did nothing.
         web.setDownloadListener((url, ua, disposition, mime, length) -> saveToDownloads(url, disposition, mime));
         web.setOnLongClickListener(v -> {

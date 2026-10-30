@@ -2,14 +2,15 @@
 <html lang="en" class="auth-boot"><head><meta charset="utf-8"><title>Ped Bot</title>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover,interactive-widget=resizes-content">
 <script src="/lite.js"></script>
-<script src="/auth.js?v=grokskin16"></script>
-<link rel="stylesheet" href="/avatars.css">
-<link rel="stylesheet" href="/app.css?v=grokskin16">
-<link rel="stylesheet" href="/glass.css?v=grokskin16">
-<link rel="stylesheet" href="/phone_layout.css?v=169">
-<link rel="stylesheet" href="/bot_menu.css?v=169">
-<link rel="stylesheet" href="/pc_layout.css?v=166">
-<link rel="stylesheet" href="/bubbles.css?v=166">
+<script src="/auth.js?v=170"></script>
+<link rel="stylesheet" href="/avatars.css?v=170">
+<link rel="stylesheet" href="/app.css?v=170">
+<link rel="stylesheet" href="/glass.css?v=170">
+<link rel="stylesheet" href="/phone_layout.css?v=170">
+<link rel="stylesheet" href="/bot_menu.css?v=170">
+<link rel="stylesheet" href="/pc_layout.css?v=170">
+<link rel="stylesheet" href="/bubbles.css?v=170">
+<link rel="stylesheet" href="/ui_guard.css?v=170">
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="#0e0f11">
 <meta name="mobile-web-app-capable" content="yes">
@@ -215,8 +216,8 @@
 </div>
 <section id="settings" aria-label="Settings">
   <div class="set-head"><b>Settings</b><button class="ib" id="close-set" type="button" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
-  <div class="tabs"><button class="tab active" data-pane="p-general" type="button">General</button><button class="tab" data-pane="p-voice" type="button">Voice</button><button class="tab" data-pane="p-rules" type="button">Rules</button><button class="tab" data-pane="p-themes" type="button">Themes</button><button class="tab" data-pane="p-more" type="button">Connections &amp; updates</button></div>
-  <div class="pane" id="p-themes"><div class="set-head">Themes</div><div class="hint-line">Grok Dark, Grok Light, and Liquid Glass. Tap one; your phone switches too.</div></div>
+  <div class="tabs"><button class="tab active" data-pane="p-general" type="button">General</button><button class="tab" data-pane="p-voice" type="button">Voice</button><button class="tab" data-pane="p-rules" type="button">Rules</button><button class="tab" data-pane="p-themes" type="button">Themes</button><button class="tab" data-pane="p-more" type="button">Connections</button></div>
+  <div class="pane" id="p-themes"><div class="hint-line">Grok Dark, Grok Light, and Liquid Glass. Tap one; your phone switches too.</div></div>
   <div class="pane" id="p-more">
     <div class="field col"><div>Quiet Brain Shorts (backup for Grok Bot)<small>6 funny 2D psychology Shorts a day to YouTube + TikTok through Buffer, skipping ideas already posted. Off until you switch it on. The token stays in your local .env.</small></div>
       <span><label class="switch"><input type="checkbox" id="qbs-on"><span></span></label> <input id="qbs-token" type="password" placeholder="Buffer access token" autocomplete="off"> <button class="btn" id="qbs-save" type="button">Save token</button> <button class="btn" id="qbs-dry" type="button">Dry run</button></span>
@@ -369,11 +370,11 @@
 <script src="/avatar.js"></script>
 <script src="/handsfree.js"></script>
 <script src="/reactions.js"></script>
-<script src="/app.js?v=grokskin16"></script>
+<script src="/app.js?v=170"></script>
 <script src="/bots_ui.js"></script>
 <script src="/glass.js"></script>
-<script src="/themes.js?v=grokskin16"></script>
-<script src="/titlebar.js?v=grokskin16"></script>
+<script src="/themes.js?v=170"></script>
+<script src="/titlebar.js?v=170"></script>
 <script src="/mention_pick.js"></script>
 <script src="/groups_ui.js"></script>
 <script src="/phone_ui.js"></script>
@@ -386,5 +387,18 @@
 (function () { var late = ["/newbot_ui.js", "/live_ui.js", "/routines_ui.js", "/tasks_ui.js", "/connectors_ui.js", "/avatar_mode.js", "/maintenance_ui.js", "/whatsapp_ui.js", "/navtabs.js", "/bot_menu.js", "/phone_layout.js", "/pc_layout.js"];
   function go() { late.forEach(function (n) { var s = document.createElement('script'); s.src = n; s.async = false; document.body.appendChild(s); }); }
   if (window.LITE && window.LITE.on) (window.requestIdleCallback || function (f) { setTimeout(f, 300); })(go, { timeout: 1200 }); else go();
+})();</script>
+<script>/* 1.7.0: if a stylesheet failed to load, fetch it again and inline it */
+(function () {
+  function check() {
+    document.querySelectorAll('link[rel="stylesheet"]').forEach(function (l) {
+      var ok = false; try { ok = !!(l.sheet && l.sheet.cssRules && l.sheet.cssRules.length); } catch (e) { ok = false; }
+      if (ok || l.dataset.retried) return; l.dataset.retried = '1';
+      var u = l.getAttribute('href'); fetch(u + (u.indexOf('?') < 0 ? '?' : '&') + 'r=' + Date.now(), { cache: 'no-store' })
+        .then(function (r) { return r.ok ? r.text() : ''; }).then(function (t) { if (!t) return; var s = document.createElement('style'); s.dataset.from = u; s.textContent = t; l.after(s); }).catch(function () {});
+    });
+  }
+  if (document.readyState === 'complete') setTimeout(check, 400); else window.addEventListener('load', function () { setTimeout(check, 400); });
+  setTimeout(check, 4000);
 })();</script>
 </body></html>

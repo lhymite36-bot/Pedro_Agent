@@ -70,5 +70,5 @@
   function update(id, list) {
     const row = document.querySelector('.row[data-mid="' + id + '"]'); if (row) render(row, list);
   }
-  window.Reactions = { attach, render, update, QUICK };
+  window.Reactions = { attach, render, update, QUICK, open: openPicker };
 })();
