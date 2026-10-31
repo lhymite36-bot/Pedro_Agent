@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="app_name">Ped Bot</string>
+  <string name="a11y_desc">Ped Bot control reads the screen and taps or types only after you tap Allow. A red STOP button stays on screen. It refuses banking, password and payment screens. Turn this on only if you want Ped Bot to tap for you.</string>
+</resources>

@@ -1,16 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.pedro.agent" android:versionCode="24" android:versionName="1.8.4">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.pedro.agent" android:versionCode="25" android:versionName="1.9.0">
   <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="35"/>
   <uses-permission android:name="android.permission.INTERNET"/>
   <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28"/>
   <uses-permission android:name="android.permission.RECORD_AUDIO"/>
   <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+  <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
   <queries><intent><action android:name="android.speech.RecognitionService"/></intent></queries>
   <application android:label="Pedro Agent" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher" android:theme="@style/Splash" android:hardwareAccelerated="true" android:usesCleartextTraffic="true">
     <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTask" android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode" android:windowSoftInputMode="adjustResize" android:theme="@style/Splash">
       <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
       <intent-filter><action android:name="android.intent.action.SEND"/><category android:name="android.intent.category.DEFAULT"/><data android:mimeType="text/plain"/></intent-filter>
     </activity>
+    <service android:name=".PedAccessibilityService" android:exported="false" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+      <intent-filter><action android:name="android.accessibilityservice.AccessibilityService"/></intent-filter>
+      <meta-data android:name="android.accessibilityservice" android:resource="@xml/accessibility_service"/>
+    </service>
   </application>
 </manifest>

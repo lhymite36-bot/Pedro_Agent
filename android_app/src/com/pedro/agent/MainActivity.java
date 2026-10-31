@@ -562,6 +562,28 @@ public class MainActivity extends Activity {
         @JavascriptInterface public boolean phoneOnly() { return prefs.getBoolean("phone_only", false); }
         @JavascriptInterface public void setPhoneOnly(boolean on) { prefs.edit().putBoolean("phone_only", on).apply(); }
         @JavascriptInterface public void tryPc() { runOnUiThread(() -> { prefs.edit().putBoolean("phone_only", false).apply(); connectWithAccount(); }); }
+        @JavascriptInterface public String a11yStatus() { return PedAccessibilityService.statusJson(); }
+        @JavascriptInterface public String a11yTree() { return PedAccessibilityService.treeJson(); }
+        @JavascriptInterface public void a11ySettings() { runOnUiThread(() -> {
+            try { startActivity(new Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)); }
+            catch (Exception ignored) {}
+        }); }
+        @JavascriptInterface public void a11yRun(String json) { runOnUiThread(() -> {
+            if (PedAccessibilityService.inst == null) { toast("Turn on Ped Bot control in Android Settings › Accessibility first."); return; }
+            PedAccessibilityService.inst.runSteps(json == null ? "[]" : json);
+        }); }
+        @JavascriptInterface public void a11yAllow() { if (PedAccessibilityService.inst != null) PedAccessibilityService.inst.allow(); }
+        @JavascriptInterface public void a11yStop() { if (PedAccessibilityService.inst != null) PedAccessibilityService.inst.stopRun(); }
+        @JavascriptInterface public int batteryPct() {
+            try {
+                android.os.BatteryManager bm = (android.os.BatteryManager) getSystemService(BATTERY_SERVICE);
+                return bm != null ? bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY) : -1;
+            } catch (Exception e) { return -1; }
+        }
+        @JavascriptInterface public boolean wakePaused() {
+            int b = batteryPct();
+            return b >= 0 && b < 20;
+        }
     }
 
     static final String NTFY = "https://ntfy.sh/";
@@ -646,6 +668,11 @@ public class MainActivity extends Activity {
     }
 
     void startListening() {
+        try {
+            android.os.BatteryManager bm = (android.os.BatteryManager) getSystemService(BATTERY_SERVICE);
+            int pct = bm != null ? bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY) : 100;
+            if (pct >= 0 && pct < 20) { toast("Battery under 20% — hands-free listening is paused."); heard(""); return; }
+        } catch (Exception ignored) {}
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 2); return; }
         if (!SpeechRecognizer.isRecognitionAvailable(this)) { toast("Speech recognition isn't available on this phone"); heard(""); return; }
