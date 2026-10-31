@@ -49,6 +49,8 @@ STATIC_FILES = {
     "lab183.js": "application/javascript; charset=utf-8",
     "menu184.js": "application/javascript; charset=utf-8",
     "lab183.css": "text/css; charset=utf-8",
+    "pro190.js": "application/javascript; charset=utf-8",
+    "pro190.css": "text/css; charset=utf-8",
     "avatar3d/index.html": "text/html; charset=utf-8",
     "avatar3d/stage.js": "application/javascript; charset=utf-8",
     "avatar3d/three.module.min.js": "application/javascript; charset=utf-8",
@@ -1632,6 +1634,9 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             elif url.path == "/api/offline":   # 1.8.0 offline mode (local Ollama)
                 import batch180
                 self._json(batch180.offline(None if "on" not in data else bool(data.get("on"))))
+            elif url.path == "/api/pro":   # 1.9.0 Batch 2 Pro tools
+                import pro190
+                self._json(pro190.dispatch(data))
             elif url.path == "/api/chat_side":
                 self._json(side_message(state, str(data.get("session") or ""), " ".join(str(data.get("text") or "").split())))
             elif url.path == "/api/checkins":
@@ -1980,6 +1985,26 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             if not text:
                 self._json({"error": "empty"}, 400)
                 return
+            try:
+                import bot_ltm, bots as _bots
+                cur = _bots.current_bot() if hasattr(_bots, "current_bot") else {}
+                bot_ltm.ingest(str((cur or {}).get("id") or "default"), text)
+            except Exception:
+                pass
+            try:
+                import pro190, hey_home
+                if not files and pro190.flag("hey_home"):
+                    hit = hey_home.try_handle(text)
+                    if hit and hit.get("ok"):
+                        self.send_response(200)
+                        self.send_header("Content-Type", "text/event-stream")
+                        self.send_header("Cache-Control", "no-store")
+                        self.end_headers()
+                        self._write({"event": "session", "session": session})
+                        self._write({"event": "done", "text": str(hit.get("message") or "Done.")})
+                        return
+            except Exception:
+                pass
             import live_steer
             import confirm_action as _ca
             if live_steer.running(session) and not data.get("queue") and not _ca.is_short_yes(text):

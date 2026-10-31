@@ -87,7 +87,7 @@
       if (app.length) { more.appendChild(head('On this PC')); app.forEach((f) => more.appendChild(f)); }
     }
     // section headers for the other pages
-    const heads = { 'p-general': 'For you', 'p-voice': 'Voice', 'p-rules': 'Safety rules', 'p-themes': 'Themes' };
+    const heads = { 'p-general': 'For you', 'p-voice': 'Voice', 'p-rules': 'Safety rules', 'p-themes': 'Themes', 'p-advanced': 'Advanced' };
     Object.keys(heads).forEach((id) => { const p = $('#' + id); if (p && !$(':scope > .sp-sec', p)) p.insertBefore(head(heads[id]), p.firstChild); });
     $$('.set-head', S).forEach((h) => { if (h !== sh) h.classList.add('sp-sec-old'); });
     decorate(S);
@@ -149,10 +149,10 @@
     } else if (pane === 'p-themes') {
       const on = $('#p-themes .th-card.on .th-name'); t = on ? on.textContent.trim() : 'Theme';
     } else {
-      const titles = { 'p-general': 'General', 'p-voice': 'Voice', 'p-rules': 'Rules' }; t = titles[pane] || '';
+      const titles = { 'p-general': 'General', 'p-voice': 'Voice', 'p-rules': 'Rules', 'p-advanced': 'Advanced' }; t = titles[pane] || '';
     }
     pill.textContent = t; pill.hidden = !t;
-    const names = { 'p-more': 'Connect apps', 'p-updates': 'Updates', 'p-themes': 'Themes', 'p-voice': 'Voice', 'p-rules': 'Rules' };
+    const names = { 'p-more': 'Connect apps', 'p-updates': 'Updates', 'p-themes': 'Themes', 'p-voice': 'Voice', 'p-rules': 'Rules', 'p-advanced': 'Advanced' };
     const ttl = $('#settings .sp-head > b'); if (ttl) ttl.textContent = names[pane] || 'Settings';
   }
 

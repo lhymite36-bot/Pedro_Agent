@@ -1,0 +1,47 @@
+/* 1.9.0 Pro page: same 1.7.2 / Settings look — X + pill, chips, chevron sections, icon rows, bottom search */
+#pro190{position:fixed;inset:0;z-index:8999;background:#000;color:#f7f9f9;display:flex;flex-direction:column;font-family:inherit}
+#pro190>*{width:100%;max-width:760px;margin:0 auto;box-sizing:border-box}
+.pro-head{display:flex;align-items:center;gap:14px;padding:14px 16px 10px}
+.pro-head b{flex:1;font-size:20px;font-weight:700}
+.pro-x{width:46px;height:46px;flex:0 0 46px;border-radius:50%;border:1px solid #2a2b2e;background:#000;color:#fff;display:grid;place-items:center;cursor:pointer}
+.pro-pill{border:1px solid #2a2b2e;border-radius:999px;padding:10px 16px;font-size:15px;font-weight:600;white-space:nowrap}
+.pro-chips{display:flex;gap:8px;overflow-x:auto;padding:0 16px 8px;scrollbar-width:none}
+.pro-chips button{border:1px solid #2a2b2e;background:#111;color:#d7dbe0;border-radius:999px;padding:8px 14px;font:inherit;font-size:14px;white-space:nowrap;cursor:pointer}
+.pro-chips button.on{background:#e7e9ea;color:#000;border-color:#e7e9ea;font-weight:700}
+.pro-body{flex:1;overflow-y:auto;padding:0 16px 88px}
+.pro-sec{display:flex;align-items:center;justify-content:space-between;font-size:17px;font-weight:600;margin:16px 0 8px}
+.pro-sec svg{opacity:.7}
+.pro-row{display:flex;align-items:center;gap:12px;padding:12px 4px;border-bottom:1px solid #1c1d1f}
+.pro-ic{width:40px;height:40px;flex:0 0 40px;border-radius:12px;background:#1c1d1f;display:grid;place-items:center;color:#e7e9ea}
+.pro-txt{flex:1;min-width:0}
+.pro-txt b{display:block;font-size:16px;font-weight:700}
+.pro-txt small{display:block;color:#8b8f94;font-size:13.5px;line-height:1.35;margin-top:2px}
+.pro-go{border:0;border-radius:999px;background:#2a2b2e;color:#f1f1f1;font:inherit;font-size:14px;font-weight:600;padding:8px 14px;cursor:pointer;white-space:nowrap}
+.pro-go.acc{background:#1d6fe0;color:#fff}
+.pro-go.danger{background:#e0245e;color:#fff}
+.pro-search{position:sticky;bottom:12px;margin:0 16px 12px;display:flex;align-items:center;gap:10px;background:#1c1d1f;border:1px solid #2f3033;border-radius:999px;padding:10px 16px;z-index:2}
+.pro-search input{flex:1;background:none;border:0;outline:0;color:#fff;font:inherit;font-size:16px}
+.pro-bar{display:flex;gap:8px;align-items:center;background:#1c1d1f;border:1px solid #2f3033;border-radius:999px;padding:6px 6px 6px 18px;margin:12px 0}
+.pro-bar input,.pro-bar select{flex:1;background:none;border:0;outline:0;color:#fff;font:inherit;font-size:16px;min-width:0}
+.pro-item{background:#1c1d1f;border-radius:16px;padding:12px 14px;font-size:16px;line-height:1.4;margin:8px 0}
+.pro-item small{display:block;color:#8b8f94;font-size:13.5px;margin-bottom:4px}
+.pro-note{color:#8b8f94;font-size:13.5px;margin:8px 0 16px}
+.pro-err{background:#3a1520;color:#ffdce5;border-radius:14px;padding:12px 14px;margin:8px 0}
+.pro-stop{position:fixed;right:18px;bottom:88px;z-index:9001;width:72px;height:72px;border-radius:50%;border:0;background:#e0245e;color:#fff;font:inherit;font-weight:800;font-size:14px;cursor:pointer;box-shadow:0 8px 24px #e0245e66}
+.pro-allow{position:fixed;left:16px;right:16px;bottom:110px;z-index:9001;background:#16181c;border:1px solid #2a2b2e;border-radius:20px;padding:16px;max-width:520px;margin:0 auto}
+.pro-allow b{display:block;margin-bottom:10px}
+.pro-allow .row{display:flex;gap:8px;justify-content:flex-end}
+.pro-chart{display:flex;align-items:flex-end;gap:3px;height:72px;margin:10px 0}
+.pro-chart i{flex:1;background:#1d6fe0;border-radius:3px 3px 0 0;min-height:2px}
+.pro-board .pro-item{display:flex;justify-content:space-between;gap:8px}
+code.pro{font-size:12px;color:#8b8f94}
+body.grok-light #pro190{background:#fff;color:#0f1419}
+body.grok-light .pro-x,body.grok-light .pro-pill{background:#fff;color:#0f1419;border-color:#e1e4e8}
+body.grok-light .pro-chips button{background:#f2f3f5;color:#0f1419;border-color:#e1e4e8}
+body.grok-light .pro-chips button.on{background:#0f1419;color:#fff}
+body.grok-light .pro-ic,body.grok-light .pro-item,body.grok-light .pro-bar,body.grok-light .pro-search{background:#f2f3f5;border-color:#e1e4e8}
+body.grok-light .pro-bar input,body.grok-light .pro-search input,body.grok-light .pro-bar select{color:#0f1419}
+body.grok-light .pro-go{background:#e9ebee;color:#0f1419}
+body.grok-light .pro-row{border-color:#eef0f2}
+body.grok-light .pro-txt small,body.grok-light .pro-note{color:#536471}
+#p-advanced .field small{color:#8b8f94}

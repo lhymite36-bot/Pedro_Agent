@@ -3219,6 +3219,12 @@ def remember_fact(fact: str, topic: str = "fact") -> dict[str, Any]:
         connection.commit()
     finally:
         connection.close()
+    try:
+        import bot_ltm, bots as _b
+        cur = _b.current_bot() if hasattr(_b, "current_bot") else {}
+        bot_ltm.add(str((cur or {}).get("id") or "default"), text, source="remember_fact")
+    except Exception:
+        pass
     return _ok(message, topic=topic_name, fact=text)
 
 
@@ -3290,14 +3296,21 @@ def memory_prompt_block() -> str:
     """Short fact list inserted into the Gemini system prompt."""
     _seed_memory()
     matches = _search_memories("", limit=40)
-    if not matches:
-        return ""
-    lines = ["Known facts saved on this computer:"]
-    for item in matches:
-        lines.append(f"- [{item['topic']}] {item['fact']}")
-    block = "\n".join(lines)
-    if len(block) > 3500:
-        block = block[:3500].rsplit("\n", 1)[0]
+    block = ""
+    if matches:
+        lines = ["Known facts saved on this computer:"]
+        for item in matches:
+            lines.append(f"- [{item['topic']}] {item['fact']}")
+        block = "\n".join(lines)
+        if len(block) > 3500:
+            block = block[:3500].rsplit("\n", 1)[0]
+    try:
+        import bot_ltm
+        extra = bot_ltm.prompt_facts()
+        if extra:
+            block = (block + "\n" + extra) if block else extra
+    except Exception:
+        pass
     return block
 
 
