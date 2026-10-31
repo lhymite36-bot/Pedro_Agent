@@ -47,6 +47,7 @@ STATIC_FILES = {
     "studio182.js": "application/javascript; charset=utf-8",
     "studio182.css": "text/css; charset=utf-8",
     "lab183.js": "application/javascript; charset=utf-8",
+    "menu184.js": "application/javascript; charset=utf-8",
     "lab183.css": "text/css; charset=utf-8",
     "avatar3d/index.html": "text/html; charset=utf-8",
     "avatar3d/stage.js": "application/javascript; charset=utf-8",

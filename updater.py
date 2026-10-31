@@ -21,7 +21,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
-VERSION = "1.8.3"
+VERSION = "1.8.4"
 REPO = "lhymite36-bot/Pedro_Agent"
 API = f"https://api.github.com/repos/{REPO}/releases?per_page=15"
 TAG = re.compile(r"^v(\d+)\.(\d+)\.(\d+)-windows$")
