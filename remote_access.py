@@ -128,7 +128,7 @@ def rotate_token() -> str:
 
 # ---- one-time pairing codes (QR) ----
 PAIR_TTL = 600
-APK_URL = "https://github.com/lhymite36-bot/Pedro_Agent/releases/download/v1.9.3-test/PedBot-1.9.3-test.apk"
+APK_URL = "https://github.com/lhymite36-bot/Pedro_Agent/releases/download/v1.9.4-test/PedBot-1.9.4-test.apk"
 _pair_codes: dict[str, float] = {}
 _PAIR_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 
@@ -524,8 +524,12 @@ def make_remote_handler(state: Any) -> type:
             try:
                 import supabase_auth
                 user = supabase_auth.user_from_request(self)
-            except Exception:
+            except Exception as exc:
                 user = None
+                if type(exc).__name__ == "AuthUnavailable":   # 1.9.4: slow network is not "signed out"
+                    self._json({"ok": False, "code": "auth_unreachable", "retry": True,
+                                "error": "Slow connection, retrying…"}, 503)
+                    return False
             if user:
                 self.auth_user = user
                 return True
@@ -613,8 +617,12 @@ def make_remote_handler(state: Any) -> type:
                     try:
                         import supabase_auth
                         user = supabase_auth.user_from_token(access)
-                    except Exception:
+                    except Exception as exc:
                         user = None
+                        if type(exc).__name__ == "AuthUnavailable":   # 1.9.4: say "retry", not "sign in"
+                            self._json({"ok": False, "code": "auth_unreachable", "retry": True,
+                                        "error": "Slow connection. Can't reach the sign-in server, retrying…"}, 503)
+                            return
                     if user:
                         ok, error = True, ""
                         self.auth_user = user

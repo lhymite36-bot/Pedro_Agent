@@ -690,6 +690,13 @@ def state_hidden() -> bool:
 
 
 
+def _user_or_none(sa: Any, handler: Any) -> Any:
+    try:
+        return sa.user_from_request(handler)
+    except sa.AuthUnavailable:
+        return None
+
+
 BUSY_WAITS = (3, 8, 15)   # 1.9.3: seconds between whole-turn retries when Gemini says 503 / busy
 
 
@@ -1255,7 +1262,13 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                         return True
                 except Exception as exc:
                     print(f"[auth] remote cookie check failed: {exc}", flush=True)
-            user = supabase_auth.user_from_request(self)
+            try:
+                user = supabase_auth.user_from_request(self)
+            except supabase_auth.AuthUnavailable:
+                # 1.9.4: slow / offline network is NOT "signed out". The window keeps the session and retries.
+                self._json({"ok": False, "code": "auth_unreachable", "retry": True,
+                            "error": "Slow connection. Can't reach the sign-in server right now, retrying…"}, 503)
+                return False
             if not user:
                 # 403 on the phone so an older APK does not treat this as "reconnect".
                 self._json(
@@ -1352,7 +1365,12 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 self._json(supabase_auth.public_config(origin))
             elif url.path == "/api/auth/me":
                 import supabase_auth
-                user = getattr(self, "auth_user", None) or supabase_auth.user_from_request(self)
+                try:
+                    user = getattr(self, "auth_user", None) or supabase_auth.user_from_request(self)
+                except supabase_auth.AuthUnavailable:
+                    self._json({"ok": False, "code": "auth_unreachable", "retry": True,
+                                "error": "Slow connection, retrying…"}, 503)
+                    return
                 self.auth_user = user
                 supabase_auth.touch_login(user)
                 self._json(supabase_auth.public_user(user))
@@ -1697,7 +1715,7 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             elif url.path == "/api/plan":   # 1.9.1 Ped Bot Pro: status / order / verify / simulate / restore
                 import plan191, supabase_auth
                 self._json(plan191.dispatch(data, supabase_auth._bearer_from(self),
-                                            getattr(self, "auth_user", None) or supabase_auth.user_from_request(self)))
+                                            getattr(self, "auth_user", None) or _user_or_none(supabase_auth, self)))
             elif url.path == "/api/chat_side":
                 self._json(side_message(state, str(data.get("session") or ""), " ".join(str(data.get("text") or "").split())))
             elif url.path == "/api/checkins":

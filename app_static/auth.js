@@ -79,12 +79,39 @@
     return Object.assign(h, extra || {});
   }
 
+  // 1.9.4: every Supabase call has a long timeout (slow 3G) and a timeout/offline/5xx is reported
+  // as `net` so it is never mistaken for "signed out".
+  const SB_TIMEOUT = 25000;
   async function sb(path, opt) {
-    const res = await rawFetch(cfg.url + path, Object.assign({ headers: sbHeaders() }, opt || {}));
+    const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const t = ctl ? setTimeout(() => ctl.abort(), SB_TIMEOUT) : 0;
+    let res;
+    try {
+      res = await rawFetch(cfg.url + path, Object.assign({ headers: sbHeaders() }, opt || {}, ctl ? { signal: ctl.signal } : {}));
+    } catch (e) {
+      clearTimeout(t);
+      return { res: { ok: false, status: 0 }, data: {}, net: true };
+    }
+    clearTimeout(t);
     let data = {};
     try { data = await res.json(); } catch (e) { data = {}; }
-    return { res, data };
+    return { res, data, net: res.status >= 500 || res.status === 429 || res.status === 0 };
   }
+
+  // 1.9.4: small "Slow connection, retrying…" / offline banner. The session is kept meanwhile.
+  function banner(text) {
+    let b = document.getElementById('pb-net');
+    if (!text) { if (b) b.remove(); return; }
+    if (!b) {
+      b = document.createElement('div'); b.id = 'pb-net'; b.setAttribute('role', 'status');
+      b.style.cssText = 'position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 10px);transform:translateX(-50%);z-index:99999;' +
+        'background:#2a2416;color:#ffd27a;border:1px solid #6b5a2a;border-radius:999px;padding:7px 14px;font:500 13px/1.3 system-ui,sans-serif;' +
+        'box-shadow:0 4px 18px #0006;max-width:calc(100vw - 32px);text-align:center;pointer-events:none';
+      document.body.appendChild(b);
+    }
+    b.textContent = text;
+  }
+  function netText() { return (typeof navigator !== 'undefined' && navigator.onLine === false) ? 'You are offline. Retrying when the internet is back…' : 'Slow connection, retrying…'; }
 
   function friendly(data, fallback) {
     const msg = String((data && (data.error_description || data.msg || data.error || data.message)) || fallback || 'Something went wrong.');
@@ -169,31 +196,91 @@
     if (h) h.hidden = !cfg.oauthGithub;
   }
 
-  async function refreshIfNeeded(sess) {
+  // 1.9.4: returns the (maybe refreshed) session, 'invalid' when Supabase DEFINITELY rejects the
+  // refresh token, or throws {net:true} on a timeout / offline / 5xx (the old session is kept).
+  async function refreshIfNeeded(sess, force) {
     if (!sess || !sess.refresh_token) return sess;
     const exp = Number(sess.expires_at || 0);
-    if (exp && exp * 1000 > Date.now() + 60000) return sess;
-    const { res, data } = await sb('/auth/v1/token?grant_type=refresh_token', {
+    if (!force && exp && exp * 1000 > Date.now() + 60000) return sess;
+    const { res, data, net } = await sb('/auth/v1/token?grant_type=refresh_token', {
       method: 'POST',
       body: JSON.stringify({ refresh_token: sess.refresh_token })
     });
-    if (!res.ok || !data.access_token) return sess;
-    saveTicket(data);
-    return loadTicket();
+    if (net) { const e = new Error('network'); e.net = true; throw e; }
+    if (res.ok && data.access_token) { saveTicket(data); return loadTicket(); }
+    const code = String((data && (data.error_code || data.error || data.code)) || '').toLowerCase();
+    const msg = String((data && (data.error_description || data.msg || data.message)) || '').toLowerCase();
+    if ((res.status === 400 || res.status === 401 || res.status === 403) &&
+        (/invalid_grant|refresh_token|session_not_found|bad_jwt|user_not_found/.test(code) || /refresh token|invalid|expired|not found/.test(msg))) return 'invalid';
+    const e = new Error('refresh failed ' + res.status); e.net = true; throw e;   // unknown -> treat as temporary
   }
 
+  // true = signed in, false = definitely not (401 after a refresh try), null = network trouble
   async function afterSession() {
     let status = 0;
     const me = await withAuth('/api/auth/me').then((r) => { status = r.status; return r.json(); }).catch(() => null);
-    if (!me || !me.ok || !me.user) return (status === 401 || (me && me.code === 'auth_required')) ? false : null;
+    if (!me || !me.ok || !me.user) {
+      if (status === 401 || (me && me.code === 'auth_required')) return false;
+      return null;   // 503 auth_unreachable, timeout, PC restarting…
+    }
+    banner('');
     const adminBtn = $('#acct-admin');
     if (adminBtn) adminBtn.hidden = !me.user.is_admin;
     const who = $('#auth-who');
     if (who) who.textContent = me.user.email || '';
+    if (me.user.email) storeSet('pedro.auth.lastEmail', me.user.email);
     hideGate();
     flush();
     return true;
   }
+
+  // The ONLY ways to the sign-in screen: Log out, or Supabase definitely rejecting the session.
+  function signedOut(why) {
+    const old = loadTicket();
+    clearTicket();
+    try { if (old && old.email) storeSet('pedro.auth.lastEmail', old.email); } catch (e) {}
+    banner('');
+    showGate();
+    modeSignup(false);   // existing users land on SIGN IN, never sign up
+    const em = $('#auth-email'); const last = storeGet('pedro.auth.lastEmail');
+    if (em && last && !em.value) em.value = last;
+    setErr(why || 'Please sign in again.');
+  }
+
+  // Check the saved session; on a 401 try one refresh; on network trouble keep the session and retry with backoff.
+  let checking = false, tries = 0, shownOffline = false;
+  const WAITS = [2000, 4000, 8000, 15000, 30000];
+  async function checkSession() {
+    if (checking) return; checking = true;
+    try {
+      let sess = loadTicket();
+      if (!sess || !sess.access_token) { checking = false; signedOut(''); setErr(''); return; }
+      token = sess.access_token;
+      let r;
+      try { r = await refreshIfNeeded(sess, false); } catch (e) { r = sess; }   // network: keep the old ticket
+      if (r === 'invalid') { checking = false; signedOut('Your sign-in expired. Please sign in again.'); return; }
+      if (r && r.access_token) token = r.access_token;
+      let ok = await afterSession();
+      if (ok === false && sess.refresh_token) {
+        let f;
+        try { f = await refreshIfNeeded(loadTicket() || sess, true); } catch (e) { f = null; }
+        if (f === 'invalid') { checking = false; signedOut('Your sign-in expired. Please sign in again.'); return; }
+        if (f && f.access_token) { token = f.access_token; ok = await afterSession(); }
+        else ok = null;   // could not ask Supabase: not a definite "no"
+      }
+      if (ok === true) { tries = 0; checking = false; if (shownOffline) { shownOffline = false; location.reload(); } return; }
+      if (ok === false) { checking = false; signedOut('Your sign-in expired. Please sign in again.'); return; }
+      // network trouble: keep everything, show the app (the PC keeps a user it already checked), banner + retry
+      banner(netText());
+      if (!ready) shownOffline = true;   // screens were loaded while offline: reload them once it is back
+      hideGate(); flush();
+      const w = WAITS[Math.min(tries, WAITS.length - 1)]; tries++;
+      checking = false;
+      setTimeout(checkSession, w);
+    } catch (e) { checking = false; banner(netText()); setTimeout(checkSession, 5000); }
+  }
+  window.addEventListener('online', () => { tries = 0; checkSession(); });
+  window.addEventListener('offline', () => banner(netText()));
 
   async function signIn(email, password) {
     const { res, data } = await sb('/auth/v1/token?grant_type=password', {
@@ -280,7 +367,7 @@
   async function logout() {
     try {
       if (cfg && cfg.url && token) {
-        await rawFetch(cfg.url + '/auth/v1/logout', { method: 'POST', headers: sbHeaders() });
+        await Promise.race([rawFetch(cfg.url + '/auth/v1/logout', { method: 'POST', headers: sbHeaders() }), new Promise((r) => setTimeout(r, 6000))]);
       }
     } catch (e) { /* still clear local ticket */ }
     clearTicket();
@@ -366,18 +453,17 @@
   }
 
   window.PedroAuth = {
-    onUnauthorized: function () {
-      clearTicket();
-      showGate();
-      modeSignup(false);
-      setErr('Please sign in again.');
-    },
+    // 1.9.4: a 401 from the PC is re-checked (with a token refresh) before anyone is signed out.
+    onUnauthorized: function () { checkSession(); },
+    slow: function () { banner(netText()); clearTimeout(window.__pbSlowT); window.__pbSlowT = setTimeout(checkSession, 4000); },
+    _check: function () { return checkSession(); },
     logout: logout,
     user: function () { return loadTicket(); }
   };
 
+  let bound = false;
   async function boot() {
-    bind();
+    if (!bound) { bound = true; bind(); }
     modeSignup(false);
     try {
       if (typeof PedroNative !== 'undefined' && PedroNative.ticket) {
@@ -388,7 +474,8 @@
     try {
       cfg = await rawFetch('/api/auth/config').then((r) => r.json());
     } catch (e) {
-      showSetup(['SUPABASE_URL']);
+      // 1.9.4: the PC app is restarting or the network is slow: retry, don't show the setup screen
+      banner(netText()); setTimeout(boot, 3000);
       return;
     }
     if (!cfg || !cfg.configured) {
@@ -403,18 +490,9 @@
       setErr(e.message || 'Sign-in did not finish.');
       return;
     }
-    let sess = loadTicket();
-    if (sess && sess.access_token) {
-      token = sess.access_token;
-      try { sess = await refreshIfNeeded(sess); } catch (e) { /* try the old ticket */ }
-      if (sess && sess.access_token) token = sess.access_token;
-      const ok = await afterSession();
-      if (ok) return;
-      // Only a rejected token signs out; a slow network or PC restart keeps the session.
-      if (ok === false) clearTicket();
-      else { setTimeout(boot, 3000); return; }
-    }
-    showGate();
+    const sess = loadTicket();
+    if (sess && sess.access_token) { await checkSession(); return; }
+    signedOut(''); setErr('');
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);

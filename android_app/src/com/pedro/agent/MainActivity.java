@@ -48,7 +48,7 @@ public class MainActivity extends Activity {
         configureWeb();
         String shared = getIntent() != null ? getIntent().getStringExtra(Intent.EXTRA_TEXT) : null;
         if (shared != null && shared.contains("http")) { saveLink(shared, ""); }
-        else if (!prefs.getString("ticket", "").isEmpty()) showLock(this::autoConnect);
+        else if (!prefs.getString("ticket", "").isEmpty() || !prefs.getString("email", "").isEmpty()) showLock(this::autoConnect);   // 1.9.4: known user -> password, not sign up
         else if (!prefs.getString("base", "").isEmpty()) autoConnect();
         else showAuth();
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
@@ -256,11 +256,30 @@ public class MainActivity extends Activity {
                 if (cookie != null && !cookie.isEmpty()) CookieManager.getInstance().setCookie(url, cookie);
                 CookieManager.getInstance().flush();
                 prefs.edit().putString("base", url).apply();
+                netTries = 0;
                 runOnUiThread(this::openServer);
+            } catch (AuthExpired e) {
+                // definite: the saved sign-in is no longer valid -> ask for the password (sign in, never sign up)
+                runOnUiThread(() -> { prefs.edit().remove("ticket").apply(); showLockOrAuth(); });
             } catch (Exception e) {
-                showError(e.getMessage() != null ? e.getMessage() : "Can't reach your PC.");
+                String m = e.getMessage() != null ? e.getMessage() : "Can't reach your PC.";
+                if (m.startsWith("Slow connection") && netTries < 6) {
+                    int w = new int[]{2, 4, 8, 15, 15, 15}[netTries++];
+                    runOnUiThread(() -> toast("Slow connection, retrying in " + w + " s…"));
+                    root.postDelayed(this::connectWithAccount, w * 1000L);
+                    return;
+                }
+                netTries = 0;
+                showError(m);
             }
         }).start();
+    }
+    int netTries = 0;
+
+    /** 1.9.4: an existing user lands on the password screen (sign-in), not on sign-up. */
+    void showLockOrAuth() {
+        if (!lockEmail().isEmpty()) { needLock = true; showLock(this::autoConnect); }
+        else showAuth();
     }
 
     // 1.7.1: the phone asks for the password every time the app is opened or
@@ -302,33 +321,52 @@ public class MainActivity extends Activity {
         TextView err = text("", 13, "#f4212e"); err.setGravity(Gravity.CENTER); l.addView(err);
         Button go = grokBtn("Unlock", true); l.addView(go);
         Button out = grokBtn("Log out", false); out.setOnClickListener(v -> signOutFully()); l.addView(out);
+        // 1.9.4: a slow or offline network shows "retrying" and tries again by itself (2, 4, 8, 15 s);
+        // only a real "wrong password" answer from Supabase says so. Never jumps to sign up.
+        final int[] tries = {0};
+        final Runnable[] self = new Runnable[1];
         Runnable check = () -> {
             String pass = pw.getText().toString();
             if (pass.isEmpty()) { err.setText("Type your password."); return; }
-            go.setEnabled(false); err.setText("Checking...");
+            go.setEnabled(false); err.setTextColor(Color.parseColor("#8b9096"));
+            err.setText(tries[0] == 0 ? "Checking..." : "Slow connection, retrying… (" + tries[0] + ")");
             new Thread(() -> {
-                String msg = null;
+                String msg = null; boolean retry = false;
                 try {
                     JSONObject body = new JSONObject(); body.put("email", email); body.put("password", pass);
                     HttpResult r = http("POST", Config.SUPABASE_URL + "/auth/v1/token?grant_type=password",
                         body.toString(), Config.ANON_KEY, Config.ANON_KEY);
-                    JSONObject data = new JSONObject(r.body);
-                    if (r.code >= 400 || !data.has("access_token")) msg = "Wrong password. Try again.";
+                    if (r.code >= 500 || r.code == 429) { retry = true; }
                     else {
-                        if (!data.has("expires_at"))
-                            data.put("expires_at", (System.currentTimeMillis() / 1000) + data.optLong("expires_in", 3600));
-                        prefs.edit().putString("ticket", data.toString()).putString("email", email).apply();
+                        JSONObject data = new JSONObject(r.body == null || r.body.isEmpty() ? "{}" : r.body);
+                        if (r.code >= 400 || !data.has("access_token")) msg = "Wrong password. Try again.";
+                        else {
+                            if (!data.has("expires_at"))
+                                data.put("expires_at", (System.currentTimeMillis() / 1000) + data.optLong("expires_in", 3600));
+                            prefs.edit().putString("ticket", data.toString()).putString("email", email).apply();
+                        }
                     }
-                } catch (Exception e) { msg = "Can't check your password. Check your internet."; }
-                final String m = msg;
+                } catch (Exception e) { retry = true; }
+                final String m = msg; final boolean again = retry;
                 runOnUiThread(() -> {
-                    go.setEnabled(true);
+                    if (lockView != l) return;   // closed meanwhile
+                    if (again) {
+                        int[] waits = {2, 4, 8, 15, 15};
+                        int w = waits[Math.min(tries[0], waits.length - 1)]; tries[0]++;
+                        go.setEnabled(true);
+                        err.setText("Slow connection or offline. Retrying in " + w + " s… (tap Unlock to try now)");
+                        if (tries[0] <= 8) l.postDelayed(() -> { if (lockView == l && !pw.getText().toString().isEmpty()) self[0].run(); }, w * 1000L);
+                        else err.setText("Still offline. Check your internet, then tap Unlock.");
+                        return;
+                    }
+                    tries[0] = 0; go.setEnabled(true); err.setTextColor(Color.parseColor("#f4212e"));
                     if (m != null) { err.setText(m); pw.setText(""); return; }
                     pw.setText(""); needLock = false; hideLock();
                     if (after != null) after.run();
                 });
             }).start();
         };
+        self[0] = check;
         go.setOnClickListener(v -> check.run());
         pw.setOnEditorActionListener((v, a, e) -> { check.run(); return true; });
         lockView = l; root.addView(l, new FrameLayout.LayoutParams(-1, -1));
@@ -340,10 +378,15 @@ public class MainActivity extends Activity {
         long exp = sess.optLong("expires_at", 0);
         if (refresh.isEmpty() || (exp > 0 && exp * 1000 > System.currentTimeMillis() + 60000)) return sess;
         JSONObject body = new JSONObject(); body.put("refresh_token", refresh);
-        HttpResult r = http("POST", Config.SUPABASE_URL + "/auth/v1/token?grant_type=refresh_token",
-            body.toString(), Config.ANON_KEY, Config.ANON_KEY);
-        JSONObject data = new JSONObject(r.body);
-        if (r.code >= 400 || !data.has("access_token")) throw new Exception("Please sign in again.");
+        HttpResult r;
+        try {
+            r = http("POST", Config.SUPABASE_URL + "/auth/v1/token?grant_type=refresh_token",
+                body.toString(), Config.ANON_KEY, Config.ANON_KEY);
+        } catch (Exception e) { throw new Exception("Slow connection. Retrying…"); }   // 1.9.4: network, keep the session
+        if (r.code >= 500 || r.code == 429) throw new Exception("Slow connection. Retrying…");
+        JSONObject data;
+        try { data = new JSONObject(r.body == null ? "{}" : r.body); } catch (Exception e) { throw new Exception("Slow connection. Retrying…"); }
+        if (r.code >= 400 || !data.has("access_token")) throw new AuthExpired();
         if (!data.has("expires_at"))
             data.put("expires_at", (System.currentTimeMillis() / 1000) + data.optLong("expires_in", 3600));
         return data;
@@ -352,6 +395,8 @@ public class MainActivity extends Activity {
     String fetchPresence(String access) throws Exception {
         HttpResult r = http("GET", Config.SUPABASE_URL + "/rest/v1/pc_presence?id=eq.default&select=url,updated_at",
             null, access, Config.ANON_KEY);
+        if (r.code >= 500 || r.code == 429) throw new Exception("Slow connection. Retrying…");
+        if (r.code == 401) throw new AuthExpired();
         if (r.code >= 400) throw new Exception("Could not look up your PC.");
         JSONArray rows = new JSONArray(r.body);
         if (rows.length() == 0) return "";
@@ -362,6 +407,7 @@ public class MainActivity extends Activity {
     String loginWithJwt(String base, String access) throws Exception {
         JSONObject body = new JSONObject(); body.put("access_token", access);
         HttpResult r = http("POST", base + "/login", body.toString(), null, null);
+        if (r.code >= 500 || r.code == 429) throw new Exception("Slow connection. Retrying…");   // 1.9.4
         if (r.code >= 400) throw new Exception("Signed in, but this PC did not accept the account.");
         if (r.cookies == null) return null;
         for (String c : r.cookies) {
@@ -387,7 +433,7 @@ public class MainActivity extends Activity {
     String phoneReason = "PC offline";
     void showPhoneMode(String reason) {
         runOnUiThread(() -> {
-            if (prefs.getString("ticket", "").isEmpty()) { showAuth(); return; }
+            if (prefs.getString("ticket", "").isEmpty()) { showLockOrAuth(); return; }
             showingAuth = false; inPhone = true; phoneReason = reason == null ? "PC offline" : reason;
             errorView.setVisibility(View.GONE);
             web.loadUrl(PHONE_ORIGIN + "/?ui=grokskin");
@@ -612,11 +658,14 @@ public class MainActivity extends Activity {
         } catch (Exception e) { return ""; }
     }
 
+    /** 1.9.4: Supabase definitely rejected the refresh token (not a network problem). */
+    static class AuthExpired extends Exception { AuthExpired() { super("Please sign in again."); } }
+
     static class HttpResult { int code; String body; List<String> cookies; }
 
     static HttpResult http(String method, String url, String body, String bearer, String apikey) throws Exception {
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
-        c.setConnectTimeout(12000); c.setReadTimeout(15000);
+        c.setConnectTimeout(20000); c.setReadTimeout(30000);   // 1.9.4: longer for slow 3G
         c.setRequestMethod(method);
         c.setInstanceFollowRedirects(false);
         c.setRequestProperty("Accept", "application/json");

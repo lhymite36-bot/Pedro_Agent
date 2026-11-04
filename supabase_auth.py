@@ -10,7 +10,12 @@ Secrets stay in the environment. Nothing here logs tokens or keys.
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import json
 import os
+import threading
+import time
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
@@ -18,6 +23,38 @@ from urllib.parse import urlparse
 import requests
 
 _TIMEOUT = 12
+# 1.9.4: a slow or offline network must never look like "not signed in".
+_VERIFY_TIMEOUT = (10, 25)          # (connect, read) seconds for the token check
+_VERIFY_TRIES = 2                   # quick second try on a timeout / 5xx
+_FRESH_SECONDS = 120                # a token checked this recently is not re-checked
+_LOCAL_GRACE_SECONDS = 7 * 86400    # this PC keeps a verified user while Supabase is unreachable
+
+
+class AuthUnavailable(Exception):
+    """Supabase could not be asked (timeout, offline, 5xx, 429). NOT the same as a bad token."""
+
+
+_cache: dict[str, tuple[dict[str, Any], float]] = {}
+_cache_lock = threading.Lock()
+
+
+def _tkey(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _jwt_exp(token: str) -> float:
+    """Expiry claim of a JWT (not verified here; only used for a token Supabase already accepted)."""
+    try:
+        part = token.split(".")[1]
+        part += "=" * (-len(part) % 4)
+        return float(json.loads(base64.urlsafe_b64decode(part.encode("ascii"))).get("exp") or 0)
+    except Exception:
+        return 0.0
+
+
+def forget_token(token: str) -> None:
+    with _cache_lock:
+        _cache.pop(_tkey(token), None)
 _ADMIN_ROLES = {"admin"}
 _STATUSES = {"free", "trial", "paid"}
 
@@ -130,25 +167,39 @@ def _bearer_from(handler: Any) -> str:
 
 
 def _gotrue_user(access_token: str) -> dict[str, Any] | None:
+    """Ask Supabase who owns this token.
+    Returns the user, None for a DEFINITE rejection (401/403/400), and raises AuthUnavailable
+    when Supabase can't be asked (timeout, offline, 5xx, 429)."""
     if not access_token or not configured():
         return None
-    try:
-        res = requests.get(
-            f"{_url()}/auth/v1/user",
-            headers=_headers(_anon(), access_token),
-            timeout=_TIMEOUT,
-        )
-    except requests.RequestException:
-        return None
-    if res.status_code != 200:
-        return None
-    try:
-        data = res.json()
-    except ValueError:
-        return None
-    if not isinstance(data, dict) or not data.get("id"):
-        return None
-    return data
+    last = "network"
+    for attempt in range(_VERIFY_TRIES):
+        try:
+            res = requests.get(
+                f"{_url()}/auth/v1/user",
+                headers=_headers(_anon(), access_token),
+                timeout=_VERIFY_TIMEOUT,
+            )
+        except requests.RequestException as exc:
+            last = type(exc).__name__
+            if attempt + 1 < _VERIFY_TRIES:
+                time.sleep(1.5)
+            continue
+        if res.status_code >= 500 or res.status_code == 429:
+            last = f"HTTP {res.status_code}"
+            if attempt + 1 < _VERIFY_TRIES:
+                time.sleep(1.5)
+            continue
+        if res.status_code != 200:
+            return None
+        try:
+            data = res.json()
+        except ValueError:
+            raise AuthUnavailable("bad reply from Supabase")
+        if not isinstance(data, dict) or not data.get("id"):
+            return None
+        return data
+    raise AuthUnavailable(last)
 
 
 def _rest(method: str, path: str, *, json: Any = None, params: dict[str, str] | None = None) -> Any:
@@ -236,9 +287,29 @@ def touch_login(user: dict[str, Any] | None) -> None:
         return
 
 
-def user_from_token(access_token: str) -> dict[str, Any] | None:
-    auth_user = _gotrue_user(access_token)
+def user_from_token(access_token: str, *, local: bool = False) -> dict[str, Any] | None:
+    """1.9.4: cached for a short time; when Supabase is unreachable a user this PC already
+    verified stays signed in (until the token expires, or up to 7 days on the PC itself).
+    Raises AuthUnavailable when there is nothing cached to fall back on."""
+    if not access_token:
+        return None
+    key = _tkey(access_token)
+    now = time.time()
+    with _cache_lock:
+        hit = _cache.get(key)
+    if hit and now - hit[1] < _FRESH_SECONDS:
+        return dict(hit[0])
+    try:
+        auth_user = _gotrue_user(access_token)
+    except AuthUnavailable:
+        if hit:
+            exp = _jwt_exp(access_token)
+            limit = (exp + _LOCAL_GRACE_SECONDS) if local else exp
+            if exp and now < limit:
+                return dict(hit[0])
+        raise
     if not auth_user:
+        forget_token(access_token)
         return None
     profile = ensure_profile(auth_user) or {}
     email = str(profile.get("email") or auth_user.get("email") or "")
@@ -248,7 +319,7 @@ def user_from_token(access_token: str) -> dict[str, Any] | None:
     status = str(profile.get("subscription_status") or "free")
     if status not in _STATUSES:
         status = "free"
-    return {
+    user = {
         "id": str(auth_user.get("id") or profile.get("id") or ""),
         "email": email,
         "full_name": profile.get("full_name") or None,
@@ -261,13 +332,18 @@ def user_from_token(access_token: str) -> dict[str, Any] | None:
         "role": role,
         "is_admin": role in _ADMIN_ROLES,
     }
+    with _cache_lock:
+        if len(_cache) > 200:
+            _cache.clear()
+        _cache[key] = (dict(user), now)
+    return user
 
 
 def user_from_request(handler: Any) -> dict[str, Any] | None:
     token = _bearer_from(handler)
     if not token:
         return None
-    return user_from_token(token)
+    return user_from_token(token, local=not getattr(handler, "remote", True))
 
 
 def publish_pc_url(url: str) -> bool:

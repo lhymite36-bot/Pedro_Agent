@@ -175,9 +175,11 @@ def restore(bearer: str = "", user: dict | None = None) -> dict[str, Any]:
         r = requests.get(f"{url}/rest/v1/pb_entitlements", timeout=_TIMEOUT,
                          params={"user_id": "eq." + _uid(user), "select": "plan,period,source,mode,payment_id,valid_until"},
                          headers={"apikey": anon, "Authorization": f"Bearer {bearer}"})
+        if r.status_code >= 500 or r.status_code == 429:   # 1.9.4: server trouble never downgrades
+            return {"ok": False, **status(), "error": "Could not reach your account (slow connection). Your plan is unchanged; try again."}
         rows = r.json() if r.status_code < 400 else []
     except (requests.RequestException, ValueError):
-        return {"ok": False, **status(), "error": "Could not reach your account. Try again online."}
+        return {"ok": False, **status(), "error": "Could not reach your account (slow connection). Your plan is unchanged; try again."}
     for row in rows if isinstance(rows, list) else []:
         try:
             until = time.mktime(time.strptime(str(row.get("valid_until"))[:19], "%Y-%m-%dT%H:%M:%S")) - time.timezone

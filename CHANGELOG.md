@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.9.4-test - No more sign-out on a slow connection
+
+- Fix: on a slow or flaky connection the app sent you back to the sign-in page. Root cause: the PC checked your sign-in with Supabase on every request (12 s limit, no retry). Any timeout, offline moment or Supabase 5xx was answered as "Please sign in" (401). The window then deleted the saved session and showed the sign-in screen.
+- Now only a definite answer signs you out: Supabase rejecting the refresh token (or a 401 that a token refresh can't fix), or you tapping Log out. Timeouts, offline and 5xx keep the session.
+- The PC remembers a sign-in it already checked. If Supabase is unreachable it keeps working (up to 7 days on the PC itself). Checks have longer timeouts (25 s) and a retry.
+- A small "Slow connection, retrying…" / "You are offline" banner shows while Ped Bot retries (2, 4, 8, 15, 30 s). The screens reload by themselves when the connection is back.
+- Phone: the password-on-open rule stays. A slow network during unlock now says "Slow connection, retrying…" and retries by itself instead of failing. An expired sign-in opens the password screen for your account, never sign up. Longer network timeouts (20 s connect / 30 s read).
+- Pro stays Pro on a slow network: the plan is read from this PC, and a failed "Restore purchase" check never downgrades it.
+
 ## 1.9.3-test - Projects fixed, plus a polish pass
 
 - Fix: opening a project no longer shows a blank page. A new project now shows a project card with its name, goal, team and quick buttons (Edit project, Plan the next steps, What's the status?).

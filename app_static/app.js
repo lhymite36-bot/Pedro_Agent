@@ -9,6 +9,10 @@ if (!/PedroAgentApp/.test(navigator.userAgent)) {
   window.fetch = async (u, o) => {
     const r = await rawFetch(u, o);
     const url = String((u && u.url) || u); const ct = r.headers.get('content-type') || '';
+    // 1.9.4: the PC could not reach the sign-in server (slow / offline). Keep the session, show the banner.
+    if (r.status === 503 && url.indexOf('/api') >= 0 && ct.indexOf('json') >= 0) {
+      try { const j = await r.clone().json(); if (j && j.code === 'auth_unreachable' && window.PedroAuth && window.PedroAuth.slow) window.PedroAuth.slow(); } catch (e) {}
+    }
     if (url.indexOf('/api') >= 0 && (r.status === 401 || ct.indexOf('text/html') >= 0 || (r.status >= 500 && ct.indexOf('json') < 0))) {
       const local = /^(127\.0\.0\.1|localhost)$/.test(location.hostname);
       if (r.status === 401) {
