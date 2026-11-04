@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.9.2-test - Pro fixes from the full test pass
+
+- Fix: the upgrade page no longer pops up by itself on Free when the app starts or when you open any menu item. Studio's background call check used to trigger it.
+- Fix: duplicating a bot from the More menu no longer gets around the 2-bot Free limit. The limit now applies to every way a bot is made.
+- Tests: the groups picture test now uses the current avatar shapes. The older suites run as Pro (`tests/conftest.py`). New tests cover the bot and automation limits.
+
 ## 1.9.1-test - Ped Bot Pro (freemium, Razorpay TEST mode)
 
 - **Bring your own key stays.** All AI still runs on your own Gemini key, on Free and Pro.

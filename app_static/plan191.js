@@ -142,12 +142,17 @@
     });
   }
   // any /api answer that says pro_required opens the upgrade page
+  // 1.9.2: only a request the user just started may open the page (background polls like Studio's call check must not)
+  let lastAct = 0;
+  ['pointerdown', 'keydown', 'touchstart'].forEach((ev) => document.addEventListener(ev, () => { lastAct = Date.now(); }, true));
+  const userMade = () => Date.now() - lastAct < 4000;
+  const POPS = /\/api\/(bots|groups|theme|shorts)(\?|$)/;   // entry points of Studio/Lab/Pro tools/avatar are gated by the wrappers below
   const _f = window.fetch;
   window.fetch = function (u, o) {
     const p = _f.apply(this, arguments);
-    if (inside || typeof u !== 'string' || u.indexOf('/api/') < 0 || u.indexOf('/api/plan') >= 0) return p;
+    if (inside || typeof u !== 'string' || !POPS.test(u)) return p;
     return p.then((r) => {
-      if (r.status === 402 || (o && o.method === 'POST')) r.clone().json().then((j) => { if (j && j.code === 'pro_required') { open(j.error); if (u.indexOf('/api/theme') >= 0) { _f('/api/theme', { cache: 'no-store' }).then((x) => x.json()).then((t) => { try { localStorage.setItem('pb-theme', JSON.stringify(t)); } catch (e) {} }).catch(() => {}); } } }).catch(() => {});
+      if (r.status === 402 || (o && o.method === 'POST')) r.clone().json().then((j) => { if (j && j.code === 'pro_required' && userMade()) { open(j.error); if (u.indexOf('/api/theme') >= 0) { _f('/api/theme', { cache: 'no-store' }).then((x) => x.json()).then((t) => { try { localStorage.setItem('pb-theme', JSON.stringify(t)); } catch (e) {} }).catch(() => {}); } } }).catch(() => {});
       return r;
     });
   };

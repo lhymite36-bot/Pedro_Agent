@@ -247,6 +247,14 @@ def bot_folder(bot: dict[str, Any]) -> Path:
 
 def save_bot(data: dict[str, Any]) -> dict[str, Any]:
     existing = get_bot(str(data.get("id") or "")) if data.get("id") else None
+    if existing is None:   # 1.9.2: Free plan bot limit covers every way a bot is made (new, duplicate, template, chat)
+        try:
+            import plan191
+            lim = plan191.can_add_bot()
+        except ImportError:
+            lim = None
+        if lim:
+            raise ValueError(lim["error"])
     bot = normalise(data, existing)
     with _lock:
         folder = bots_dir()

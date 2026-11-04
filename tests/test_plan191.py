@@ -52,3 +52,22 @@ def test_bot_limit(plan, monkeypatch):
     assert plan.can_add_bot()["feature"] == "bots"
     plan.simulate("month")
     assert plan.can_add_bot() is None
+
+
+def test_save_bot_enforces_limit_for_every_path(plan, monkeypatch):
+    import bots
+    monkeypatch.setattr(bots, "list_bots", lambda: [{}, {}])
+    monkeypatch.setattr(bots, "get_bot", lambda _x: None)
+    with pytest.raises(ValueError):
+        bots.save_bot({"name": "third"})
+
+
+def test_routine_limit(plan, monkeypatch):
+    import routines
+    monkeypatch.setattr(routines, "_load", lambda: {"routines": [{"id": "a"}], "feed": []})
+    r = routines.create_routine("Two", "say hi", "every day at 9 AM")
+    assert r.get("code") == "pro_required"
+    plan.simulate("month")
+    monkeypatch.setattr(routines, "_put", lambda r: None)
+    monkeypatch.setattr(routines, "find", lambda n: None)
+    assert routines.create_routine("Two", "say hi", "every day at 9 AM").get("ok")

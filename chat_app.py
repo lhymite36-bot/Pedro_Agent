@@ -1844,6 +1844,8 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                                 "tone": info.get("tone", ""), "voice": info.get("voice", "standard")})
                 except Exception as exc:
                     self._json({"ok": False, "error": _agent()._scrub(str(exc))}, 400)
+            elif url.path == "/api/bots/duplicate" and __import__("plan191").can_add_bot():   # 1.9.2 Free limit
+                self._json(__import__("plan191").can_add_bot(), 402)
             elif url.path == "/api/bots/duplicate":
                 import bot_home
                 try:
