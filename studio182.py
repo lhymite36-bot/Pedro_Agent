@@ -417,15 +417,45 @@ def app_factory(goal: str) -> dict[str, Any]:
     _jobs[jid] = {"status": "building", "goal": goal, "started": time.time()}
 
     def work() -> None:
+        # 1.9.3: build_app only STARTS a background build. Wait for the real result instead of
+        # reporting "done, 0 files" straight away (that is why creating a project looked broken).
         try:
             import app_builder
-            out = app_builder.build_app(goal)
-            _jobs[jid].update(status="done" if out.get("ok", True) else "failed", result={k: out.get(k) for k in ("ok", "name", "folder", "path", "message", "error") if k in out},
-                              message=app_builder.final_message(out) if hasattr(app_builder, "final_message") else str(out)[:400])
+            start = app_builder.build_app(goal)
+            name = str(start.get("name") or "")
+            _jobs[jid].update(name=name, folder=start.get("project", ""))
+            job = app_builder._JOBS.get(name) or {}
+            deadline = time.time() + 45 * 60
+            while job.get("status") == "running" and time.time() < deadline:
+                _jobs[jid]["step"] = (job.get("log") or [""])[-1][9:] if job.get("log") else "Starting"
+                time.sleep(2)
+            if job.get("status") == "done" and job.get("result"):
+                out = job["result"]
+                ok = bool(out.get("files"))
+                _jobs[jid].update(status="done" if ok else "failed", folder=out.get("project", ""),
+                                  files=out.get("files", []), preview=f"/builds/{name}/index.html" if "index.html" in out.get("files", []) else "",
+                                  message=app_builder.final_message(out) if ok else "The builder finished without writing any files. Try again.")
+            elif job.get("status") == "running":
+                _jobs[jid].update(status="failed", message="The build is taking over 45 minutes. It keeps going in the background; check Projects\\PedBot-Builds.")
+            else:
+                _jobs[jid].update(status="failed", message="The build stopped: " + str(job.get("error") or start.get("message") or "unknown error")[:300])
         except Exception as exc:
             _jobs[jid].update(status="failed", message=str(exc)[:300])
     threading.Thread(target=work, daemon=True).start()
     return {"ok": True, "job": jid}
+
+
+def build_file(name: str, rel: str) -> Path | None:
+    """1.9.3: serve a finished App factory build (only files inside that build folder)."""
+    import app_builder
+    root = app_builder.builds_root()
+    if not re.fullmatch(r"[a-z0-9-]{1,40}", name or ""):
+        return None
+    base = (root / name).resolve()
+    f = (base / (rel or "index.html")).resolve()
+    if base not in f.parents or not f.is_file() or {"dist", "screenshots"} & set(f.relative_to(base).parts):
+        return None
+    return f
 
 
 def app_job(jid: str) -> dict[str, Any]:

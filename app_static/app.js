@@ -177,7 +177,7 @@ function stripStage(t) {
 // ---------- rendering ----------
 // Stay put if Pedro scrolled up to read; the jump-to-latest button takes him back.
 function scrollDown(force) { const l = $('#log'); if (!force && window.pbScrolledUp) return; l.scrollTop = l.scrollHeight; }
-function showEmpty() { $('#empty').classList.toggle('hidden', $('#log').children.length > 0); }
+function showEmpty() { $('#empty').classList.toggle('hidden', $('#log').children.length > 0); if (window.pbProjectEmpty) window.pbProjectEmpty(); }
 function fileChip(f) {
   const a = document.createElement('a'); a.className = 'att'; a.href = f.url; a.target = '_blank'; a.rel = 'noopener';
   if (f.kind !== 'image') a.download = f.name;
@@ -846,8 +846,13 @@ async function send(text, isVoice, files) {
           if (ev.video) addVideo(bot.chips.parentNode.querySelector('.md').parentNode, ev.video);
         }
         else if (ev.event === 'card') { renderCard(ev.card); }
+        else if (ev.event === 'reset_text') { bot.text = ''; bot.row.dataset.replyText = ''; bot.body.innerHTML = ''; act.set('Trying again…'); }   // 1.9.3: drop a failed attempt's partial text
         else if (ev.event === 'model_switch') {
-          chip(bot.chips, 'switched to ' + ev.model).classList.add('ok');
+          // 1.9.3: one small chip per reply (was one per switch, cluttering answers)
+          const m = String(ev.model || '').split('/').pop();
+          let c = bot.chips.querySelector('.ms193');
+          if (!c) { c = chip(bot.chips, ''); c.classList.add('ok', 'ms193'); }
+          c.querySelector('b').textContent = 'Answered by ' + m; c.title = 'Your first model was busy or out of free quota, so Ped Bot used ' + m + '.';
         }
         else if (ev.event === 'error') { addError(bot.body.parentNode, ev.text); setStatus(ev.text, true); }
         else if (ev.event === 'barge') { barge = ev.text; }
@@ -1376,6 +1381,7 @@ if ($('#pause-all')) $('#pause-all').onclick = async () => {
   if (shot) shot.onclick = () => { hide(plus); send('Take a screenshot and tell me what is open.'); };
   const proj = $('#acct-projects'); if (proj) proj.onclick = () => {
     hide(menu);
+    if (window.openProjectsSheet) { document.body.classList.remove('pl-grid-open'); window.openProjectsSheet(); return; }   // 1.9.3 phone + PC (PC used to scroll a hidden sidebar)
     document.body.classList.add('side-open');
     const side = $('#side'); if (side) side.classList.add('show');
     if (window.loadGroups) window.loadGroups();
@@ -1398,9 +1404,17 @@ if ($('#pause-all')) $('#pause-all').onclick = async () => {
     if (!usageBody) return;
     try {
       const d = await fetch('/api/usage').then((r) => r.json());
-      usageBody.innerHTML = '<pre></pre>';
-      usageBody.querySelector('pre').textContent = JSON.stringify(d, null, 2);
-    } catch (err) { usageBody.innerHTML = '<pre>Could not load usage.</pre>'; }
+      // 1.9.3: readable rows instead of raw JSON
+      const e = (t) => String(t == null ? '' : t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      const calls = Object.entries(d.calls || {});
+      usageBody.innerHTML = '<div class="us-rows">' +
+        '<div class="us-row"><span>Model you picked</span><b>' + e(d.model || 'auto') + '</b></div>' +
+        '<div class="us-row"><span>Answering now</span><b>' + e(d.active_model || d.model || '—') + '</b></div>' +
+        (d.quota_note ? '<div class="us-row"><span>Free limit</span><b>' + e(d.quota_note) + '</b></div>' : '') +
+        '<div class="us-sub">Calls in the last minute</div>' +
+        (calls.length ? calls.map(([k, v]) => '<div class="us-row"><span>' + e(k) + '</span><b>' + e(typeof v === 'object' ? (v.calls_last_minute != null ? v.calls_last_minute : JSON.stringify(v)) : v) + '</b></div>').join('') : '<div class="us-none">No AI calls yet in this session.</div>') +
+        '<div class="us-note">Ped Bot uses your own free Gemini key. Counts are for this PC app only.</div></div>';
+    } catch (err) { usageBody.innerHTML = '<div class="us-none">Could not load usage. Is Ped Bot running on your PC?</div>'; }
   }
   if (usageBtn) usageBtn.onclick = () => { hide(menu); show(usageOv); loadUsage(); };
   if (usageClose) usageClose.onclick = () => hide(usageOv);

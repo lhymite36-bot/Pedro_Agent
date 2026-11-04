@@ -32,12 +32,13 @@ PRICES = {"month": 19900, "year": 149900}          # paise: Rs 199 / month, Rs 1
 PERIOD_DAYS = {"month": 31, "year": 366}
 FREE_BOTS = 2
 FREE_ROUTINES = 1
+FREE_PROJECTS = 1   # 1.9.3: Projects (group chats) - 1 on Free so creating a project works for everyone
 FREE_THEMES = frozenset({"grokDark", "grokLight", "aurora"})
 FEATURES = {
     "bots": "Unlimited bots",
     "avatar3d": "3D avatars (male + female)",
     "themes": "All themes + custom colours",
-    "groups": "Group chats",
+    "groups": "Unlimited projects (group chats)",
     "automations": "Unlimited automations (routines)",
     "autopilot": "YouTube autopilot",
     "studio": "Studio",
@@ -94,7 +95,7 @@ def config() -> dict[str, Any]:
     return {"mode": "test", "keyId": kid, "checkout": bool(kid), "serverOrders": bool(kid and _secret()),
             "simulate": (os.environ.get("PEDBOT_DEV_SIMULATE", "1").strip() != "0"), "note": note,
             "prices": {"month": PRICES["month"], "year": PRICES["year"]}, "currency": "INR",
-            "freeBots": FREE_BOTS, "freeRoutines": FREE_ROUTINES, "freeThemes": sorted(FREE_THEMES),
+            "freeBots": FREE_BOTS, "freeProjects": FREE_PROJECTS, "freeRoutines": FREE_ROUTINES, "freeThemes": sorted(FREE_THEMES),
             "features": FEATURES}
 
 
@@ -251,6 +252,19 @@ def can_add_bot() -> dict[str, Any] | None:
         import bots
         if len(bots.list_bots()) >= FREE_BOTS:
             r = locked("bots"); r["error"] = f"Free includes {FREE_BOTS} bots. Ped Bot Pro unlocks unlimited bots."
+            return r
+    except Exception:
+        return None
+    return None
+
+
+def can_add_group() -> dict[str, Any] | None:
+    if is_pro():
+        return None
+    try:
+        import groups
+        if len(groups.list_groups()) >= FREE_PROJECTS:
+            r = locked("groups"); r["error"] = f"Free includes {FREE_PROJECTS} project. Ped Bot Pro unlocks unlimited projects."
             return r
     except Exception:
         return None

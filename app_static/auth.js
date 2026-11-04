@@ -294,7 +294,12 @@
     const r = await fetch('/api/admin/users');
     const d = await r.json().catch(() => ({}));
     if (!d.ok) {
-      if (body) body.innerHTML = '<p class="auth-err">' + (d.error || 'Could not load users.') + '</p>';
+      // 1.9.3: friendly, escaped message instead of a raw red error
+      const msg = d.code === 'no_service_key'
+        ? 'The signup list is only for the app owner. It shows up on the PC that has the Supabase admin key in its .env file. Your own chats and bots are not affected.'
+        : (d.error || 'Could not load users right now. Try again in a minute.');
+      if (body) body.innerHTML = '<p class="auth-muted" style="padding:6px 2px;line-height:1.5">' + escapeHtml(msg) + '</p>';
+      if (count) count.textContent = '';
       return;
     }
     if (count) count.textContent = String(d.count || 0) + ' signup' + ((d.count === 1) ? '' : 's');

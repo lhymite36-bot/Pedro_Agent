@@ -80,7 +80,13 @@
         busy(e.target, true); const r = await api({ tool: 'factory', goal: $('#af-in', body).value });
         if (!r.ok) { busy(e.target, false); return out(body, err(r)); }
         out(body, '<div class="b180-item">Building… you can close this; you\'ll get a check-in when it\'s done.</div>');
-        const poll = setInterval(async () => { const j = await api({ tool: 'factory_job', job: r.job }); if (j.status !== 'building') { clearInterval(poll); busy(e.target, false); out(body, '<div class="b180-item"><small>' + esc(j.status) + '</small><div>' + esc(j.message || '') + '</div></div>'); } }, 4000);
+        const poll = setInterval(async () => {
+          const j = await api({ tool: 'factory_job', job: r.job });
+          if (j.status === 'building') { out(body, '<div class="b180-item"><small>Building' + (j.name ? ' · ' + esc(j.name) : '') + '</small><div>' + esc(j.step || 'Working…') + '</div></div>'); return; }
+          clearInterval(poll); busy(e.target, false);
+          out(body, '<div class="b180-item"><small>' + esc(j.status === 'done' ? 'Done' : 'Failed') + '</small><div>' + esc(j.message || '') + '</div>' +
+            (j.preview ? '<a class="b180-btn acc" href="' + esc(j.preview) + '" target="_blank" rel="noopener">Open app</a>' : '') + '</div>');
+        }, 4000);
       };
     },
     notes(body) {

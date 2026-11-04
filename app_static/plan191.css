@@ -26,3 +26,50 @@ body.grok-light .pl191-per button.on{background:#e8f1fd;border-color:#1d6fe0}
 html body #bottomnav .pl-extra{position:relative}
 html body.pl.pl-grid-open #bottomnav .pl-extra .pl191-lock{position:absolute;top:0;right:calc(50% - 30px);width:20px;height:20px;margin:0;background:#000;border:1px solid #2a2b2e;border-radius:50%;display:grid;place-items:center}
 html body.pl.pl-grid-open #bottomnav .pl-extra .pl191-lock svg{width:11px!important;height:11px!important;padding:0!important;background:none!important;box-sizing:border-box}
+/* 1.9.3 phone Projects page (same look as the Pro pages) */
+#pb-projects{position:fixed;inset:0;z-index:8990;background:#000;color:#f7f9f9;display:flex;flex-direction:column}
+#pb-projects>*{width:100%;max-width:760px;margin:0 auto;box-sizing:border-box}
+#pb-projects .pro-pill{background:#1d6fe0;border-color:#1d6fe0;color:#fff;cursor:pointer;font:inherit;font-weight:700;font-size:14px;padding:9px 14px}
+#pb-projects .pro-row{cursor:pointer}
+#pb-projects .pro-ic{overflow:hidden}
+#pb-projects .pro-ic .mini-face,#pb-projects .pro-ic img{width:32px;height:32px;border-radius:10px}
+.pj-empty{display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;padding:48px 16px;color:#8b8f94}
+.pj-empty b{color:#e7e9ea;font-size:18px}
+.pj-empty .pro-go{margin-top:10px;padding:12px 18px}
+body.grok-light #pb-projects{background:#fff;color:#0f1419}
+/* 1.9.3 project empty state */
+#empty.pj-mode > h2,#empty.pj-mode > p,#empty.pj-mode > .hint-row{display:none}
+#pj-card{max-width:520px;margin:6px auto 0;padding:0 16px;text-align:center}
+#pj-card .pj-k{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#8b8f94;font-weight:700}
+#pj-card h2{margin:4px 0 6px;font-size:24px}
+#pj-card .pj-goal{color:#b9bdc2;margin:0 0 12px;line-height:1.45}
+#pj-card .pj-team{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-bottom:10px}
+#pj-card .pj-mem{display:inline-flex;align-items:center;gap:6px;background:#1c1d1f;border:1px solid #2a2b2e;border-radius:999px;padding:5px 10px;font-size:13px}
+#pj-card .pj-mem i{width:10px;height:10px;border-radius:50%;display:inline-block}
+#pj-card .pj-tip{color:#8b8f94;font-size:13px;margin:0 0 10px}
+#pj-card .pj-acts{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+#pj-card .pj-btn{border:1px solid #2f3033;background:#1c1d1f;color:#e7e9ea;border-radius:999px;padding:9px 14px;font:inherit;font-size:14px;cursor:pointer}
+#pj-card .pj-btn.acc{background:#1d6fe0;border-color:#1d6fe0;color:#fff}
+body.grok-light #pj-card .pj-mem,body.grok-light #pj-card .pj-btn:not(.acc){background:#f2f3f5;border-color:#e1e4e8;color:#0f1419}
+/* 1.9.3 phone: side panels (Connectors, Routines) are full, opaque pages above the header and the big Ped Bot face */
+@media (max-width:760px){
+  html body .cn-panel:not([hidden]),html body .rt-panel:not([hidden]),html.lite body.glass .cn-panel:not([hidden]),html.lite body.glass .rt-panel:not([hidden]){z-index:8500;top:0;bottom:0;width:100%;background:#000!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;border-radius:0!important;padding-bottom:84px}
+  body.grok-light .cn-panel:not([hidden]),body.grok-light .rt-panel:not([hidden]){background:#fff!important}
+}
+/* 1.9.3: PC history/memory sheets were hidden by the phone-only rule */
+html body.pd #plh-hist{display:flex!important}
+/* 1.9.3: readable usage panel */
+.us-rows{display:flex;flex-direction:column;gap:2px;font-size:14px}
+.us-row{display:flex;justify-content:space-between;gap:12px;padding:8px 2px;border-bottom:1px solid #ffffff14}
+.us-row span{opacity:.7}.us-row b{font-weight:600;text-align:right;word-break:break-word}
+.us-sub{margin-top:12px;font-size:12px;opacity:.6;text-transform:uppercase;letter-spacing:.04em}
+.us-none,.us-note{padding:8px 2px;opacity:.65;font-size:13px}
+/* 1.9.3: phone Live PC screen was squeezed under the app header and bottom bar */
+html body.pl #livepane.open{position:fixed;inset:0;z-index:8400;background:#0b0c0e!important;padding:calc(env(safe-area-inset-top,0px) + 10px) 12px 12px;backdrop-filter:none!important}
+body.grok-light.pl #livepane.open{background:#fff!important}
+html body.pl #livepane .live-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;row-gap:8px;margin-bottom:8px}
+html body.pl #livepane .live-head b{font-size:16px}
+html body.pl #livepane .live-head .spacer{flex:1}
+html body.pl #livepane .live-head label.fps:has(#live-size){order:9;flex-basis:100%;display:flex;align-items:center;gap:8px}
+html body.pl #livepane .live-head label.fps:has(#live-size) input{flex:1}
+html body.pl #livepane .live-head #live-close{margin-left:auto}

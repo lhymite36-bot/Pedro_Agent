@@ -25,19 +25,55 @@ head = new TalkingHead($('#stage'), {
 });
 window.__head = head;
 
+// 1.9.3: reliable switching. A tap while a model is still loading used to be ignored (gender changed,
+// the model did not), so Female looked stuck. Now the newest choice always wins, the pill updates at once,
+// a slow load shows clear progress, and a failed or stuck load offers Retry / the other avatar.
+let loadedGender = '', want = gender, loadTimer = 0;
+function pills() { $('#g-male').classList.toggle('on', want === 'male'); $('#g-female').classList.toggle('on', want === 'female'); }
+function failBox(msg) {
+  let b = $('#av-fail'); if (b) b.remove();
+  b = document.createElement('div'); b.id = 'av-fail';
+  b.style.cssText = 'position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:#16181c;border:1px solid #2a2b2e;border-radius:18px;padding:16px;color:#e7e9ea;text-align:center;max-width:300px;z-index:5;font:15px system-ui';
+  b.innerHTML = '<div style="margin-bottom:10px">' + msg + '</div><button type="button" id="av-retry" style="border:0;border-radius:999px;background:#1d6fe0;color:#fff;padding:8px 14px;margin:4px;font:inherit">Retry</button><button type="button" id="av-other" style="border:0;border-radius:999px;background:#2a2b2e;color:#fff;padding:8px 14px;margin:4px;font:inherit">Use ' + (want === 'female' ? 'male' : 'female') + '</button>';
+  document.body.appendChild(b);
+  $('#av-retry').onclick = () => { b.remove(); load(); };
+  $('#av-other').onclick = () => { b.remove(); choose(want === 'female' ? 'male' : 'female'); };
+}
 async function load() {
-  if (loading) return; loading = true; status('Loading the avatar…');
-  const m = MODELS[gender];
+  pills();
+  if (loading) return;            // the running load re-checks `want` when it finishes
+  loading = true;
+  const g = want, m = MODELS[g];
+  status('Loading the ' + g + ' avatar…');
+  clearTimeout(loadTimer);
+  loadTimer = setTimeout(() => { if (loading && want === g) status('Still loading the ' + g + ' avatar… big file, first time only.'); }, 15000);
   try {
     await head.showAvatar({ url: m.url, body: m.body, avatarMood: 'neutral', lipsyncLang: 'en' }, (ev) => {
-      if (ev.lengthComputable) status('Loading the avatar… ' + Math.round(ev.loaded / ev.total * 100) + '%');
+      if (ev.lengthComputable) status('Loading the ' + g + ' avatar… ' + Math.round(ev.loaded / ev.total * 100) + '%');
     });
-    tune(); x = 0; status('Tell me what to do — or tap the floor.');
+    gender = g; loadedGender = g; tune(); x = 0;
     const l = $('#load'); if (l) l.remove();
+    const f = $('#av-fail'); if (f) f.remove();
+    status('Tell me what to do — or tap the floor.');
     window.__avatarReady = true;
-  } catch (e) { status('Could not load the avatar: ' + e.message); }
+    // warm the other model in the background so the next switch is quick
+    const other = MODELS[g === 'male' ? 'female' : 'male'];
+    setTimeout(() => { fetch(other.url, { cache: 'force-cache' }).catch(() => {}); }, 1500);
+  } catch (e) {
+    status('');
+    if (want === g) failBox('Could not load the ' + g + ' avatar' + (e && e.message ? ' (' + e.message + ')' : '') + '.');
+  }
+  clearTimeout(loadTimer);
   loading = false;
-  $('#g-male').classList.toggle('on', gender === 'male'); $('#g-female').classList.toggle('on', gender === 'female');
+  if (want !== loadedGender && !$('#av-fail')) return load();   // a newer choice came in while loading
+  pills();
+  return loadedGender === want;
+}
+async function choose(g) {
+  if (want === g && (loading || loadedGender === g)) return;
+  want = g; localStorage.pbAvatarGender = g; window.__avatarReady = false; pills();
+  const ok = await load();
+  if (ok && loadedGender === g) run([{ action: 'Wave', expression: 'happy', say: g === 'female' ? 'Hi Pedro! Nice to meet you.' : "Hey Pedro, it's me.", to: '', seconds: 2 }]);
 }
 // Tune the free base models toward Pedro's references (deep brown skin, short black hair,
 // dark outfit, white sneakers). Colour multiplies on the original textures only - not a scan.
@@ -65,8 +101,8 @@ function tune() {
   });
 }
 load();
-$('#g-male').onclick = async () => { if (gender === 'male') return; gender = 'male'; localStorage.pbAvatarGender = gender; window.__avatarReady = false; await load(); run([{ action: 'Wave', expression: 'happy', say: "Hey Pedro, it's me.", to: '', seconds: 2 }]); };
-$('#g-female').onclick = async () => { if (gender === 'female') return; gender = 'female'; localStorage.pbAvatarGender = gender; window.__avatarReady = false; await load(); run([{ action: 'Wave', expression: 'happy', say: 'Hi Pedro! Nice to meet you.', to: '', seconds: 2 }]); };
+$('#g-male').onclick = () => choose('male');
+$('#g-female').onclick = () => choose('female');
 $('#g-robot').onclick = () => { location.href = './index.html'; };
 $('#close').onclick = () => { try { head.stopSpeaking(); } catch (e) {} if (P.pbCloseAvatar) P.pbCloseAvatar(); };
 

@@ -17,7 +17,7 @@
 
   const ROWS = [
     ['Core chat with your own Gemini key', 'free'], ['Bots', 'free', 'Up to 2 on Free · unlimited on Pro'], ['Automations', 'free', '1 on Free · unlimited on Pro'],
-    ['3D avatars (male + female)', 'pro'], ['All themes + custom colours', 'pro', 'Free: Grok Dark, Grok Light, Aurora'], ['Group chats', 'pro'],
+    ['3D avatars (male + female)', 'pro'], ['All themes + custom colours', 'pro', 'Free: Grok Dark, Grok Light, Aurora'], ['Projects (group chats)', 'free', '1 on Free · unlimited on Pro'],
     ['YouTube autopilot', 'pro'], ['Studio', 'pro', 'WhatsApp drafts, trend radar, video edit, price watch…'], ['Lab', 'pro', 'Twin call, swarm research, bot company…'],
     ['Pro tools (Batch 2)', 'pro', 'Phone control, PC autopilot, memory, team tasks, Hey Ped…'],
   ];
@@ -146,7 +146,7 @@
   let lastAct = 0;
   ['pointerdown', 'keydown', 'touchstart'].forEach((ev) => document.addEventListener(ev, () => { lastAct = Date.now(); }, true));
   const userMade = () => Date.now() - lastAct < 4000;
-  const POPS = /\/api\/(bots|groups|theme|shorts)(\?|$)/;   // entry points of Studio/Lab/Pro tools/avatar are gated by the wrappers below
+  const POPS = /\/api\/(bots|theme|shorts)(\?|$)/;   // groups_ui shows its own message + opens Upgrade   // entry points of Studio/Lab/Pro tools/avatar are gated by the wrappers below
   const _f = window.fetch;
   window.fetch = function (u, o) {
     const p = _f.apply(this, arguments);
@@ -164,4 +164,22 @@
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
   window.pbPlan = { open, refresh, state: () => st };
+})();
+
+/* 1.9.3: the header Model badge did nothing. Open Settings at the model picker. */
+(function () {
+  function openModel() {
+    const set = document.getElementById('setbtn');
+    if (set) set.click();
+    setTimeout(() => {
+      const sel = document.getElementById('model2'); if (!sel) return;
+      let n = sel; while (n && n !== document.body) { if (n.hidden) n.hidden = false; n = n.parentElement; }
+      const tab = sel.closest('[data-tab],[data-pane]');
+      if (tab) { const k = tab.dataset.tab || tab.dataset.pane; const b = document.querySelector('[data-tab-btn="' + k + '"],[data-for="' + k + '"]'); if (b) b.click(); }
+      sel.scrollIntoView({ block: 'center' }); sel.focus();
+      const f = sel.closest('.field'); if (f) { f.style.outline = '2px solid #4c8dff'; setTimeout(() => { f.style.outline = ''; }, 1800); }
+    }, 250);
+  }
+  function bind() { const hm = document.getElementById('hdr-model'); if (hm && !hm.dataset.b193) { hm.dataset.b193 = 1; hm.addEventListener('click', openModel); } }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind); else bind();
 })();

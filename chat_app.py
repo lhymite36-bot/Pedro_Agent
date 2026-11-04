@@ -689,6 +689,46 @@ def state_hidden() -> bool:
         return False
 
 
+
+BUSY_WAITS = (3, 8, 15)   # 1.9.3: seconds between whole-turn retries when Gemini says 503 / busy
+
+
+def _is_busy_reply(reply: Any) -> bool:
+    low = str(reply or "").lower()
+    return low.startswith("gemini is busy right now") or low.startswith("all gemini models are busy")
+
+
+def _is_busy_error(exc: BaseException) -> bool:
+    low = str(exc).lower()
+    return any(k in low for k in ("503", "unavailable", "high demand", "overloaded", "gemini is busy"))
+
+
+def _retry_busy(run: Any, history: list, emit: Any, cancel: Any, speech_buf: Any = None) -> str:
+    """1.9.3: retry the whole turn with backoff before showing a busy error. Partial text from a failed
+    attempt is cleared in the window (reset_text), so it never shows 'PONG' and then 'busy'."""
+    mark = len(history)
+    attempt = 0
+    while True:
+        try:
+            reply = run()
+            if not _is_busy_reply(reply) or attempt >= len(BUSY_WAITS):
+                return reply
+        except RuntimeError as exc:
+            if not _is_busy_error(exc) or attempt >= len(BUSY_WAITS):
+                raise
+        wait = BUSY_WAITS[attempt]; attempt += 1
+        del history[mark:]   # drop the failed attempt so the retry does not see the question twice
+        if speech_buf is not None:
+            try:
+                speech_buf.flush()
+            except Exception:
+                pass
+        emit({"event": "reset_text"})
+        emit({"event": "step", "label": f"Gemini is busy. Trying again in {wait} s ({attempt}/{len(BUSY_WAITS)})…", "name": ""})
+        if cancel is not None and cancel.wait(wait):
+            return ""
+
+
 def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool | None = None,
                 from_voice: bool = False, client_audio: bool = False, files: list[str] | None = None,
                 origin: str = "") -> str:
@@ -890,16 +930,16 @@ def stream_turn(state: AppState, session: str, text: str, emit: Any, speak: bool
                     reply = said[-1][1] if said else ""
                 elif bot is not None:
                     with confirm_action.user_turn(text):
-                        reply = bots.run_bot(
+                        reply = _retry_busy(lambda: bots.run_bot(
                             bot, text, history, model=state.model,
                             cancel_event=cancel, on_text=on_text, on_event=emit,
-                        )
+                        ), history, emit, cancel, speech_buf)
                 else:
-                    reply = agent.run_agent(
+                    reply = _retry_busy(lambda: agent.run_agent(
                         text, history, state.model,
                         cancel_event=cancel, on_text=on_text, on_event=emit,
                         voice=bool(from_voice or pipeline is not None or client_audio),
-                    ) or ""
+                    ) or "", history, emit, cancel, speech_buf)
                 if pipeline is not None and quick is None and group is None:
                     to_voice(speech_buf.flush())
             except Exception as exc:  # RuntimeError for quota, key, network
@@ -1286,6 +1326,14 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 f = studio182.app_file(url.path.rsplit("/", 1)[-1])
                 if f:
                     self._send(200, f.read_bytes(), "text/html; charset=utf-8")
+                else:
+                    self._send(404, b"not found", "text/plain")
+            elif url.path.startswith("/builds/"):   # 1.9.3 App factory: open the built app
+                import studio182, mimetypes
+                parts = url.path.split("/", 3)
+                f = studio182.build_file(parts[2] if len(parts) > 2 else "", parts[3] if len(parts) > 3 else "index.html")
+                if f:
+                    self._send(200, f.read_bytes(), (mimetypes.guess_type(f.name)[0] or "application/octet-stream") + ("; charset=utf-8" if f.suffix in (".html", ".js", ".css", ".json") else ""))
                 else:
                     self._send(404, b"not found", "text/plain")
             elif url.path.startswith("/avatar3d/") and _avatar_file(url.path):   # 1.8.1 avatar engine + models
@@ -1898,8 +1946,8 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     self._json({"ok": True, "bot": bot, "session": bots.session_for(bot)})
                 except Exception as exc:
                     self._json({"ok": False, "error": str(exc)}, 400)
-            elif url.path == "/api/groups" and not data.get("id") and __import__("plan191").gate("groups"):
-                self._json(__import__("plan191").gate("groups"), 402)
+            elif url.path == "/api/groups" and not data.get("id") and __import__("plan191").can_add_group():
+                self._json(__import__("plan191").can_add_group(), 402)
             elif url.path == "/api/groups":
                 try:
                     g = groups.save_group(data)

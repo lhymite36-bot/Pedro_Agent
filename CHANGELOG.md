@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.9.3-test - Projects fixed, plus a polish pass
+
+- Fix: opening a project no longer shows a blank page. A new project now shows a project card with its name, goal, team and quick buttons (Edit project, Plan the next steps, What's the status?).
+- Fix: creating a project works on Free (1 project included) and Pro (unlimited). Free gets a clear message and the upgrade page for a 2nd project instead of a silent failure.
+- New: Projects page on phone and PC, with the list, "+ New project", Edit, and an empty state. PC Projects used to scroll a hidden sidebar.
+- Fix: Studio App factory waited 0 seconds and said "done, 0 files". It now follows the real build, shows live steps, and gives an "Open app" link served from /builds/<name>/ (safe: only files inside that build).
+- Fix: Gemini 503 / busy. The whole turn retries after 3, 8 and 15 s, and any partial text from the failed try is cleared, so you never see "PONG" and then "busy".
+- Fix: the female 3D avatar loads reliably. Clicks while loading are queued, there is a "still loading" note, a Retry / other-avatar fallback, and the other model preloads.
+- Fix (phone): the Ped Bot face no longer overlaps the Connectors search box. The Connectors and Routines pages are full-screen and opaque.
+- Fix (phone): the Live PC screen gets its own full-screen layout. Its controls no longer collide with the app header and bottom bar.
+- Fix (PC): Model, Chat history and Memory in the menu did nothing. They now open the model picker, history and memory.
+- Fix: Usage shows readable rows instead of raw JSON. Users shows a friendly note instead of a raw red error.
+- Polish: one "Answered by <model>" chip per reply instead of a "switched to" chip for every model switch.
+
 ## 1.9.2-test - Pro fixes from the full test pass
 
 - Fix: the upgrade page no longer pops up by itself on Free when the app starts or when you open any menu item. Studio's background call check used to trigger it.

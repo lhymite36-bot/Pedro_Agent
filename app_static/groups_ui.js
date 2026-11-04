@@ -39,6 +39,57 @@
     root.applyBotHeader && root.applyBotHeader(); root.updateMentionButton && root.updateMentionButton();
   }
   root.loadGroups = load;
+  // 1.9.3: opening a project used to show a blank "What can I do for you?" page with nothing about the project.
+  // Now an empty project shows its name, goal, team and quick starts.
+  root.pbProjectEmpty = function () {
+    const empty = document.getElementById('empty'); if (!empty) return;
+    let card = document.getElementById('pj-card');
+    const g = current();
+    empty.classList.toggle('pj-mode', !!g);
+    if (!g) { if (card) card.remove(); return; }
+    if (card && card.dataset.id === g.id && card.dataset.v === JSON.stringify([g.name, g.purpose, g.members])) return;
+    if (card) card.remove();
+    card = document.createElement('div'); card.id = 'pj-card'; card.dataset.id = g.id; card.dataset.v = JSON.stringify([g.name, g.purpose, g.members]);
+    const esc = (t) => String(t == null ? '' : t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const team = ['pedro'].concat(g.members || []).map(who);
+    card.innerHTML = '<div class="pj-k">Project</div><h2>' + esc(g.name) + '</h2>' +
+      '<p class="pj-goal">' + esc(g.purpose || 'No goal yet. Add one so the team knows what to work on.') + '</p>' +
+      '<div class="pj-team">' + team.map((m) => '<span class="pj-mem"><i style="background:' + esc(m.color || '#5b6cff') + '"></i>' + esc(m.name) + '</span>').join('') + '</div>' +
+      ((g.members || []).length ? '' : '<p class="pj-tip">Only Ped Bot is in this project. Add bots to make it a team.</p>') +
+      '<div class="pj-acts"><button type="button" class="pj-btn" data-a="edit">Edit project</button>' +
+      '<button type="button" class="pj-btn acc" data-a="plan">Plan the next steps</button>' +
+      '<button type="button" class="pj-btn" data-a="status">What\'s the status?</button></div>';
+    empty.appendChild(card);
+    card.querySelector('[data-a="edit"]').onclick = () => root.openGroupEditor(g);
+    const ask = (t) => { const box = document.getElementById('t'); if (!box) return; box.value = t; box.dispatchEvent(new Event('input', { bubbles: true })); const f = box.form; const sendBtn = document.getElementById('send'); if (sendBtn) sendBtn.click(); else if (f) f.requestSubmit(); };
+    card.querySelector('[data-a="plan"]').onclick = () => ask('Plan the next steps for this project' + (g.purpose ? ' (' + g.purpose + ')' : '') + '. Split the work between the team.');
+    card.querySelector('[data-a="status"]').onclick = () => ask('Give me a short status update on this project.');
+  };
+  // 1.9.3: phone Projects page (the sidebar list is hidden in the phone layout, so Projects used to show nothing)
+  root.openProjectsSheet = async function () {
+    await load();
+    let p = document.getElementById('pb-projects'); if (p) p.remove();
+    p = document.createElement('div'); p.id = 'pb-projects'; p.className = 'pb-sheetpage';
+    const esc = (t) => String(t == null ? '' : t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    p.innerHTML = '<div class="pro-head"><button type="button" class="pro-x" aria-label="Close"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button><b>Projects</b><button type="button" class="pro-pill" id="pj-new">+ New project</button></div><div class="pro-body"></div>';
+    document.body.appendChild(p);
+    const close = () => p.remove();
+    p.querySelector('.pro-x').onclick = close;
+    p.querySelector('#pj-new').onclick = () => { close(); root.openGroupEditor(null); };
+    const body = p.querySelector('.pro-body');
+    if (!groups.length) body.innerHTML = '<div class="pj-empty"><b>No projects yet</b><small>A project is a chat room where several bots work together on one goal.</small><button type="button" class="pro-go acc" id="pj-new2">Create your first project</button></div>';
+    groups.forEach((g) => {
+      const row = document.createElement('div'); row.className = 'pro-row';
+      const ic = document.createElement('span'); ic.className = 'pro-ic'; ic.appendChild(groupFace(g));
+      const t = document.createElement('div'); t.className = 'pro-txt'; t.innerHTML = '<b>' + esc(g.name) + '</b><small>' + esc(g.purpose || ((g.members || []).length + ' bot' + ((g.members || []).length === 1 ? '' : 's'))) + '</small>';
+      const edb = document.createElement('button'); edb.type = 'button'; edb.className = 'pro-go'; edb.textContent = 'Edit';
+      edb.onclick = (e) => { e.stopPropagation(); close(); root.openGroupEditor(g); };
+      row.append(ic, t, edb);
+      row.onclick = () => { close(); document.body.classList.remove('pl-home-on'); const open = window.openSession || (typeof openSession === 'function' ? openSession : null); if (open) open('group-' + g.id).then(load); };
+      body.appendChild(row);
+    });
+    const n2 = p.querySelector('#pj-new2'); if (n2) n2.onclick = () => { close(); root.openGroupEditor(null); };
+  };
   function groupFace(g) {
     if (g.picture) { const im = document.createElement('img'); im.className = 'grp-pic'; im.src = g.picture; im.alt = ''; return im; }
     const f = document.createElement('div'); f.className = 'mini-face'; createAvatar(f, { color: g.color || '#5b9dff', shape: g.avatar || 'round' }); return f;
@@ -61,7 +112,7 @@
   async function delGroup(g, skipAsk) {
     // 1.6.8+: dark confirm dialog (same as Delete bot) instead of the browser's confirm()
     if (!skipAsk) {
-      const ok = await new Promise((res) => { if (window.pbBotMenu) window.pbBotMenu.confirmBox('Delete ' + g.name + '?', 'The group and its chat are removed. The bots themselves stay.', 'Delete', () => res(true)); else res(confirm('Delete the group "' + g.name + '"?')); setTimeout(() => { const c = document.getElementById('bm-confirm'); if (c) c.addEventListener('click', (e) => { if (e.target === c || e.target.textContent === 'Cancel') res(false); }); }, 0); });
+      const ok = await new Promise((res) => { if (window.pbBotMenu) window.pbBotMenu.confirmBox('Delete ' + g.name + '?', 'The project and its chat are removed. The bots themselves stay.', 'Delete', () => res(true)); else res(confirm('Delete the project "' + g.name + '"?')); setTimeout(() => { const c = document.getElementById('bm-confirm'); if (c) c.addEventListener('click', (e) => { if (e.target === c || e.target.textContent === 'Cancel') res(false); }); }, 0); });
       if (!ok) return false;
     }
     const r = await post('/api/groups/delete', { id: g.id, confirm: true });
@@ -87,7 +138,7 @@
     s.value = Array.from(s.options).some((o) => o.value === keep) ? keep : 'pedro';
   }
   function openEditor(g) {
-    editing = g; $('#grped-title').textContent = g ? 'Edit group' : 'New group';
+    editing = g; $('#grped-title').textContent = g ? 'Edit project' : 'New project';
     picSrc = null; picData = g && g.picture ? g.picture : ''; $('#grp-color').value = (g && g.color) || '#5b9dff'; $('#grp-avatar').value = (g && g.avatar) || 'round';
     if (picData) { const im = new Image(); im.onload = () => { const c = $('#grp-crop'); c.getContext('2d').drawImage(im, 0, 0, 160, 160); }; im.src = picData; }
     showPic();
@@ -114,9 +165,14 @@
     $('#close-grped').onclick = closeEditor; $('#overlay').addEventListener('click', closeEditor);
     $('#grp-save').onclick = async () => {
       const r = await post('/api/groups', { id: editing ? editing.id : '', name: $('#grp-name').value, picture: picData, color: $('#grp-color').value, avatar: $('#grp-avatar').value, purpose: $('#grp-purpose').value, members: chosen(), coordinator: $('#grp-coord').value });
-      if (!r.ok) { $('#grpmsg').textContent = r.error || 'Could not save.'; return; }
+      if (!r.ok) {
+        $('#grpmsg').textContent = r.error || 'Could not save.';
+        if (r.code === 'pro_required' && window.pbPlan) window.pbPlan.open(r.error);
+        return;
+      }
+      const wasEdit = !!editing;
       closeEditor(); await load(); if (root.onGroupsChanged) root.onGroupsChanged();
-      if (window.pbToast) window.pbToast(editing ? 'Group saved' : 'Group created');
+      if (window.pbToast) window.pbToast(wasEdit ? 'Project saved' : 'Project created');
       const open = window.openSession || (typeof openSession === 'function' ? openSession : null);
       if (open && r.session) open(r.session).then(load);
     };
