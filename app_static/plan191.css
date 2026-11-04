@@ -1,0 +1,28 @@
+/* 1.9.1 Ped Bot Pro: upgrade page in the same look as the 1.9.0 Pro page */
+#plan191{position:fixed;inset:0;z-index:9100;background:#000;color:#f7f9f9;display:flex;flex-direction:column;font-family:inherit}
+#plan191>*{width:100%;max-width:760px;margin:0 auto;box-sizing:border-box}
+#plan191 .pro-body{padding-bottom:32px}
+.pl191-hero{background:linear-gradient(135deg,#1d6fe0 0%,#7b3fe4 100%);border-radius:22px;padding:18px;margin:6px 0 14px;color:#fff}
+.pl191-hero b{display:block;font-size:22px}
+.pl191-hero small{display:block;opacity:.9;font-size:14px;margin-top:4px;line-height:1.4}
+.pl191-per{display:flex;gap:8px;margin:10px 0}
+.pl191-per button{flex:1;border:1px solid #2f3033;background:#111;color:#e7e9ea;border-radius:18px;padding:12px;font:inherit;cursor:pointer;text-align:left}
+.pl191-per button b{display:block;font-size:18px}
+.pl191-per button small{color:#8b8f94;font-size:13px}
+.pl191-per button.on{border-color:#1d6fe0;background:#0d1a2e}
+.pl191-save{display:inline-block;background:#00ba7c;color:#00150d;border-radius:999px;font-size:11px;font-weight:800;padding:2px 8px;margin-left:6px;vertical-align:middle}
+.pl191-cta{display:flex;flex-direction:column;gap:8px;margin:12px 0}
+.pl191-cta .pro-go{padding:13px 16px;font-size:16px;text-align:center}
+.pl191-test{display:inline-block;border:1px dashed #f4b400;color:#f4b400;border-radius:999px;font-size:12px;font-weight:700;padding:3px 10px}
+.pl191-ok{background:#0b2a1d;color:#c6f6dc;border-radius:14px;padding:12px 14px;margin:8px 0}
+.pl191-lock{display:inline-grid;place-items:center;width:18px;height:18px;margin-left:6px;vertical-align:-3px;opacity:.85;color:#f4b400}
+.pl191-lock svg{width:14px;height:14px}
+.th-card .pl191-lock{position:absolute;top:6px;right:6px;margin:0;background:#000a;border-radius:50%;width:22px;height:22px}
+.th-card{position:relative}
+.pl191-row-free .pro-go{background:#1c1d1f;color:#8b8f94}
+body.grok-light #plan191{background:#fff;color:#0f1419}
+body.grok-light .pl191-per button{background:#f2f3f5;color:#0f1419;border-color:#e1e4e8}
+body.grok-light .pl191-per button.on{background:#e8f1fd;border-color:#1d6fe0}
+html body #bottomnav .pl-extra{position:relative}
+html body.pl.pl-grid-open #bottomnav .pl-extra .pl191-lock{position:absolute;top:0;right:calc(50% - 30px);width:20px;height:20px;margin:0;background:#000;border:1px solid #2a2b2e;border-radius:50%;display:grid;place-items:center}
+html body.pl.pl-grid-open #bottomnav .pl-extra .pl191-lock svg{width:11px!important;height:11px!important;padding:0!important;background:none!important;box-sizing:border-box}

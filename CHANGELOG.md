@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.9.1-test - Ped Bot Pro (freemium, Razorpay TEST mode)
+
+- **Bring your own key stays.** All AI still runs on your own Gemini key, on Free and Pro.
+- **Free:** core chat, 2 bots, 1 automation, themes Grok Dark / Grok Light / Aurora.
+- **Pro (Rs 199/month or Rs 1,499/year):** unlimited bots and automations, 3D avatars (male + female), all themes + custom colours, group chats, YouTube autopilot, Studio, Lab, Pro tools (Batch 2).
+- New **Upgrade to Pro** page (PC account menu + phone apps grid), lock icons on Pro features, **Restore purchase**.
+- Razorpay Checkout in **test mode only** (`RAZORPAY_KEY_ID=rzp_test_...` in `.env`; live keys refused). Optional `RAZORPAY_KEY_SECRET` on the PC creates orders and checks signatures. Dev **Simulate purchase** button (`PEDBOT_DEV_SIMULATE=0` hides it).
+- Entitlement saved locally and, when signed in, in Supabase `pb_entitlements` (anon key + your JWT, RLS: own row only). Run `supabase/entitlements.sql` once. `supabase/functions/razorpay-verify` is a template for live payments (not deployed).
+- Existing bots, groups and routines keep working; only new ones are limited on Free. The 1.9.0 "Pro" page is renamed **Pro tools**.
+
 ## 1.9.0-test (Batch 2)
 
 - Phone control: Android AccessibilityService with Allow/Stop bubble, red STOP, banking/password/payment block.

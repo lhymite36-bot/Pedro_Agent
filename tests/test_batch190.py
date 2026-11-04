@@ -275,7 +275,7 @@ class AndroidPackaging(unittest.TestCase):
     def test_service_and_version(self):
         man = (ROOT / "android_app" / "AndroidManifest.xml").read_text(encoding="utf-8")
         self.assertIn("PedAccessibilityService", man)
-        self.assertIn('android:versionName="1.9.0"', man)
+        self.assertRegex(man, r'android:versionName="1\.9\.\d+"')
         self.assertTrue((ROOT / "android_app" / "src" / "com" / "pedro" / "agent" / "PedAccessibilityService.java").is_file())
         self.assertTrue((ROOT / "android_app" / "res" / "xml" / "accessibility_service.xml").is_file())
 

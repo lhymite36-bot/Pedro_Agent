@@ -335,7 +335,7 @@
     const m = $('#pd-menu');
     if (m && !m.querySelector('[data-pro190]')) {
       const help = Array.from(m.children).find((b) => b.tagName === 'BUTTON' && b.textContent.trim() === 'Help');
-      const b = document.createElement('button'); b.type = 'button'; b.dataset.pro190 = '1'; b.textContent = 'Pro';
+      const b = document.createElement('button'); b.type = 'button'; b.dataset.pro190 = '1'; b.textContent = 'Pro tools';
       b.onclick = (e) => { e.stopPropagation(); m.classList.remove('open'); open(); };
       if (help) m.insertBefore(b, help); else m.appendChild(b);
     }
@@ -345,7 +345,7 @@
       if (!after) return;
       const last = $$('.pl-extra[data-m184]', nav).pop(); if (last) after = last;
       const b = document.createElement('button'); b.type = 'button'; b.className = 'pl-extra'; b.dataset.pro190 = '1';
-      b.innerHTML = ICON; b.appendChild(document.createTextNode('Pro'));
+      b.innerHTML = ICON; b.appendChild(document.createTextNode('Pro tools'));
       b.onclick = (e) => { e.stopPropagation(); document.body.classList.remove('pl-grid-open', 'pl-home-on'); open(); };
       after.after(b);
     }

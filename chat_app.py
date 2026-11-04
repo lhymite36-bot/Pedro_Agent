@@ -51,6 +51,8 @@ STATIC_FILES = {
     "lab183.css": "text/css; charset=utf-8",
     "pro190.js": "application/javascript; charset=utf-8",
     "pro190.css": "text/css; charset=utf-8",
+    "plan191.js": "application/javascript; charset=utf-8",
+    "plan191.css": "text/css; charset=utf-8",
     "avatar3d/index.html": "text/html; charset=utf-8",
     "avatar3d/stage.js": "application/javascript; charset=utf-8",
     "avatar3d/three.module.min.js": "application/javascript; charset=utf-8",
@@ -1346,6 +1348,9 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             elif url.path == "/api/theme":
                 import themes
                 self._json(themes.get())
+            elif url.path == "/api/plan":   # 1.9.1 Ped Bot Pro status (no secrets)
+                import plan191
+                self._json({"ok": True, **plan191.status(), "config": plan191.config()})
             elif url.path == "/api/update":
                 import updater
                 self._json(updater.last() or {"current": updater.VERSION, "update_available": False})
@@ -1616,6 +1621,8 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                         self._json(undo_store.undo_last_change())
             elif url.path == "/api/chat":
                 self._chat(data)
+            elif url.path == "/api/avatar/plan" and __import__("plan191").gate("avatar3d"):   # 1.9.1 Pro
+                self._json(__import__("plan191").gate("avatar3d"))
             elif url.path == "/api/avatar/plan":   # 1.8.0 3D avatar commands
                 import batch180
                 self._json(batch180.avatar_plan(str(data.get("command") or ""), str(data.get("gender") or "male")))
@@ -1627,16 +1634,22 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 self._json(batch180.tutor(str(data.get("question") or "")))
             elif url.path == "/api/lab":   # 1.8.3 Lab tools
                 import lab183
-                self._json(lab_call(lab183, data))
+                import plan191
+                self._json(plan191.gate("lab") or lab_call(lab183, data))
             elif url.path == "/api/studio":   # 1.8.2 Studio tools
                 import studio182
-                self._json(studio_call(studio182, data))
+                import plan191
+                self._json(plan191.gate("studio") or studio_call(studio182, data))
             elif url.path == "/api/offline":   # 1.8.0 offline mode (local Ollama)
                 import batch180
                 self._json(batch180.offline(None if "on" not in data else bool(data.get("on"))))
-            elif url.path == "/api/pro":   # 1.9.0 Batch 2 Pro tools
-                import pro190
-                self._json(pro190.dispatch(data))
+            elif url.path == "/api/pro":   # 1.9.0 Batch 2 Pro tools (1.9.1: Pro plan)
+                import pro190, plan191
+                self._json(plan191.gate("batch2") or pro190.dispatch(data))
+            elif url.path == "/api/plan":   # 1.9.1 Ped Bot Pro: status / order / verify / simulate / restore
+                import plan191, supabase_auth
+                self._json(plan191.dispatch(data, supabase_auth._bearer_from(self),
+                                            getattr(self, "auth_user", None) or supabase_auth.user_from_request(self)))
             elif url.path == "/api/chat_side":
                 self._json(side_message(state, str(data.get("session") or ""), " ".join(str(data.get("text") or "").split())))
             elif url.path == "/api/checkins":
@@ -1703,8 +1716,10 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 else:
                     self._json(crash_reports.open_folder())
             elif url.path == "/api/theme":   # the phone may change it too: it is only colours
-                import themes
-                self._json(themes.save(data))
+                import themes, plan191
+                self._json(plan191.theme_ok(data) or themes.save(data))
+            elif url.path in {"/api/shorts", "/api/shorts/token"} and __import__("plan191").gate("autopilot"):
+                self._json(__import__("plan191").gate("autopilot"), 402)
             elif url.path in {"/api/shorts", "/api/shorts/token", "/api/shorts/dry_run"}:
                 import quiet_brain_shorts as qbs
                 if self.remote and url.path != "/api/shorts/dry_run":
@@ -1873,12 +1888,16 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     self._json({"ok": False, "error": str(exc)}, 400)
             elif url.path == "/api/memory/add":
                 self._json(_agent().remember_fact(str(data.get("text") or ""), "fact"))
+            elif url.path == "/api/bots" and not data.get("id") and __import__("plan191").can_add_bot():
+                self._json(__import__("plan191").can_add_bot(), 402)
             elif url.path == "/api/bots":
                 try:
                     bot = bots.save_bot(data)
                     self._json({"ok": True, "bot": bot, "session": bots.session_for(bot)})
                 except Exception as exc:
                     self._json({"ok": False, "error": str(exc)}, 400)
+            elif url.path == "/api/groups" and not data.get("id") and __import__("plan191").gate("groups"):
+                self._json(__import__("plan191").gate("groups"), 402)
             elif url.path == "/api/groups":
                 try:
                     g = groups.save_group(data)

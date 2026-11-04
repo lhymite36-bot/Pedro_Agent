@@ -228,6 +228,13 @@ def create_routine(name: str, prompt: str, when: str, bot: str = "") -> dict[str
         kind, tid = _target(bot)
     except ValueError as exc:
         return {"ok": False, "error": str(exc)}
+    try:   # 1.9.1: Free includes one automation; Pro is unlimited
+        import plan191
+        lim = plan191.can_add_routine()
+        if lim:
+            return lim
+    except ImportError:
+        pass
     if find(name) and find(name)["name"].lower() == name.lower():
         return {"ok": False, "error": f"A routine called '{name}' already exists. Use update_routine."}
     now = _now()
